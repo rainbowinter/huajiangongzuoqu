@@ -9,7 +9,7 @@
  */
 
 import { toDisposable, type Disposable } from "../plugins/disposable";
-import { listPluginCommands } from "../plugins/registry";
+import { listPluginCommands, subscribePluginCommands } from "../plugins/registry";
 
 export interface CommandEntry {
   id: string;
@@ -23,6 +23,16 @@ export interface CommandEntry {
 const builtinCommands: CommandEntry[] = [];
 const listeners = new Set<() => void>();
 
+/**
+ * `listCommands()` 的快照缓存。
+ *
+ * ⚠️ 与 `plugins/registry.ts` 里同样的原因：这个数组直接喂给
+ * `useSyncExternalStore`，每次返回新数组会让 React 判定快照持续变化，
+ * 进而无限重渲染。只在真正变化时重建。
+ */
+let snapshot: readonly CommandEntry[] = Object.freeze([]);
+let snapshotDirty = true;
+
 function notify(): void {
   for (const listener of listeners) {
     try {
@@ -33,21 +43,37 @@ function notify(): void {
   }
 }
 
+function invalidate(): void {
+  snapshotDirty = true;
+  notify();
+}
+
+// 插件命令增删时，合并后的列表也要失效。
+subscribePluginCommands(() => {
+  snapshotDirty = true;
+  notify();
+});
+
 export function registerBuiltinCommand(entry: Omit<CommandEntry, "source">): Disposable {
   const command: CommandEntry = { ...entry, source: "builtin" };
   builtinCommands.push(command);
-  notify();
+  invalidate();
 
   return toDisposable(() => {
     const index = builtinCommands.indexOf(command);
     if (index < 0) return;
     builtinCommands.splice(index, 1);
-    notify();
+    invalidate();
   });
 }
 
-export function listCommands(): CommandEntry[] {
-  return [...builtinCommands, ...listPluginCommands().map(toEntry)];
+/** 返回稳定引用的快照；仅在命令集合变化时才会换新数组。 */
+export function listCommands(): readonly CommandEntry[] {
+  if (snapshotDirty) {
+    snapshot = Object.freeze([...builtinCommands, ...listPluginCommands().map(toEntry)]);
+    snapshotDirty = false;
+  }
+  return snapshot;
 }
 
 function toEntry(command: {
@@ -76,7 +102,7 @@ export function subscribeCommands(listener: () => void): () => void {
 /** 仅供测试。 */
 export function clearBuiltinCommands(): void {
   builtinCommands.length = 0;
-  notify();
+  invalidate();
 }
 
 // ------------------------------------------------------------ 键位匹配

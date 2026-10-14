@@ -70,7 +70,6 @@ import {
   registerPluginPanel,
   registerSelectionTransformer,
   registerToolbarButton,
-  subscribeContentChange,
 } from "../registry";
 import {
   addStatusBarItemId,
@@ -193,18 +192,25 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
   let invocationSeq = 0;
   let disposed = false;
   let contentEpoch = 0;
-  let mirror: EditorMirror = {
-    content: "",
-    selection: null,
-    cursor: 0,
-    activeNoteId: null,
-    contentEpoch: 0,
-  };
-
   const declared = manifest.permissions ?? [];
   const granted = manifest.grantedPermissions ?? [];
   const canReadEditor = granted.includes("editor:read");
   const canReadContent = canReadEditor;
+
+  // 初始镜像必须**从当前编辑器状态播种**，不能留空。
+  //
+  // 只靠后续的变更回调填充是不够的：插件常常在笔记已经打开之后才加载
+  // （启动时内容先就绪、插件稍后加载完），此后若用户不编辑，镜像就永远是空的，
+  // 表现为「面板里同步读到的是空正文」——outline 这类插件会直接显示"请先选中一篇笔记"。
+  const seedAccessor = canReadContent ? getActiveContentAccessor() : null;
+
+  let mirror: EditorMirror = {
+    content: seedAccessor?.getContent() ?? "",
+    selection: seedAccessor?.getSelection() ?? null,
+    cursor: seedAccessor?.getCursor()?.offset ?? 0,
+    activeNoteId: null,
+    contentEpoch: 0,
+  };
 
   const pluginInfo: PluginInfo = {
     id: owner,
@@ -570,12 +576,6 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
 
   const unsubscribeTransport = transport.subscribe(handleMessage);
 
-  // 内容变化时刷新贡献点。复用既有的内容广播，无需改动窗口代码。
-  store.addFn(subscribeContentChange(() => {
-    contentEpoch += 1;
-    refreshPanelList();
-  }));
-
   // --------------------------------------------------------------- 启动
 
   const loaded = new Promise<void>((resolve, reject) => {
@@ -612,9 +612,25 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
   return {
     name: owner,
 
+    /**
+     * 接收宿主推来的编辑器状态。
+     *
+     * 刷新时机刻意分开：**只有内容变了才重渲染面板**（面板渲染要跨线程往返，
+     * 每次按键都刷会很吵）；选区变化只更新状态栏。两者都依赖 `editor.mirror`
+     * 这条推送，因此镜像更新一定发生在对应回调之前（同一传输通道，顺序有序）。
+     */
     updateMirror(next) {
+      const contentChanged = next.content !== undefined && next.content !== mirror.content;
+      if (contentChanged) contentEpoch += 1;
+
       mirror = { ...mirror, ...next, contentEpoch };
-      emitToPlugin("editor.mirror", canReadContent ? mirror : { ...mirror, content: "", selection: null });
+      emitToPlugin(
+        "editor.mirror",
+        canReadContent ? mirror : { ...mirror, content: "", selection: null },
+      );
+
+      if (contentChanged) refreshPanelList();
+      doRefreshStatusBar(mirror.selection);
     },
 
     refreshPanels: refreshPanelList,

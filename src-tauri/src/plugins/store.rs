@@ -16,7 +16,7 @@ use crate::services::notes::AppError;
 use chrono::Utc;
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
-use std::fs::{self, OpenOptions, File};
+use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -419,9 +419,9 @@ mod tests {
         fs::remove_dir_all(paths.root.parent().unwrap()).ok();
     }
 
-    /// 仅测试用：设置文件 mtime。标准库稳定 API 不提供，改用 `File::set_modified`。
+    /// 仅测试用：设置文件 mtime，用于伪造一个"陈旧锁"。
     fn filetime_set(path: &Path, time: SystemTime) -> io::Result<()> {
-        let file: File = OpenOptions::new().write(true).open(path)?;
+        let file = OpenOptions::new().write(true).open(path)?;
         file.set_modified(time)
     }
 }

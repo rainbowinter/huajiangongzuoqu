@@ -48,8 +48,16 @@ const STATUS_TONE: Record<PluginStatus, string> = {
   suspended: "text-rust bg-rust-mist/40",
 };
 
-/** 订阅一个注册表，返回它的当前内容。 */
-function useRegistry<T>(list: () => T[], subscribe: (fn: () => void) => () => void): T[] {
+/**
+ * 订阅一个注册表，返回它的当前内容。
+ *
+ * `list` 必须是**稳定快照**（注册表内部已缓存）：若每次都返回新数组，
+ * `useSyncExternalStore` 会判定快照持续变化而陷入无限重渲染。
+ */
+function useRegistry<T>(
+  list: () => readonly T[],
+  subscribe: (fn: () => void) => () => void,
+): readonly T[] {
   return useSyncExternalStore(subscribe, list, list);
 }
 

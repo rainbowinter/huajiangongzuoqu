@@ -34,9 +34,26 @@ class OwnedRegistry<T> {
   private entries: Owned<T>[] = [];
   private listeners = new Set<() => void>();
 
+  /**
+   * `list()` 的快照缓存。
+   *
+   * ⚠️ 这不是微优化，是**正确性要求**：`list()` 会直接喂给
+   * `useSyncExternalStore(subscribe, getSnapshot)`。React 用 `Object.is` 比较快照，
+   * 若每次调用都新建数组，快照就永远"变了"，组件会陷入无限重渲染
+   * （表现为 `Maximum update depth exceeded`）。
+   *
+   * 因此这里只在注册表**真正变化**时重建快照，并冻结以防调用方改写。
+   */
+  private snapshot: readonly T[] = Object.freeze([]);
+
+  private rebuildSnapshot(): void {
+    this.snapshot = Object.freeze(this.entries.map((entry) => entry.def));
+  }
+
   register(owner: string, def: T, onRemove?: (def: T) => void): Disposable {
     const entry: Owned<T> = { def, owner };
     this.entries.push(entry);
+    this.rebuildSnapshot();
     this.notify();
 
     return toDisposable(() => {
@@ -44,12 +61,14 @@ class OwnedRegistry<T> {
       if (index < 0) return;
       this.entries.splice(index, 1);
       onRemove?.(def);
+      this.rebuildSnapshot();
       this.notify();
     });
   }
 
-  list(): T[] {
-    return this.entries.map((entry) => entry.def);
+  /** 返回稳定引用的快照；仅在注册表变化时才会换新数组。 */
+  list(): readonly T[] {
+    return this.snapshot;
   }
 
   /** 就地改写某个归属下的条目（用于更新运行状态）。 */
@@ -60,7 +79,10 @@ class OwnedRegistry<T> {
       changed = true;
       return { ...entry, def: transform(entry.def) };
     });
-    if (changed) this.notify();
+    if (changed) {
+      this.rebuildSnapshot();
+      this.notify();
+    }
   }
 
   subscribe(listener: () => void): () => void {
@@ -83,12 +105,14 @@ class OwnedRegistry<T> {
     }
     if (!removed) return;
     this.entries = kept;
+    this.rebuildSnapshot();
     this.notify();
   }
 
   clear(): void {
     if (this.entries.length === 0) return;
     this.entries = [];
+    this.rebuildSnapshot();
     this.notify();
   }
 
@@ -115,7 +139,7 @@ export function addPluginCommand(command: PluginCommand): Disposable {
   return commands.register(command.plugin, command);
 }
 
-export function listPluginCommands(): PluginCommand[] {
+export function listPluginCommands(): readonly PluginCommand[] {
   return commands.list();
 }
 
@@ -165,7 +189,7 @@ export function registerStatusBarRenderer(
   return statusBarRenderers.register(owner, renderer);
 }
 
-export function getStatusBarRenderers(): StatusBarRenderer[] {
+export function getStatusBarRenderers(): readonly StatusBarRenderer[] {
   return statusBarRenderers.list();
 }
 
@@ -181,7 +205,7 @@ export function registerPluginPanel(owner: string, panel: PluginPanelDef): Dispo
   return panels.register(owner, panel);
 }
 
-export function listPluginPanels(): PluginPanelDef[] {
+export function listPluginPanels(): readonly PluginPanelDef[] {
   return panels.list();
 }
 
@@ -226,7 +250,7 @@ export function registerEditorMenuItem(item: PluginMenuItem): Disposable {
   return editorMenuItems.register(item.plugin, item);
 }
 
-export function listEditorMenuItems(): PluginMenuItem[] {
+export function listEditorMenuItems(): readonly PluginMenuItem[] {
   return editorMenuItems.list();
 }
 
@@ -238,7 +262,7 @@ export function registerNoteMenuItem(item: PluginNoteMenuItem): Disposable {
   return noteMenuItems.register(item.plugin, item);
 }
 
-export function listNoteMenuItems(): PluginNoteMenuItem[] {
+export function listNoteMenuItems(): readonly PluginNoteMenuItem[] {
   return noteMenuItems.list();
 }
 
@@ -250,7 +274,7 @@ export function registerToolbarButton(button: PluginToolbarButton): Disposable {
   return toolbarButtons.register(button.plugin, button);
 }
 
-export function listToolbarButtons(): PluginToolbarButton[] {
+export function listToolbarButtons(): readonly PluginToolbarButton[] {
   return toolbarButtons.list();
 }
 
@@ -284,7 +308,7 @@ export function updatePluginStatus(
   plugins.update(name, (record) => ({ ...record, status, error }));
 }
 
-export function listLoadedPlugins(): PluginRuntimeRecord[] {
+export function listLoadedPlugins(): readonly PluginRuntimeRecord[] {
   return plugins.list();
 }
 
