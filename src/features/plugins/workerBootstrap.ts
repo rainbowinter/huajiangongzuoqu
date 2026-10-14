@@ -86,6 +86,7 @@ function installConsoleCapture(transport: WorkerSideTransport): void {
 /** 按 `ns.fn` 的命名空间把方法表摊成嵌套对象。 */
 function buildProxiedNamespaces(
   methods: MethodDescriptor[],
+  transport: WorkerSideTransport,
   state: SandboxState,
   call: (method: string, args: unknown[]) => Promise<unknown>,
 ): Record<string, Record<string, unknown>> {
@@ -94,8 +95,31 @@ function buildProxiedNamespaces(
   for (const descriptor of methods) {
     const [namespace, fn] = descriptor.name.split(".");
     if (!namespace || !fn) continue;
-    (namespaces[namespace] ??= {})[fn] = (...args: unknown[]) =>
-      call(descriptor.name, args.map((arg) => serializeArg(arg, state)));
+
+    (namespaces[namespace] ??= {})[fn] = (...args: unknown[]) => {
+      const promise = call(
+        descriptor.name,
+        args.map((arg) => serializeArg(arg, state)),
+      );
+
+      // 注册类调用几乎都是「发射后不管」（`api.ui.registerPanel({...})` 不 await）。
+      // 不在这里落日志的话，注册失败会**完全不可见**——连插件作者都无从知道，
+      // 只会表现为"面板没出现"。
+      //
+      // 用 debug 级别：插件有意 catch 的失败（例如探测某个权限是否可用）不该刷屏。
+      // 另外，挂了 catch 之后原生 promise 被标记为已处理，不会再冒未处理拒绝。
+      promise.catch((error: unknown) => {
+        transport.post({
+          t: "log",
+          level: "debug",
+          message: `调用 ${descriptor.name} 失败：${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        });
+      });
+
+      return promise;
+    };
   }
 
   return namespaces;
@@ -116,7 +140,7 @@ function buildApi(
   state: SandboxState,
   call: (method: string, args: unknown[]) => Promise<unknown>,
 ): Record<string, unknown> {
-  const namespaces = buildProxiedNamespaces(methods, state, call);
+  const namespaces = buildProxiedNamespaces(methods, transport, state, call);
   const { editor = {}, events = {}, ...rest } = namespaces;
 
   const localLog = (level: "debug" | "info" | "warn" | "error") =>

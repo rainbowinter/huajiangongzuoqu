@@ -166,11 +166,17 @@ function invalidArgument(method: string, message: string): PluginApiError {
   return error;
 }
 
-/** 从参数对象里取一个 handler 令牌，缺失即报错。 */
+/**
+ * 从参数对象里取一个回调令牌，缺失即报错。
+ *
+ * `field` 用的是**插件侧的字段名**（`run` / `render` / `onClick` / `transform`）：
+ * 沙箱侧的 `serializeArg` 会把函数就地替换成令牌，但**保留原字段名**。
+ * 所以插件写 `{ id, title, run() {...} }`，宿主看到的是 `{ id, title, run: "\0h:0" }`。
+ */
 function requireToken(record: Record<string, unknown>, field: string, method: string): string {
   const token = record[field];
   if (typeof token !== "string" || token.length === 0) {
-    throw invalidArgument(method, `${field} 必须是宿主下发的回调令牌`);
+    throw invalidArgument(method, `${field} 必须是一个回调函数`);
   }
   return token;
 }
@@ -199,7 +205,7 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
       const record = asRecord(args[0], "ui.registerCommand");
       const id = asString(record.id, "ui.registerCommand", "id");
       const title = asString(record.title, "ui.registerCommand", "title");
-      const runToken = requireToken(record, "runToken", "ui.registerCommand");
+      const runToken = requireToken(record, "run", "ui.registerCommand");
       return ctx.bridge.registerCommand({
         id,
         title,
@@ -216,8 +222,8 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
       const record = asRecord(args[0], "ui.registerPanel");
       const id = asString(record.id, "ui.registerPanel", "id");
       const title = asString(record.title, "ui.registerPanel", "title");
-      const renderToken = requireToken(record, "renderToken", "ui.registerPanel");
-      const onClickToken = asOptionalString(record.onClickToken);
+      const renderToken = requireToken(record, "render", "ui.registerPanel");
+      const onClickToken = asOptionalString(record.onClick);
       return ctx.bridge.registerPanel({
         id,
         title,
@@ -234,7 +240,7 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
       const record = asRecord(args[0], "ui.registerStatusBarItem");
       return ctx.bridge.registerStatusBarItem({
         id: asString(record.id, "ui.registerStatusBarItem", "id"),
-        renderToken: requireToken(record, "renderToken", "ui.registerStatusBarItem"),
+        renderToken: requireToken(record, "render", "ui.registerStatusBarItem"),
       });
     },
   },
@@ -254,7 +260,7 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
       return ctx.bridge.registerToolbarButton({
         id: asString(record.id, "ui.registerToolbarButton", "id"),
         title: asString(record.title, "ui.registerToolbarButton", "title"),
-        runToken: requireToken(record, "runToken", "ui.registerToolbarButton"),
+        runToken: requireToken(record, "run", "ui.registerToolbarButton"),
         ...(icon ? { icon } : {}),
       });
     },
@@ -361,7 +367,7 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
         id: asString(record.id, "editor.registerSelectionTransformer", "id"),
         transformToken: requireToken(
           record,
-          "transformToken",
+          "transform",
           "editor.registerSelectionTransformer",
         ),
       });
@@ -553,7 +559,7 @@ function menuContribution(args: unknown[], method: string): MenuContribution {
   return {
     id: asString(record.id, method, "id"),
     title: asString(record.title, method, "title"),
-    runToken: requireToken(record, "runToken", method),
+    runToken: requireToken(record, "run", method),
   };
 }
 

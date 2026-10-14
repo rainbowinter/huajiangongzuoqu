@@ -626,6 +626,10 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
       disposed = true;
 
       // 先请插件跑 onUnload 并回执，给一个上限；超时就直接 terminate。
+      //
+      // ⚠️ 这里必须直接走 `transport.post` 而不是 `post()`：上面刚把 `disposed`
+      // 置为 true，而 `post()` 开头就是 `if (disposed) return`，用它会**静默丢掉**
+      // 这条 dispose 消息，于是每次卸载都要白等满 5 秒超时才收场。
       await new Promise<void>((resolve) => {
         const timer = setTimeout(resolve, TIMEOUTS.lifecycle);
         const unsubscribe = transport.subscribe((incoming) => {
@@ -635,7 +639,7 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
             resolve();
           }
         });
-        post({ t: "dispose", reason });
+        transport.post({ t: "dispose", reason });
       });
 
       unsubscribeTransport();

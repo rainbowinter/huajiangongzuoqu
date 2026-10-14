@@ -1,0 +1,25 @@
+{
+  "name": "word-count",
+  "version": "2.0.0",
+  "apiVersion": 2,
+  "main": "index.js",
+  "description": "在状态栏实时显示选中文本的字数",
+  "author": "花笺",
+  "permissions": ["ui:statusbar", "editor:read", "settings"],
+  "contributes": {
+    "settings": [
+      {
+        "key": "countMode",
+        "type": "select",
+        "title": "统计方式",
+        "description": "字符数会忽略空白字符",
+        "options": [
+          { "value": "chars", "label": "字符数" },
+          { "value": "words", "label": "词数" },
+          { "value": "lines", "label": "行数" }
+        ],
+        "default": "chars"
+      }
+    ]
+  }
+}
