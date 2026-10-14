@@ -411,19 +411,43 @@ pub fn try_exit_for_cli_version_or_help() {
     std::process::exit(0);
 }
 
+/// 单实例插件的开关判定，抽成纯函数以便单测。
+fn single_instance_disabled_from(value: Option<&str>) -> bool {
+    matches!(value, Some(raw) if raw.trim() == "1")
+}
+
+/// 开发调试逃生阀：设置 `FLORAL_NOTEPAPER_NO_SINGLE_INSTANCE=1` 时跳过单实例插件。
+///
+/// 单实例锁按应用 identifier（`com.floral-notepaper.app`）生效，因此本地源码调试实例
+/// 会被机器上已安装的正式实例抢走锁并直接退出，无法启动。调试时用该环境变量绕开；
+/// 正式发布版本不受影响，因为必须显式设置它才会生效。
+fn single_instance_disabled() -> bool {
+    let value = env::var("FLORAL_NOTEPAPER_NO_SINGLE_INSTANCE").ok();
+    single_instance_disabled_from(value.as_deref())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_cli::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        .plugin(tauri_plugin_opener::init());
+
+    if single_instance_disabled() {
+        eprintln!(
+            "FLORAL_NOTEPAPER_NO_SINGLE_INSTANCE=1：已跳过单实例插件（仅用于本地调试）"
+        );
+    } else {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if let Some(file_path) = desktop::extract_file_arg(&args) {
                 let _ = app.emit("open-external-file", file_path);
             }
             let _ = desktop::show_main_window(app);
-        }))
+        }));
+    }
+
+    builder
         .setup(|app| {
             if let Ok(store) = default_store() {
                 let data = store.data_dir();
@@ -486,10 +510,20 @@ pub fn run() {
             updater::commands::update_install,
             updater::commands::update_install_prepare_report,
             updater::commands::update_cancel,
-            plugins::plugins_list,
-            plugins::plugins_read,
-            plugins::plugins_dir_path,
-            plugins::plugins_open_dir,
+            plugins::commands::plugins_list,
+            plugins::commands::plugins_read,
+            plugins::commands::plugins_read_asset,
+            plugins::commands::plugins_dir_path,
+            plugins::commands::plugins_open_dir,
+            plugins::commands::plugins_set_enabled,
+            plugins::commands::plugins_set_permissions,
+            plugins::commands::plugins_storage_get,
+            plugins::commands::plugins_storage_set,
+            plugins::commands::plugins_storage_delete,
+            plugins::commands::plugins_storage_keys,
+            plugins::commands::plugins_storage_clear,
+            plugins::commands::plugins_settings_get,
+            plugins::commands::plugins_settings_set,
             take_startup_file
         ])
         .build(tauri::generate_context!())
@@ -508,4 +542,21 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::single_instance_disabled_from;
+
+    #[test]
+    fn single_instance_disabled_only_for_explicit_flag() {
+        assert!(single_instance_disabled_from(Some("1")));
+        assert!(single_instance_disabled_from(Some(" 1 ")));
+
+        assert!(!single_instance_disabled_from(None));
+        assert!(!single_instance_disabled_from(Some("")));
+        assert!(!single_instance_disabled_from(Some("0")));
+        assert!(!single_instance_disabled_from(Some("true")));
+        assert!(!single_instance_disabled_from(Some("yes")));
+    }
 }

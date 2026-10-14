@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/fetch-contributors.mjs && vite",
+    "dev:isolated": "node scripts/dev-isolated.mjs",
     "build": "node scripts/fetch-contributors.mjs && tsc && vite build",
     "test": "vitest run",
     "lint": "oxlint",

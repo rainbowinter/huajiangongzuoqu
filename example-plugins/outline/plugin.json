@@ -1,0 +1,6 @@
+{
+  "name": "outline",
+  "version": "1.0.0",
+  "main": "index.js",
+  "description": "目录导航：扫描标题生成大纲，点击跳转到对应位置"
+}

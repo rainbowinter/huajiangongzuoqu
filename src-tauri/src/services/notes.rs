@@ -328,7 +328,18 @@ fn data_dir_from_notes_dir(notes_dir: &str) -> PathBuf {
     path.to_path_buf()
 }
 
-const DATA_DIR_ITEMS: [&str; 4] = ["metadata.json", "notes", "images", "backgrounds"];
+// 数据目录里所有需要跟随迁移的条目。
+// plugins/ 与 plugin-data/ 是插件代码与其持久化数据，plugins-state.json 是启停与
+// 授权状态；三者一起随数据目录搬迁，否则用户改一次笔记目录就会丢掉全部插件。
+const DATA_DIR_ITEMS: [&str; 7] = [
+    "metadata.json",
+    "notes",
+    "images",
+    "backgrounds",
+    "plugins",
+    "plugin-data",
+    "plugins-state.json",
+];
 
 // 旧版无论 notesDir 指向哪里，metadata.json、images、backgrounds 都固定存放在旧主目录；
 // 数据目录解析到其他位置时必须一并带走，否则笔记内图片引用全部失效、created_at 丢失
@@ -2180,6 +2191,52 @@ mod tests {
             config.data_dir.as_deref(),
             Some(target.to_string_lossy().as_ref())
         );
+    }
+
+    #[test]
+    fn migrate_data_to_carries_plugins_and_their_data() {
+        let root = test_root("migrate-plugins");
+        let config_dir = root.join("config");
+        let data_dir = root.join("data");
+        let store = NoteStore::new(config_dir.clone(), data_dir.clone());
+        fs::create_dir_all(&config_dir).expect("create config dir");
+        write_json_atomic(&store.config_path(), &store.default_config())
+            .expect("write default config");
+
+        // 插件代码、插件数据、启停状态三样都要跟着走
+        let plugin_dir = data_dir.join("plugins").join("demo");
+        fs::create_dir_all(&plugin_dir).expect("create plugin dir");
+        fs::write(
+            plugin_dir.join("plugin.json"),
+            br#"{ "name": "demo", "version": "1.0.0", "main": "index.js" }"#,
+        )
+        .expect("write plugin manifest");
+
+        let plugin_data_dir = data_dir.join("plugin-data").join("demo");
+        fs::create_dir_all(&plugin_data_dir).expect("create plugin data dir");
+        fs::write(plugin_data_dir.join("kv.json"), b"{}").expect("write plugin kv");
+
+        fs::write(data_dir.join("plugins-state.json"), b"{}").expect("write plugin state");
+
+        let target = root.join("target");
+        store.migrate_data_to(&target).expect("migrate data dir");
+
+        assert!(
+            target.join("plugins").join("demo").join("plugin.json").is_file(),
+            "插件代码应随数据目录迁移，否则用户改一次笔记目录就丢掉全部插件"
+        );
+        assert!(
+            target.join("plugin-data").join("demo").join("kv.json").is_file(),
+            "插件持久化数据应随数据目录迁移"
+        );
+        assert!(
+            target.join("plugins-state.json").is_file(),
+            "插件启停与授权状态应随数据目录迁移"
+        );
+
+        assert!(!data_dir.join("plugins").exists());
+        assert!(!data_dir.join("plugin-data").exists());
+        assert!(!data_dir.join("plugins-state.json").exists());
     }
 
     #[test]
