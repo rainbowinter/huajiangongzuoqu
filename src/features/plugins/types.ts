@@ -6,11 +6,59 @@ export interface Selection {
   end: number;
 }
 
+/**
+ * 插件清单。
+ *
+ * 后 9 个字段由 Rust 侧 `plugins::manifest::PluginManifest` 提供，是原四字段的
+ * 超集。`apiVersion` 决定走哪条运行路径：1 = 主线程 `new Function`（旧行为），
+ * 2 = 沙箱 Worker + 权限门。
+ */
 export interface PluginManifest {
   name: string;
   version: string;
   main: string;
   description: string;
+  apiVersion: number;
+  author?: string;
+  homepage?: string;
+  /** 清单声明的权限。 */
+  permissions: string[];
+  /** 实际生效的权限（已声明 ∩ 已授予）。 */
+  grantedPermissions: string[];
+  /** 清单里的 `contributes`，由前端解析。 */
+  contributes?: unknown;
+  /** 用户是否启用了这个插件。 */
+  enabled: boolean;
+  /** 清单是否可加载。`false` 时看 `invalidReason`。 */
+  valid: boolean;
+  invalidReason?: string;
+  /** 不致命但值得提示的问题。 */
+  warnings: string[];
+  /** 插件目录绝对路径。 */
+  dirPath: string;
+}
+
+/** 插件在宿主里的运行状态。 */
+export type PluginStatus =
+  /** 已加载并在运行。 */
+  | "loaded"
+  /** 用户在界面上关掉了它。 */
+  | "disabled"
+  /** 清单损坏或 apiVersion 不受支持。 */
+  | "invalid"
+  /** 加载过程中抛错。 */
+  | "failed"
+  /** 因频繁超时/崩溃被宿主暂停。 */
+  | "suspended"
+  /** v1 插件，跑在主线程，没有沙箱隔离。 */
+  | "legacy";
+
+export interface PluginRuntimeRecord {
+  manifest: PluginManifest;
+  status: PluginStatus;
+  error?: string;
+  /** v1 插件没有沙箱，界面上需要明确标注。 */
+  sandboxed: boolean;
 }
 
 export interface PluginCommand {
@@ -18,6 +66,8 @@ export interface PluginCommand {
   title: string;
   plugin: string;
   run: () => void | Promise<void>;
+  /** 可选的键位绑定，形如 "Ctrl+Shift+W"。 */
+  keybinding?: string;
 }
 
 export interface PluginPanelDef {
@@ -26,10 +76,24 @@ export interface PluginPanelDef {
   width?: number;
   plugin?: string;
   standalone?: boolean;
+  /**
+   * 面板 HTML 的渲染方式。
+   *
+   * * `false`（v1 默认）——`render()` 在渲染期同步返回 HTML，行为与升级前一致。
+   * * `true`（v2）——`render()` 恒返回空串，真正的 HTML 由宿主异步拉取后写入
+   *   `stores.ts` 的缓存，界面从缓存读取并**经消毒后**注入。
+   */
+  sandboxed?: boolean;
   render: () => string;
   onClick?: (target: HTMLElement) => void;
 }
 
+/**
+ * v1 插件 API —— **冻结**。
+ *
+ * 已装的 markdown-table / word-count / outline 三个插件就是按这个形状写的，
+ * 不要改动这里的任何签名；新能力一律走 v2 命名空间化 API。
+ */
 export interface PluginApi {
   addCommand(command: { title: string; run: () => void | Promise<void> }): void;
   getActiveNoteContent(): string | null;
@@ -49,4 +113,6 @@ export interface PluginApi {
 export interface PluginDefinition {
   name: string;
   onLoad(api: PluginApi): void | Promise<void>;
+  /** v1 也可选地提供卸载钩子；不提供则只做宿主的注册项清理。 */
+  onUnload?(): void | Promise<void>;
 }

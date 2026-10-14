@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { MouseEvent } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
@@ -11,14 +11,29 @@ import { renderMarkdownHighlight } from "../features/markdown/syntaxHighlight";
 import { showToast } from "./Toast";
 import { PluginCommandPanel } from "./PluginCommandPanel";
 import { FindReplacePanel } from "./FindReplacePanel";
-import { registerActiveContent } from "../features/plugins/activeContent";
+import { createEditorAccessor, registerActiveContent } from "../features/plugins/activeContent";
+import {
+  emitContentChanged,
+  emitFloralEvent,
+  installFloralEventBridge,
+} from "../features/plugins/events";
 import { registerEditorJump, registerPreviewJump } from "../features/plugins/jump";
-import { loadPlugins } from "../features/plugins/loader";
+import {
+  loadPlugins,
+  refreshPluginStatusBar,
+  updatePluginEditorMirror,
+} from "../features/plugins/loader";
 import {
   listPluginPanels,
   notifyContentChanged,
   subscribePluginPanels,
 } from "../features/plugins/registry";
+import { sanitizePluginHtml } from "../features/plugins/sanitizeHtml";
+import {
+  getPanelHtml,
+  pluginStoresRevision,
+  subscribePluginStores,
+} from "../features/plugins/stores";
 import { usePluginStatusBar } from "../features/plugins/usePluginStatusBar";
 import type { PluginPanelDef, Selection } from "../features/plugins/types";
 import {
@@ -368,6 +383,8 @@ export function MainWindow({
   const [standalonePanels, setStandalonePanels] = useState<PluginPanelDef[]>(() =>
     listPluginPanels().filter((panel) => panel.standalone),
   );
+  // 订阅插件缓存 store：v2 面板的 HTML 是异步拉取后写进缓存的，更新时要触发重渲染。
+  useSyncExternalStore(subscribePluginStores, pluginStoresRevision, pluginStoresRevision);
   const [activeSelection, setActiveSelection] = useState<Selection | null>(null);
   const [highlightRects, setHighlightRects] = useState<SelectionRect[]>([]);
   const [editorScrollTop, setEditorScrollTop] = useState(0);
@@ -455,31 +472,49 @@ export function MainWindow({
   const highlightedHtml = useMemo(() => renderMarkdownHighlight(content), [content]);
 
   useEffect(() => {
-    registerActiveContent({
-      getContent: () => contentValueRef.current,
-      setContent: (value) => setContent(value),
-      getSelection: () => {
-        const textarea = contentRef.current;
-        if (!textarea) return null;
-        const start = textarea.selectionStart;
-        const end = textarea.selectionEnd;
-        return { text: textarea.value.slice(start, end), start, end };
-      },
-      replaceSelection: (replacement) => {
-        const textarea = contentRef.current;
-        if (!textarea) return false;
-        const start = textarea.selectionStart;
-        const end = textarea.selectionEnd;
-        const next = textarea.value.slice(0, start) + replacement + textarea.value.slice(end);
-        setContent(next);
-        if (selectedIdRef.current) {
-          saveStateRef.current = "dirty";
-          setSaveState("dirty");
-        }
-        return true;
-      },
-    });
+    // 编辑器访问器由 createEditorAccessor 统一实现；NotePad 用的是同一份，
+    // 避免两处逐字重复后各自漂移。
+    registerActiveContent(
+      createEditorAccessor({
+        getTextArea: () => contentRef.current,
+        getContent: () => contentValueRef.current,
+        setContent: (value) => setContent(value),
+        markDirty: () => {
+          if (selectedIdRef.current) {
+            saveStateRef.current = "dirty";
+            setSaveState("dirty");
+          }
+        },
+      }),
+    );
     return () => registerActiveContent(null);
+  }, []);
+
+  // 把编辑器状态推给 v2 插件（镜像），并在选区变化时刷新它们的状态栏项。
+  useEffect(() => {
+    updatePluginEditorMirror({
+      content,
+      selection: activeSelection,
+      cursor: contentRef.current?.selectionStart ?? 0,
+      activeNoteId: selectedId ?? null,
+    });
+    refreshPluginStatusBar(activeSelection);
+  }, [content, activeSelection, selectedId]);
+
+  // 事件总线：把 Tauri 侧（笔记/配置变更）与窗口焦点事件接上。
+  useEffect(() => installFloralEventBridge(), []);
+
+  // 内容与选区变化广播给插件。内容侧自带 150ms 节流。
+  useEffect(() => {
+    emitContentChanged(content);
+  }, [content]);
+
+  useEffect(() => {
+    emitFloralEvent("editor:selectionChanged", activeSelection);
+  }, [activeSelection]);
+
+  useEffect(() => {
+    emitFloralEvent("workspace:ready", undefined);
   }, []);
 
   useEffect(() => {
@@ -3562,7 +3597,14 @@ export function MainWindow({
                         </div>
                         <div
                           className="px-3 pb-3 flex-1 min-h-0 overflow-y-auto text-[12px] text-ink-soft"
-                          dangerouslySetInnerHTML={{ __html: panel.render() }}
+                          // v2 面板的 HTML 来自沙箱 Worker，必须消毒后再注入主世界——
+                          // 否则插件一句 onerror 就能在宿主权限下执行，沙箱会被完全绕过。
+                          // v1 面板维持原样（可信遗留）。
+                          dangerouslySetInnerHTML={{
+                            __html: panel.sandboxed
+                              ? sanitizePluginHtml(getPanelHtml(panel.id))
+                              : panel.render(),
+                          }}
                           onClick={(event) => panel.onClick?.(event.target as HTMLElement)}
                         />
                       </div>

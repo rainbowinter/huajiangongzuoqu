@@ -14,9 +14,18 @@ import type { UpdateInstallPrepareRequest } from "../features/update/types";
 import { showToast } from "./Toast";
 import { PluginCommandPanel } from "./PluginCommandPanel";
 import { FindReplacePanel } from "./FindReplacePanel";
-import { registerActiveContent } from "../features/plugins/activeContent";
+import { createEditorAccessor, registerActiveContent } from "../features/plugins/activeContent";
+import {
+  emitContentChanged,
+  emitFloralEvent,
+  installFloralEventBridge,
+} from "../features/plugins/events";
 import { registerEditorJump } from "../features/plugins/jump";
-import { loadPlugins } from "../features/plugins/loader";
+import {
+  loadPlugins,
+  refreshPluginStatusBar,
+  updatePluginEditorMirror,
+} from "../features/plugins/loader";
 import { notifyContentChanged } from "../features/plugins/registry";
 import { usePluginStatusBar } from "../features/plugins/usePluginStatusBar";
 import { renderMarkdownHighlight } from "../features/markdown/syntaxHighlight";
@@ -312,28 +321,38 @@ export function NotePad({
   );
 
   useEffect(() => {
-    registerActiveContent({
-      getContent: () => contentValueRef.current,
-      setContent: (value) => setContent(value),
-      getSelection: () => {
-        const textarea = contentRef.current;
-        if (!textarea) return null;
-        const start = textarea.selectionStart;
-        const end = textarea.selectionEnd;
-        return { text: textarea.value.slice(start, end), start, end };
-      },
-      replaceSelection: (replacement) => {
-        const textarea = contentRef.current;
-        if (!textarea) return false;
-        const start = textarea.selectionStart;
-        const end = textarea.selectionEnd;
-        const next = textarea.value.slice(0, start) + replacement + textarea.value.slice(end);
-        setContent(next);
-        setStatus("dirty");
-        return true;
-      },
-    });
+    // 与 MainWindow 共用同一份编辑器访问器实现（原先两处逐字重复）。
+    registerActiveContent(
+      createEditorAccessor({
+        getTextArea: () => contentRef.current,
+        getContent: () => contentValueRef.current,
+        setContent: (value) => setContent(value),
+        markDirty: () => setStatus("dirty"),
+      }),
+    );
     return () => registerActiveContent(null);
+  }, []);
+
+  // 镜像与事件：小窗同样是插件宿主，v2 插件在这里也拿得到编辑器状态。
+  useEffect(() => {
+    updatePluginEditorMirror({
+      content,
+      selection: activeSelection,
+      cursor: contentRef.current?.selectionStart ?? 0,
+      activeNoteId: initialNoteId ?? null,
+    });
+    refreshPluginStatusBar(activeSelection);
+    emitContentChanged(content);
+  }, [content, activeSelection, initialNoteId]);
+
+  useEffect(() => installFloralEventBridge(), []);
+
+  useEffect(() => {
+    emitFloralEvent("editor:selectionChanged", activeSelection);
+  }, [activeSelection]);
+
+  useEffect(() => {
+    emitFloralEvent("workspace:ready", undefined);
   }, []);
 
   useEffect(() => {

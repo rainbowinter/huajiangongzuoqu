@@ -5,6 +5,7 @@
  * 设计为纯函数，不依赖组件状态，可在 MainWindow 和 NotePad 中复用。
  */
 
+import { setNativeValue } from "../plugins/activeContent";
 import { transformSelection } from "../plugins/registry";
 
 export interface ShortcutAction {
@@ -140,19 +141,6 @@ function applyWrapShortcut(
 }
 
 /**
- * 用原生方式设置 textarea 值并触发 React onChange，
- * 避免 execCommand 引入的额外字符问题
- */
-function setNativeValue(textarea: HTMLTextAreaElement, value: string): void {
-  const nativeSetter = Object.getOwnPropertyDescriptor(
-    window.HTMLTextAreaElement.prototype,
-    "value",
-  )?.set;
-  nativeSetter?.call(textarea, value);
-  textarea.dispatchEvent(new Event("input", { bubbles: true }));
-}
-
-/**
  * 快速标题：在当前行前插入 "# " 或增加一级 #
  */
 function applyHeadingShortcut(textarea: HTMLTextAreaElement): void {
@@ -216,27 +204,54 @@ function applyHeadingIncreaseShortcut(textarea: HTMLTextAreaElement): void {
 }
 
 /**
- * 快速表格：插入 3x3 Markdown 表格模板
+ * 快速表格：有选区时交给插件的选区转换器（如 markdown-table），否则插入 3x3 模板。
+ *
+ * ⚠️ 这里是全文件**唯一异步**的快捷键路径。转换器可能由沙箱插件提供，必须跨线程
+ * 往返，因此无法同步拿到结果。调用方 `handleMarkdownShortcut` 已经在同步阶段完成了
+ * `preventDefault()`，所以浏览器不会再把这次按键当作输入处理。
+ *
+ * 续体里**必须重新读取 textarea 的实时值**：从捕获偏移到回调执行之间隔了一个
+ * microtask 加至少一次 RPC，期间用户可能已经继续输入，沿用旧 value/偏移会把内容写坏。
  */
 function applyTableShortcut(textarea: HTMLTextAreaElement): void {
-  const { selectionStart, selectionEnd, value } = textarea;
+  const { selectionStart, selectionEnd } = textarea;
 
-  // 有选区时：把选中的文本转成 Markdown 表格
-  if (selectionStart !== selectionEnd) {
-    const selected = value.slice(selectionStart, selectionEnd);
-    const transformed = transformSelection(selected);
-    if (transformed != null) {
-      textarea.focus();
-      const newValue =
-        value.slice(0, selectionStart) + transformed + value.slice(selectionEnd);
-      setNativeValue(textarea, newValue);
-      const newEnd = selectionStart + transformed.length;
-      textarea.setSelectionRange(newEnd, newEnd);
-      return;
-    }
+  if (selectionStart === selectionEnd) {
+    insertTableTemplate(textarea);
+    return;
   }
 
-  // 无选区或无法转换：插入 3x3 表格模板
+  // 记下发起时的选区，用它定位；但内容本身在续体里重新读取。
+  const from = selectionStart;
+  const to = selectionEnd;
+  const selected = textarea.value.slice(from, to);
+
+  transformSelection(selected)
+    .then((transformed) => {
+      if (transformed == null) {
+        insertTableTemplate(textarea);
+        return;
+      }
+
+      const current = textarea.value;
+      const start = Math.min(from, current.length);
+      const end = Math.min(Math.max(to, start), current.length);
+
+      textarea.focus();
+      setNativeValue(textarea, current.slice(0, start) + transformed + current.slice(end));
+      const caret = start + transformed.length;
+      textarea.setSelectionRange(caret, caret);
+    })
+    .catch((error) => {
+      console.error("[plugins] 选区转换失败", error);
+      insertTableTemplate(textarea);
+    });
+}
+
+/** 插入 3x3 表格模板，并把光标停在表头首格上。 */
+function insertTableTemplate(textarea: HTMLTextAreaElement): void {
+  const { selectionStart, value } = textarea;
+
   const table = [
     "| 列1 | 列2 | 列3 |",
     "| --- | --- | --- |",
@@ -245,8 +260,7 @@ function applyTableShortcut(textarea: HTMLTextAreaElement): void {
   ].join("\n");
 
   const insertion = "\n" + table + "\n";
-  const newValue =
-    value.slice(0, selectionStart) + insertion + value.slice(selectionStart);
+  const newValue = value.slice(0, selectionStart) + insertion + value.slice(selectionStart);
 
   textarea.focus();
   setNativeValue(textarea, newValue);
