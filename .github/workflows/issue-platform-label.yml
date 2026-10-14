@@ -1,0 +1,29 @@
+name: Issue 平台标签
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  add-platform-labels:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: 根据勾选的平台添加标签
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BODY: ${{ github.event.issue.body }}
+        run: |
+          LABELS=""
+          if echo "$BODY" | grep -q "\[x\] Windows"; then
+            LABELS="windows"
+          fi
+          if echo "$BODY" | grep -q "\[x\] macOS"; then
+            [ -n "$LABELS" ] && LABELS="$LABELS,"
+            LABELS="${LABELS}macos"
+          fi
+          if [ -n "$LABELS" ]; then
+            gh issue edit ${{ github.event.issue.number }} \
+              --add-label "$LABELS" \
+              -R ${{ github.repository }}
+          fi

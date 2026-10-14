@@ -1,0 +1,2 @@
+# 统一行尾为 LF，避免 Windows autocrlf 导致格式检查失败
+* text=auto eol=lf

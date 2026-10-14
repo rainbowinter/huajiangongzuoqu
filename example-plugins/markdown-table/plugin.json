@@ -1,0 +1,6 @@
+{
+  "name": "markdown-table",
+  "version": "1.0.0",
+  "main": "index.js",
+  "description": "把用空格分隔的文本转换成 Markdown 表格"
+}

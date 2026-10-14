@@ -1,0 +1,631 @@
+name: PR Checks
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_build:
+        description: "Run heavy Tauri build jobs"
+        required: false
+        default: false
+        type: boolean
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  issue_comment:
+    types: [created]
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}-${{ github.event_name == 'issue_comment' && github.event.comment.body != '/run-checks' && github.run_id || 'checks' }}
+  cancel-in-progress: ${{ github.event_name != 'issue_comment' || github.event.comment.body == '/run-checks' }}
+
+jobs:
+  detect-changes:
+    name: detect changes
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && github.event.comment.body == '/run-checks')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      frontend: ${{ steps.diff.outputs.frontend }}
+      rust: ${{ steps.diff.outputs.rust }}
+      checkout_ref: ${{ steps.diff.outputs.checkout_ref }}
+      build: ${{ steps.diff.outputs.build }}
+
+    steps:
+      - name: Detect changed areas
+        id: diff
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+            echo "rust=true" >> "$GITHUB_OUTPUT"
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "checkout_ref=" >> "$GITHUB_OUTPUT"
+            echo "Manual run: all diff-gated checks are executed unconditionally." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [ "$EVENT_NAME" = "issue_comment" ]; then
+            checkout_ref="refs/pull/${PR_NUMBER}/head"
+          else
+            checkout_ref=""
+          fi
+
+          detect_failed=false
+          node <<'NODE' || detect_failed=true
+          const https = require("https");
+          const fs = require("fs");
+
+          const token = process.env.GITHUB_TOKEN;
+          const repo = process.env.GITHUB_REPOSITORY;
+          const prNumber = process.env.PR_NUMBER;
+          const apiUrl = process.env.GITHUB_API_URL || "https://api.github.com";
+
+          const rustPrefixes = [
+            "src-tauri/",
+            ".cargo/",
+            ".github/workflows/",
+          ];
+
+          const rustFiles = new Set([
+            "rust-toolchain",
+            "rust-toolchain.toml",
+          ]);
+
+          const frontendPrefixes = [
+            "src/",
+            "public/",
+            "test/",
+            "tests/",
+            "__tests__/",
+            ".github/workflows/",
+          ];
+
+          const frontendFiles = new Set([
+            "package.json",
+            "package-lock.json",
+            "npm-shrinkwrap.json",
+            "index.html",
+            "vite.config.js",
+            "vite.config.ts",
+            "vitest.config.js",
+            "vitest.config.ts",
+            "jest.config.js",
+            "jest.config.ts",
+            "playwright.config.js",
+            "playwright.config.ts",
+            "tsconfig.json",
+            "tsconfig.node.json",
+            "tsconfig.app.json",
+            "tsconfig.vitest.json",
+            "eslint.config.js",
+            "eslint.config.mjs",
+            "eslint.config.cjs",
+            ".eslintrc",
+            ".eslintrc.js",
+            ".eslintrc.cjs",
+            ".eslintrc.json",
+            ".eslintrc.yml",
+            ".eslintrc.yaml",
+          ]);
+
+          function requestJson(url) {
+            return new Promise((resolve, reject) => {
+              const headers = {
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "floral-notepaper-pr-checks",
+                "X-GitHub-Api-Version": "2022-11-28",
+              };
+
+              if (token) {
+                headers.Authorization = `Bearer ${token}`;
+              }
+
+              https.get(url, { headers }, (res) => {
+                let body = "";
+                res.setEncoding("utf8");
+
+                res.on("data", (chunk) => {
+                  body += chunk;
+                });
+
+                res.on("end", () => {
+                  if (res.statusCode < 200 || res.statusCode >= 300) {
+                    reject(new Error(`GitHub API request failed: ${res.statusCode} ${body}`));
+                    return;
+                  }
+
+                  try {
+                    resolve(JSON.parse(body));
+                  } catch (error) {
+                    reject(error);
+                  }
+                });
+              }).on("error", reject);
+            });
+          }
+
+          async function main() {
+            const changedFiles = [];
+
+            for (let page = 1; ; page++) {
+              const url = `${apiUrl}/repos/${repo}/pulls/${prNumber}/files?per_page=100&page=${page}`;
+              const files = await requestJson(url);
+
+              if (!Array.isArray(files)) {
+                throw new Error("Unexpected GitHub API response while listing PR files.");
+              }
+
+              for (const file of files) {
+                if (file && file.filename) {
+                  changedFiles.push(file.filename);
+                }
+              }
+
+              if (files.length < 100) {
+                break;
+              }
+            }
+
+            const rustSideFiles = changedFiles.filter((filename) => {
+              return rustFiles.has(filename)
+                || rustPrefixes.some((prefix) => filename.startsWith(prefix));
+            });
+
+            const frontendSideFiles = changedFiles.filter((filename) => {
+              return frontendFiles.has(filename)
+                || frontendPrefixes.some((prefix) => filename.startsWith(prefix));
+            });
+
+            const rustChanged = rustSideFiles.length > 0;
+            const frontendChanged = frontendSideFiles.length > 0;
+
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `rust=${rustChanged ? "true" : "false"}\n`);
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `frontend=${frontendChanged ? "true" : "false"}\n`);
+
+            const buildChanged = rustChanged || frontendChanged;
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `build=${buildChanged ? "true" : "false"}\n`);
+
+            const summary = [];
+
+            if (rustChanged) {
+              summary.push(
+                "Rust-side changes detected:",
+                "",
+                ...rustSideFiles.map((file) => `- ${file}`),
+                ""
+              );
+            } else {
+              summary.push(
+                "No Rust-side changes detected. Rust diff-gated checks will be skipped.",
+                ""
+              );
+            }
+
+            if (frontendChanged) {
+              summary.push(
+                "Frontend-side changes detected:",
+                "",
+                ...frontendSideFiles.map((file) => `- ${file}`),
+                ""
+              );
+            } else {
+              summary.push(
+                "No frontend-side changes detected. Frontend diff-gated checks will be skipped.",
+                ""
+              );
+            }
+
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary.join("\n"));
+          }
+
+          main().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+
+          echo "checkout_ref=$checkout_ref" >> "$GITHUB_OUTPUT"
+
+          if [ "$detect_failed" = true ]; then
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+            echo "rust=true" >> "$GITHUB_OUTPUT"
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "Change detection failed due to GitHub API/network issues."
+              echo "Fallback: run all diff-gated checks to avoid false green."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  frontend-test:
+    name: npm test / Linux
+    needs: detect-changes
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+          ref: ${{ needs.detect-changes.outputs.checkout_ref || github.ref }}
+
+      - name: Skip npm tests
+        if: ${{ needs.detect-changes.outputs.frontend != 'true' }}
+        run: echo "No frontend-side changes detected. npm test is skipped." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Node.js
+        if: ${{ needs.detect-changes.outputs.frontend == 'true' }}
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        if: ${{ needs.detect-changes.outputs.frontend == 'true' }}
+        run: npm ci
+
+      - name: Run npm tests
+        if: ${{ needs.detect-changes.outputs.frontend == 'true' }}
+        run: npm test
+
+  frontend-lint:
+    name: npm run lint / Linux
+    needs: detect-changes
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+          ref: ${{ needs.detect-changes.outputs.checkout_ref || github.ref }}
+
+      - name: Skip npm lint
+        if: ${{ needs.detect-changes.outputs.frontend != 'true' }}
+        run: echo "No frontend-side changes detected. npm run lint is skipped." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Node.js
+        if: ${{ needs.detect-changes.outputs.frontend == 'true' }}
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        if: ${{ needs.detect-changes.outputs.frontend == 'true' }}
+        run: npm ci
+
+      - name: Run npm lint
+        if: ${{ needs.detect-changes.outputs.frontend == 'true' }}
+        run: npm run lint
+
+  frontend-fmt:
+    name: oxfmt --check / Linux
+    needs: detect-changes
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+          ref: ${{ needs.detect-changes.outputs.checkout_ref || github.ref }}
+
+      - name: Skip oxfmt --check
+        if: ${{ needs.detect-changes.outputs.frontend != 'true' }}
+        run: echo "No frontend-side changes detected. oxfmt --check is skipped." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Node.js
+        if: ${{ needs.detect-changes.outputs.frontend == 'true' }}
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        if: ${{ needs.detect-changes.outputs.frontend == 'true' }}
+        run: npm ci
+
+      - name: Run oxfmt --check
+        if: ${{ needs.detect-changes.outputs.frontend == 'true' }}
+        run: npx oxfmt --check
+
+  cargo-fmt:
+    name: cargo fmt / Linux
+    needs: detect-changes
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+          ref: ${{ needs.detect-changes.outputs.checkout_ref || github.ref }}
+
+      - name: Skip cargo fmt
+        if: ${{ needs.detect-changes.outputs.rust != 'true' }}
+        run: echo "No Rust-side changes detected. cargo fmt --check is skipped." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Rust
+        if: ${{ needs.detect-changes.outputs.rust == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal --component rustfmt
+          rustup default stable
+
+      - name: Run cargo fmt
+        if: ${{ needs.detect-changes.outputs.rust == 'true' }}
+        working-directory: src-tauri
+        run: cargo fmt --check
+
+  cargo-test-clippy:
+    name: cargo test & clippy / ${{ matrix.label }}
+    needs: detect-changes
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows
+          - os: macos-15
+            label: macOS
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+          ref: ${{ needs.detect-changes.outputs.checkout_ref || github.ref }}
+
+      - name: Skip cargo test & clippy
+        if: ${{ needs.detect-changes.outputs.rust != 'true' }}
+        shell: bash
+        run: echo "No Rust-side changes detected. cargo test & clippy are skipped." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Rust
+        if: ${{ needs.detect-changes.outputs.rust == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+
+      - name: Run cargo tests
+        if: ${{ needs.detect-changes.outputs.rust == 'true' }}
+        working-directory: src-tauri
+        run: cargo test
+
+      - name: Run clippy
+        if: ${{ needs.detect-changes.outputs.rust == 'true' }}
+        working-directory: src-tauri
+        run: cargo clippy -- -D warnings
+
+  tauri-build-windows:
+    name: tauri build / Windows
+    needs: detect-changes
+    if: |
+      (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
+      (github.event_name == 'workflow_dispatch' && inputs.run_build == true) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && github.event.comment.body == '/run-checks')
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+          ref: ${{ needs.detect-changes.outputs.checkout_ref || github.ref }}
+
+      - name: Skip tauri build
+        if: ${{ github.event_name == 'issue_comment' && needs.detect-changes.outputs.build != 'true' }}
+        run: echo "No build-relevant changes detected. tauri build is skipped." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Node.js
+        if: ${{ github.event_name != 'issue_comment' || needs.detect-changes.outputs.build == 'true' }}
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: "24"
+
+      - name: Setup Rust
+        if: ${{ github.event_name != 'issue_comment' || needs.detect-changes.outputs.build == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Install dependencies
+        if: ${{ github.event_name != 'issue_comment' || needs.detect-changes.outputs.build == 'true' }}
+        run: npm ci
+
+      - name: Build Tauri app
+        if: ${{ github.event_name != 'issue_comment' || needs.detect-changes.outputs.build == 'true' }}
+        run: npm run tauri build
+
+      - name: Collect Windows artifacts
+        if: ${{ github.event_name != 'issue_comment' || needs.detect-changes.outputs.build == 'true' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $artifactDir = 'release-assets'
+          New-Item -ItemType Directory -Path $artifactDir -Force | Out-Null
+
+          $setupCandidates = Get-ChildItem -Path 'src-tauri/target/release/bundle/nsis' -File -Recurse -Filter '*.exe' |
+            Where-Object { $_.Name -match 'setup|installer|_x64' }
+
+          if (-not $setupCandidates -or $setupCandidates.Count -eq 0) {
+            throw 'No Windows NSIS installer found with expected naming pattern.'
+          }
+          if ($setupCandidates.Count -gt 1) {
+            $names = ($setupCandidates | ForEach-Object { $_.FullName }) -join "`n"
+            throw "Multiple Windows NSIS installer candidates found:`n$names"
+          }
+
+          $setupSource = $setupCandidates[0]
+          $portableSource = 'src-tauri/target/release/floral-notepaper.exe'
+          if (-not (Test-Path $portableSource)) {
+            throw "No Windows portable executable found at $portableSource."
+          }
+
+          Copy-Item $setupSource.FullName "$artifactDir/floral-notepaper_windows_x64-setup.exe" -Force
+          Copy-Item $portableSource "$artifactDir/floral-notepaper_windows_portable.exe" -Force
+
+      - name: Upload Windows setup artifact
+        if: ${{ github.event_name != 'issue_comment' || needs.detect-changes.outputs.build == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: floral-notepaper_windows_x64-setup.exe
+          path: release-assets/floral-notepaper_windows_x64-setup.exe
+          if-no-files-found: error
+          archive: false
+
+      - name: Upload Windows portable artifact
+        if: ${{ github.event_name != 'issue_comment' || needs.detect-changes.outputs.build == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: floral-notepaper_windows_portable.exe
+          path: release-assets/floral-notepaper_windows_portable.exe
+          if-no-files-found: error
+          archive: false
+
+  tauri-build-macos:
+    name: tauri build / macOS Apple Silicon
+    needs: detect-changes
+    if: |
+      (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
+      (github.event_name == 'workflow_dispatch' && inputs.run_build == true) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && github.event.comment.body == '/run-checks')
+    runs-on: macos-15
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+          ref: ${{ needs.detect-changes.outputs.checkout_ref || github.ref }}
+
+      - name: Skip tauri build
+        if: ${{ github.event_name == 'issue_comment' && needs.detect-changes.outputs.build != 'true' }}
+        run: echo "No build-relevant changes detected. tauri build is skipped." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Node.js
+        if: ${{ github.event_name != 'issue_comment' || needs.detect-changes.outputs.build == 'true' }}
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Setup Rust
+        if: ${{ github.event_name != 'issue_comment' || needs.detect-changes.outputs.build == 'true' }}
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-apple-darwin
+
+      - name: Install dependencies
+        if: ${{ github.event_name != 'issue_comment' || needs.detect-changes.outputs.build == 'true' }}
+        run: npm ci
+
+      - name: Disable macOS signing
+        if: ${{ github.event_name != 'issue_comment' || needs.detect-changes.outputs.build == 'true' }}
+        run: |
+          set -euo pipefail
+
+          cat > disable-macos-signing.cjs <<'SCRIPT'
+          const fs = require("fs");
+
+          const confPath = "src-tauri/tauri.conf.json";
+          const conf = JSON.parse(fs.readFileSync(confPath, "utf8"));
+
+          conf.bundle = conf.bundle || {};
+          conf.bundle.macOS = conf.bundle.macOS || {};
+          conf.bundle.macOS.signingIdentity = null;
+
+          fs.writeFileSync(confPath, JSON.stringify(conf, null, 2));
+          SCRIPT
+
+          node disable-macos-signing.cjs
+
+          node <<'SCRIPT'
+          const fs = require("fs");
+
+          const conf = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
+          if (conf.bundle?.macOS?.signingIdentity !== null) {
+            throw new Error("Failed to disable macOS signing.");
+          }
+
+          console.log("macOS signing is disabled for this CI build.");
+          SCRIPT
+
+      - name: Build Tauri app
+        if: ${{ github.event_name != 'issue_comment' || needs.detect-changes.outputs.build == 'true' }}
+        run: npm run tauri build -- --target aarch64-apple-darwin
+
+      - name: Collect macOS artifact
+        if: ${{ github.event_name != 'issue_comment' || needs.detect-changes.outputs.build == 'true' }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p release-assets
+
+          dmg_source=""
+          dmg_count=0
+          while IFS= read -r file; do
+            dmg_count=$((dmg_count + 1))
+            if [ "$dmg_count" -eq 1 ]; then
+              dmg_source="$file"
+            fi
+          done < <(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -type f -name '*.dmg' | sort)
+
+          if [ "$dmg_count" -eq 0 ]; then
+            echo "No macOS aarch64 DMG artifact found." >&2
+            exit 1
+          fi
+          if [ "$dmg_count" -gt 1 ]; then
+            echo "Multiple DMG candidates found under src-tauri/target/aarch64-apple-darwin/release/bundle/dmg." >&2
+            exit 1
+          fi
+
+          cp "$dmg_source" release-assets/floral-notepaper_macos_aarch64.dmg
+
+      - name: Upload macOS DMG artifact
+        if: ${{ github.event_name != 'issue_comment' || needs.detect-changes.outputs.build == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: floral-notepaper_macos_aarch64.dmg
+          path: release-assets/floral-notepaper_macos_aarch64.dmg
+          if-no-files-found: error
+          archive: false

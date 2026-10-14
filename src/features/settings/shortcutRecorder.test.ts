@@ -1,0 +1,35 @@
+import { describe, expect, test } from "vitest";
+import { formatHeldKeys, hotkeyToConfigString, isValidGlobalShortcut } from "./shortcutRecorder";
+
+describe("shortcutRecorder", () => {
+  test("serializes meta shortcuts into config strings", () => {
+    const layeredMetaShortcut = "Meta+Shift+P" as Parameters<typeof hotkeyToConfigString>[0];
+
+    expect(hotkeyToConfigString("Meta+K")).toBe("Meta+K");
+    expect(hotkeyToConfigString(layeredMetaShortcut)).toBe("Shift+Meta+P");
+  });
+
+  test("serializes mac shortcuts using Command and Option labels", () => {
+    const macShortcut = "Meta+Alt+N" as Parameters<typeof hotkeyToConfigString>[0];
+
+    expect(hotkeyToConfigString(macShortcut, "mac")).toBe("Command+Option+N");
+  });
+
+  test("resolves Mod alias to Command on macOS, not Ctrl", () => {
+    expect(hotkeyToConfigString("Mod+N", "mac")).toBe("Command+N");
+    expect(hotkeyToConfigString("Mod+Shift+P", "mac")).toBe("Command+Shift+P");
+  });
+
+  test("accepts meta as a valid global shortcut modifier", () => {
+    expect(isValidGlobalShortcut("Meta+K")).toBe(true);
+    expect(isValidGlobalShortcut("Shift+K")).toBe(false);
+  });
+
+  test("formats held meta keys for the recorder UI", () => {
+    expect(formatHeldKeys(["Meta", "P"])).toBe("Meta + P");
+  });
+
+  test("formats held mac keys with Command before Option", () => {
+    expect(formatHeldKeys(["Alt", "Meta", "N"], "mac")).toBe("Command + Option + N");
+  });
+});

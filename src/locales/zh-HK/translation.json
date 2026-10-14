@@ -1,0 +1,423 @@
+{
+  "about": {
+    "closeTitle": "關閉關於",
+    "contributors": "貢獻者",
+    "feedback": "反饋問題",
+    "github": "GitHub",
+    "license": "許可證",
+    "productName": "花箋",
+    "summary": "輕量、優雅、現代化的本地便箋工具",
+    "tipPrefix": "您知道嗎：",
+    "title": "關於",
+    "version": "版本：v{{version}}"
+  },
+  "common": {
+    "back": "返回",
+    "blankNote": "空白筆記",
+    "cancel": "取消",
+    "default": "預設",
+    "delete": "刪除",
+    "externalFileCount": "{{count}} 個外部檔案",
+    "noteCount": "{{count}} 篇筆記",
+    "operationFailed": "操作失敗",
+    "save": "儲存",
+    "untitledNote": "無標題筆記",
+    "untitledFile": "未命名檔案",
+    "wordCount": "{{count}} 字",
+    "wordCountUnit": "字"
+  },
+  "contextMenu": {
+    "edit": {
+      "copy": "複製",
+      "cut": "剪下",
+      "paste": "貼上",
+      "selectAll": "全選"
+    },
+    "tile": {
+      "close": "取消釘屏",
+      "copy": "複製",
+      "save": "儲存",
+      "switchToPad": "轉為小窗"
+    }
+  },
+  "errors": {
+    "categoryAlreadyExists": "分類「{{category}}」已存在",
+    "categoryNameEmpty": "分類名稱不能為空",
+    "categoryNameInvalidChars": "分類名稱不能包含特殊字元",
+    "categoryNotFound": "分類「{{category}}」不存在",
+    "desktopConfig": "桌面配置更新失敗",
+    "duplicateShortcut": "顯示／隱藏視窗快捷鍵不能與呼出小窗快捷鍵重複",
+    "imagePasteFailed": "圖片貼上失敗",
+    "imageTooLarge": "圖片檔案過大（上限 20 MB）",
+    "noPool": "便箋視窗池尚未初始化",
+    "noteNotFound": "找不到該筆記",
+    "unsupportedFile": "僅支援匯入 .md 檔案",
+    "unsupportedImageFormat": "不支援的圖片格式",
+    "unsupportedShortcut": "{{field}} 配置無效",
+    "unsupportedShortcutGeneric": "快捷鍵配置無效"
+  },
+  "markdown": {
+    "copied": "已複製",
+    "copy": "複製",
+    "emptyHint": "預覽區會顯示目前筆記內容",
+    "alert": {
+      "note": "備註",
+      "tip": "提示",
+      "important": "重要",
+      "warning": "警告",
+      "caution": "注意"
+    }
+  },
+  "main": {
+    "category": {
+      "confirmDelete": "確認刪除「{{category}}」？",
+      "confirmDeleteAction": "確認刪除",
+      "delete": "刪除分類",
+      "emptyFolder": "空資料夾",
+      "new": "新增分類",
+      "placeholder": "輸入分類名稱…",
+      "rename": "重新命名",
+      "uncategorized": "未分類"
+    },
+    "confirm": {
+      "unsavedExternalFile": "「{{title}}」有未儲存的變更，是否儲存到原檔案？"
+    },
+    "editor": {
+      "confirmDelete": "確認刪除？",
+      "contentPlaceholder": "開始寫作……",
+      "emptyHint": "選擇或新增一篇筆記",
+      "pinToTile": "釘為磁貼",
+      "previewLabel": "預覽",
+      "undo": "還原（Ctrl+Z）",
+      "undoLabel": "還原",
+      "redo": "重做（Ctrl+Y）",
+      "redoLabel": "重做"
+    },
+    "externalFile": {
+      "label": "外部檔案 · {{path}}"
+    },
+    "externalFiles": {
+      "remove": "從清單移除",
+      "title": "外部檔案"
+    },
+    "formatSample": {
+      "boldText": "粗體文字",
+      "codeText": "程式碼",
+      "headingText": "標題",
+      "italicText": "斜體文字",
+      "listItem": "清單項目",
+      "quoteText": "引用文字"
+    },
+    "search": {
+      "empty": "還沒有筆記",
+      "noResults": "沒有符合的筆記"
+    },
+    "sidebar": {
+      "clearSearch": "清除搜尋",
+      "importMarkdown": "匯入 Markdown",
+      "newNote": "新增筆記",
+      "searchPlaceholder": "搜尋筆記…"
+    },
+    "images": {
+      "cleanUnused": "清理未使用圖片",
+      "cleaned": "已清理 {{count}} 張圖片",
+      "cleanedNone": "沒有需要清理的圖片"
+    },
+    "statusBar": {
+      "byteSize": "{{size}} KB",
+      "encoding": "UTF-8",
+      "format": "Markdown + LaTeX",
+      "lineNumber": "第 {{count}} 行",
+      "saveState": {
+        "dirty": "未儲存",
+        "error": "儲存失敗",
+        "idle": "尚未選取",
+        "saved": "已儲存",
+        "saving": "儲存中"
+      }
+    },
+    "toolbar": {
+      "blockMath": "區塊公式",
+      "bold": "粗體",
+      "code": "程式碼",
+      "heading": "標題",
+      "hr": "分隔線",
+      "inlineMath": "行內公式",
+      "italic": "斜體",
+      "ol": "有序清單",
+      "quote": "引用",
+      "ul": "無序清單"
+    },
+    "window": {
+      "close": "關閉",
+      "collapseSidebar": "摺疊側欄",
+      "expandSidebar": "展開側欄",
+      "maximize": "最大化",
+      "minimize": "最小化",
+      "about": "關於",
+      "quickNotepad": "快捷便箋",
+      "restore": "還原視窗",
+      "settings": "設定"
+    }
+  },
+  "noteMenu": {
+    "delete": "刪除筆記",
+    "export": "匯出 Markdown",
+    "moveToCategory": "移至分類…"
+  },
+  "notepad": {
+    "button": {
+      "clear": "清除"
+    },
+    "emptyState": "還沒有可開啟的筆記",
+    "search": {
+      "clear": "清除搜尋",
+      "noResults": "沒有符合的筆記",
+      "placeholder": "搜尋筆記…"
+    },
+    "error": {
+      "copyUnsupported": "目前環境不支援複製"
+    },
+    "placeholder": {
+      "content": "寫點什麼……",
+      "title": "標題（可選）"
+    },
+    "status": {
+      "copied": "已複製",
+      "empty": "空",
+      "opened": "已開啟",
+      "saveFailed": "儲存失敗",
+      "saved": "已儲存",
+      "unsaved": "未儲存"
+    },
+    "tab": {
+      "edit": "編輯",
+      "new": "新增",
+      "open": "開啟"
+    },
+    "tooltip": {
+      "close": "關閉",
+      "openInEditor": "在編輯器中開啟",
+      "pinToTile": "轉為磁貼"
+    }
+  },
+  "settings": {
+    "autoSave": {
+      "externalFile": "外部檔案自動儲存",
+      "note": "自動儲存筆記",
+      "surface": "小窗筆記自動儲存"
+    },
+    "autostart": "開機自啟",
+    "closeTitle": "關閉設定",
+    "closeToTray": "關閉至系統匣",
+    "defaultView": {
+      "edit": "編輯",
+      "label": "預設檢視",
+      "preview": "預覽",
+      "split": "分欄"
+    },
+    "fontSize": {
+      "editor": "編輯器字級",
+      "surface": "小窗／磁貼字級"
+    },
+    "locale": {
+      "enUS": "English",
+      "label": "語言",
+      "zhCN": "簡體中文",
+      "zhHK": "繁體中文"
+    },
+    "dataDir": "數據目錄",
+    "openAtCursor": "快捷鍵開啟時跟隨滑鼠位置",
+    "quickNoteShortcut": "快捷記錄快捷鍵",
+    "rememberSurfaceSize": "記住小窗尺寸",
+    "tabIndentSize": "Tab 縮排寬度",
+    "selectFolder": "選擇資料夾",
+    "shortcut": {
+      "cancelHint": "Esc 取消",
+      "clear": "清除",
+      "checkFailed": "快捷鍵檢測失敗",
+      "checking": "正在檢測快捷鍵...",
+      "cleared": "快捷鍵已清除",
+      "clickToRecord": "點擊錄製",
+      "conflict": {
+        "current": "快捷鍵 {{shortcut}} 目前正在使用",
+        "invalid": "快捷鍵 {{shortcut}} 不受支援",
+        "none": "快捷鍵 {{shortcut}} 未檢測到衝突",
+        "registered": "快捷鍵 {{shortcut}} 可能已被系統或其他應用程式佔用",
+        "system": "快捷鍵 {{shortcut}} 與系統快捷鍵衝突",
+        "unknown": "檢測完成，但釋放臨時快捷鍵失敗"
+      },
+      "forQuickNote": "用於開啟快捷記錄小窗",
+      "needsModifier": "快捷鍵需要包含 Ctrl、Option/Alt 或 Command/Meta",
+      "notSet": "未設定",
+      "pressHint": "按下快捷鍵；按 Delete 清除。"
+    },
+    "theme": {
+      "dark": "深色",
+      "label": "主題",
+      "light": "淺色",
+      "system": "跟隨系統"
+    },
+    "tileColor": {
+      "custom": "自訂",
+      "followTheme": "跟隨主題",
+      "label": "磁貼顏色"
+    },
+    "tileCtrlClose": "Ctrl+右鍵快速關閉磁貼",
+    "tileRenderMarkdown": "磁貼渲染 Markdown",
+    "tileDoubleClickToEdit": "雙擊磁貼進入編輯",
+    "tileSaveReturnsToPin": "儲存後回到磁貼",
+    "renderHtmlMarkdown": "允許 HTML 標籤渲染",
+    "splitScrollSync": "分欄同步捲動",
+    "title": "應用程式設定",
+    "update": {
+      "advanced": "進階",
+      "allowPrerelease": "允許預發佈版本",
+      "autoCheck": "自動檢查更新",
+      "autoDownload": "有新版本時自動下載",
+      "available": "發現新版本 {{version}}",
+      "busy": "處理中",
+      "cancel": "取消下載",
+      "cancelRequested": "已要求取消下載",
+      "cancelled": "下載已取消",
+      "cdkCleared": "CDK 已清除",
+      "cdkSaved": "CDK 已儲存到系統安全儲存區",
+      "channel": {
+        "beta": "beta",
+        "stable": "stable"
+      },
+      "check": "檢查更新",
+      "checking": "正在檢查...",
+      "confirmClearCdk": "確認清除 Mirror 醬 CDK？",
+      "currentVersion": "目前版本：{{version}}",
+      "error": {
+        "alreadyRunning": "已有更新任務正在執行",
+        "cancelUnavailable": "目前沒有可取消的更新任務",
+        "checkTaskJoinFailed": "檢查更新任務執行失敗",
+        "cdkEmpty": "Mirror 醬 CDK 不能為空",
+        "downloadHashMismatch": "下載檔案雜湊校驗失敗",
+        "downloadHttpStatus": "下載請求失敗，請稍後重試",
+        "downloadManifestUnavailable": "目前階段未配置 GitHub 更新清單，無法下載更新包",
+        "downloadManifestUnreadable": "無法讀取 GitHub 更新清單",
+        "downloadNotReady": "目前沒有可下載的更新包",
+        "downloadSizeMismatch": "下載檔案大小校驗失敗",
+        "downloadSourceInvalid": "無效的下載來源參數",
+        "downloadTaskJoinFailed": "下載任務執行失敗",
+        "downloadUrlInvalid": "下載地址無效或未使用 HTTPS",
+        "downloadUrlNotAllowed": "下載地址不在允許清單中",
+        "helperNotFound": "找不到更新安裝助手可執行檔",
+        "installAssetHashMismatch": "更新包雜湊校驗失敗",
+        "installAssetMissing": "更新包檔案不存在或無法讀取",
+        "installAssetSizeMismatch": "更新包大小校驗失敗",
+        "installHelperHandshakeFailed": "更新安裝助手未能在退出前完成就緒握手",
+        "installHelperFailed": "更新安裝助手執行失敗",
+        "installHelperInvalidArguments": "更新安裝助手參數無效",
+        "installInsufficientSpace": "磁碟剩餘空間不足，無法繼續安裝更新",
+        "installLogWriteFailed": "無法寫入安裝日誌",
+        "installNotReady": "目前沒有可安裝的更新包",
+        "installSaveFailed": "安裝前自動儲存失敗，請先處理目前未儲存內容後重試",
+        "installSaveTimedOut": "等待視窗儲存未儲存內容逾時，請稍後重試",
+        "installSpawnFailed": "啟動更新安裝助手失敗",
+        "installWaitTimedOut": "等待應用退出逾時，請重新安裝",
+        "installUnsupportedKind": "目前安裝型態暫不支援應用內安裝",
+        "installAssetExtractFailed": "無法解包更新資源，請重新下載後重試",
+        "installInstallerBusy": "另一個安裝程式正在執行，請稍後重試",
+        "installInstallerCancelled": "更新安裝已取消",
+        "installReplaceFailed": "替換目前安裝內容失敗，請稍後重試",
+        "installRelaunchFailed": "更新完成後重新啟動應用失敗，請手動重新打開應用",
+        "installStateWriteFailed": "無法寫入安裝狀態檔案",
+        "installCleanupFailed": "安裝後清理臨時檔案失敗",
+        "installInstallerFailed": "更新安裝程式執行失敗",
+        "installInstallerFatal": "更新安裝程式回傳致命錯誤",
+        "installInstallerTimedOut": "更新安裝程式執行逾時，請稍後重試",
+        "installTargetMissing": "目前安裝目標不存在，無法繼續",
+        "installVersionMismatch": "安裝後重新打開的仍是舊版本，請直接重試安裝",
+        "installTaskJoinFailed": "安裝任務執行失敗",
+        "mirrorChyanDownloadUnavailable": "Mirror 下載來源尚未配置，目前階段請改用 GitHub 下載",
+        "mirrorChyanApi": "Mirror 醬 API 請求失敗，請檢查網絡後重試",
+        "mirrorChyanCdk": "Mirror 醬 CDK 驗證失敗，請檢查 CDK 是否正確",
+        "mirrorChyanCdkExpired": "Mirror 醬 CDK 已過期，請續費或更換",
+        "mirrorChyanCdkInvalid": "Mirror 醬 CDK 錯誤，請確認輸入是否正確",
+        "mirrorChyanCdkQuotaExhausted": "Mirror 醬 CDK 今日下載次數已達上限，請明日再試或升級套餐",
+        "mirrorChyanCdkMismatched": "Mirror 醬 CDK 類型與本應用不匹配，請確認 CDK 對應的資源",
+        "mirrorChyanCdkBlocked": "Mirror 醬 CDK 已被封禁，請聯繫 Mirror 醬客服處理",
+        "mirrorChyanInvalidParams": "Mirror 醬請求參數不正確，請更新應用後重試",
+        "mirrorChyanResourceNotFound": "Mirror 醬暫無目前平台的資源，請改用 GitHub 下載",
+        "mirrorChyanInvalidOs": "Mirror 醬不支援目前作業系統參數，請更新應用後重試",
+        "mirrorChyanInvalidArch": "Mirror 醬不支援目前架構參數，請更新應用後重試",
+        "mirrorChyanInvalidChannel": "Mirror 醬不支援目前更新通道參數，請更新應用後重試",
+        "mirrorChyanBusiness": "Mirror 醬返回了業務錯誤，請稍後重試",
+        "mirrorChyanDownloadNeedCdk": "Mirror 醬未返回下載連結，請配置有效的 CDK 後重試",
+        "platformUnsupported": "目前平台或安裝型態暫不支援應用內更新",
+        "portableManualOnly": "目前可攜版僅支援手動下載更新包後覆蓋升級",
+        "providerFixtureUnreadable": "無法讀取本地更新測試清單",
+        "secureStoreUnavailable": "系統安全儲存區暫不可用，請稍後重試",
+        "sourceNotConfigured": "更新來源尚未配置，目前階段僅支援本地測試清單注入",
+        "githubApi": "GitHub API 請求失敗，請檢查網絡後重試",
+        "githubRateLimited": "GitHub API 頻率限制，請稍後重試",
+        "githubNoAssets": "GitHub Release 中沒有找到可用資產"
+      },
+      "confirmInstall": "應用會先儲存所有未儲存內容，然後關閉、安裝更新，並在完成後重新打開。是否繼續？",
+      "download": "下載更新",
+      "downloaded": "版本 {{version}} 已下載完成",
+      "interval": {
+        "custom": "{{hours}} 小時",
+        "daily": "每天",
+        "label": "檢查頻率",
+        "weekly": "每週"
+      },
+      "install": "安裝並重新啟動",
+      "installFailed": "最近一次安裝失敗，可查看日誌後重試或重新下載",
+      "installFailedTitle": "安裝更新失敗",
+      "installPreparing": "正在準備退出應用並安裝更新...",
+      "installRetry": "重新嘗試安裝",
+      "installScheduled": "偵測到舊版待安裝狀態，請重新點擊「安裝並重新啟動」完成替換",
+      "installValidated": "應用即將退出並安裝更新，完成後會自動重新打開",
+      "latestVersion": "待更新版本：{{version}}",
+      "loading": "正在讀取更新設定...",
+      "mirrorChyan": {
+        "hideCdk": "隱藏 CDK",
+        "noCdkHint": "沒有或者忘記 CDK？點擊前往 ",
+        "noCdkHintSuffix": " 官網即刻獲取。",
+        "placeholder": "點擊輸入文本",
+        "showCdk": "顯示 CDK",
+        "title": "Mirror 醬 CDK"
+      },
+      "notAvailable": "目前已是最新版本",
+      "saved": "更新設定已儲存",
+      "settingsTitle": "更新設定",
+      "speed": "速度：{{speed}}",
+      "checkSource": {
+        "label": "檢查更新來源",
+        "github": "GitHub",
+        "mirrorChyan": "Mirror醬"
+      },
+      "source": {
+        "github": "GitHub",
+        "label": "下載來源",
+        "mirrorChyan": "Mirror醬"
+      },
+      "title": "更新"
+    },
+    "visibilityShortcut": "顯示／隱藏視窗快捷鍵",
+    "background": {
+      "label": "背景圖片",
+      "default": "預設背景",
+      "choose": "選擇",
+      "clear": "清除背景圖片",
+      "dim": "遮罩",
+      "scale": "縮放",
+      "positionX": "橫向",
+      "positionY": "縱向",
+      "blur": "模糊",
+      "fit": {
+        "cover": "填充",
+        "contain": "完整",
+        "repeat": "平鋪"
+      }
+    }
+  },
+  "tile": {
+    "empty": "空"
+  }
+}

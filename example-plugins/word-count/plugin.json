@@ -1,0 +1,6 @@
+{
+  "name": "word-count",
+  "version": "1.0.0",
+  "main": "index.js",
+  "description": "统计当前笔记的字数、行数与字符数"
+}
