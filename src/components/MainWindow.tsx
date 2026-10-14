@@ -10,7 +10,9 @@ import { MarkdownPreview } from "../features/markdown/MarkdownPreview";
 import { renderMarkdownHighlight } from "../features/markdown/syntaxHighlight";
 import { showToast } from "./Toast";
 import { PluginCommandPanel } from "./PluginCommandPanel";
+import { CommandPalette } from "./CommandPalette";
 import { FindReplacePanel } from "./FindReplacePanel";
+import { dispatchCommandKeybinding, registerBuiltinCommand } from "../features/commands/registry";
 import { createEditorAccessor, registerActiveContent } from "../features/plugins/activeContent";
 import {
   emitContentChanged,
@@ -24,9 +26,13 @@ import {
   updatePluginEditorMirror,
 } from "../features/plugins/loader";
 import {
+  listNoteMenuItems,
   listPluginPanels,
+  listToolbarButtons,
   notifyContentChanged,
+  subscribeNoteMenuItems,
   subscribePluginPanels,
+  subscribeToolbarButtons,
 } from "../features/plugins/registry";
 import { sanitizePluginHtml } from "../features/plugins/sanitizeHtml";
 import {
@@ -385,6 +391,7 @@ export function MainWindow({
   );
   // 订阅插件缓存 store：v2 面板的 HTML 是异步拉取后写进缓存的，更新时要触发重渲染。
   useSyncExternalStore(subscribePluginStores, pluginStoresRevision, pluginStoresRevision);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [activeSelection, setActiveSelection] = useState<Selection | null>(null);
   const [highlightRects, setHighlightRects] = useState<SelectionRect[]>([]);
   const [editorScrollTop, setEditorScrollTop] = useState(0);
@@ -610,6 +617,18 @@ export function MainWindow({
     [noteMenu?.noteId, notes],
   );
   const noteContextMenuItems = useMemo(() => getNoteContextMenuItems(t), [t]);
+  // 插件贡献的笔记列表右键菜单项。
+  const notePluginMenuItems = useSyncExternalStore(
+    subscribeNoteMenuItems,
+    listNoteMenuItems,
+    listNoteMenuItems,
+  );
+  // 插件贡献的编辑器工具栏按钮。
+  const toolbarPluginButtons = useSyncExternalStore(
+    subscribeToolbarButtons,
+    listToolbarButtons,
+    listToolbarButtons,
+  );
   const saveStateLabel = useMemo<Record<SaveState, string>>(
     () => ({
       idle: t("main.statusBar.saveState.idle", { defaultValue: "未选择" }),
@@ -1376,6 +1395,64 @@ export function MainWindow({
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [saveCurrentNote]);
+
+  // Ctrl/Cmd+Shift+P 呼出命令面板。
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.shiftKey &&
+        event.key.toLowerCase() === "p"
+      ) {
+        event.preventDefault();
+        setCommandPaletteOpen((open) => !open);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  // 把内置动作登记进统一命令表，让命令面板不至于只有插件命令。
+  // 注意：这些命令**不绑定键位**——Ctrl+S / Ctrl+H 等已有 document 级监听器，
+  // 再绑一次会导致同一次按键被处理两遍（preventDefault 不会阻止 document 上的监听器）。
+  useEffect(() => {
+    const disposables = [
+      registerBuiltinCommand({
+        id: "builtin.save",
+        title: t("main.command.save", { defaultValue: "保存当前笔记" }),
+        run: () => saveCurrentNote(true).then(() => undefined),
+      }),
+      registerBuiltinCommand({
+        id: "builtin.cycle-view",
+        title: t("main.command.cycleView", { defaultValue: "切换编辑 / 分屏 / 预览" }),
+        run: () =>
+          setViewMode((mode) => {
+            const index = viewModeOptions.findIndex((option) => option.value === mode);
+            const next = viewModeOptions[(index + 1) % viewModeOptions.length];
+            return next ? next.value : mode;
+          }),
+      }),
+      registerBuiltinCommand({
+        id: "builtin.find",
+        title: t("main.command.find", { defaultValue: "查找与替换" }),
+        run: () => setFindReplaceOpen(true),
+      }),
+      registerBuiltinCommand({
+        id: "builtin.settings",
+        title: t("main.command.settings", { defaultValue: "打开设置" }),
+        run: () => togglePanel("settings"),
+      }),
+      registerBuiltinCommand({
+        id: "builtin.plugins",
+        title: t("main.command.plugins", { defaultValue: "打开插件面板" }),
+        run: () => togglePanel("plugins"),
+      }),
+    ];
+
+    return () => {
+      for (const disposable of disposables) disposable.dispose();
+    };
+  }, [saveCurrentNote, t, togglePanel, viewModeOptions]);
 
   useEffect(() => {
     if (!selectedId || saveState !== "dirty") return undefined;
@@ -3332,6 +3409,24 @@ export function MainWindow({
                             {button.label}
                           </button>
                         ))}
+                        {toolbarPluginButtons.map((button) => (
+                          <button
+                            key={button.id}
+                            type="button"
+                            title={`${button.title}（插件 ${button.plugin}）`}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              void Promise.resolve()
+                                .then(() => button.run())
+                                .catch((error: unknown) =>
+                                  showToast(`插件工具栏按钮执行失败：${String(error)}`),
+                                );
+                            }}
+                            className="h-6 px-2 flex items-center justify-center rounded text-[11px] text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50 transition-all cursor-pointer"
+                          >
+                            {button.icon ?? button.title}
+                          </button>
+                        ))}
                       </div>
 
                       <div className="relative flex-1 min-h-0 overflow-hidden px-5 pb-4">
@@ -3381,7 +3476,10 @@ export function MainWindow({
                               setFindReplaceOpen((open) => !open);
                               return;
                             }
-                            handleMarkdownShortcut(event);
+                            // 内置快捷键优先，插件键位只在其未被处理时才介入，
+                            // 否则插件可以用一个键位把 Ctrl+B 抢走。
+                            if (handleMarkdownShortcut(event)) return;
+                            dispatchCommandKeybinding(event);
                           }}
                           className="relative w-full h-full leading-[1.9] text-ink-soft font-body placeholder:text-ink-ghost/40"
                           style={{
@@ -3656,6 +3754,33 @@ export function MainWindow({
                   <span>{item.label}</span>
                 </button>
               ))}
+              {notePluginMenuItems.length > 0 ? (
+                <>
+                  {notePluginMenuItems.map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => {
+                        const target = noteMenuTarget;
+                        setNoteMenu(null);
+                        void Promise.resolve()
+                          .then(() => item.run(target.id))
+                          .catch((error: unknown) => {
+                            showToast(
+                              t("main.pluginMenu.failed", {
+                                defaultValue: "插件菜单项执行失败：{{error}}",
+                                error: String(error),
+                              }),
+                            );
+                          });
+                      }}
+                      className="w-full flex items-center justify-between px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer border-t border-paper-deep/20"
+                    >
+                      <span>{item.title}</span>
+                      <span className="text-[10px] text-ink-ghost">{item.plugin}</span>
+                    </button>
+                  ))}
+                </>
+              ) : null}
             </div>
           ) : (
             <div key="move" className="animate-menu-slide-left">
@@ -3759,6 +3884,10 @@ export function MainWindow({
           )}
         </div>
       )}
+
+      {commandPaletteOpen ? (
+        <CommandPalette onClose={() => setCommandPaletteOpen(false)} />
+      ) : null}
     </div>
   );
 }

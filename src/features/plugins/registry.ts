@@ -198,6 +198,18 @@ export interface PluginMenuItem {
   run: () => void | Promise<void>;
 }
 
+/**
+ * 笔记列表右键菜单项。
+ *
+ * 与编辑器菜单项的区别：`run` 需要知道用户右键的是哪一篇笔记，因此带一个 noteId。
+ */
+export interface PluginNoteMenuItem {
+  id: string;
+  title: string;
+  plugin: string;
+  run: (noteId: string) => void | Promise<void>;
+}
+
 export interface PluginToolbarButton {
   id: string;
   title: string;
@@ -207,7 +219,7 @@ export interface PluginToolbarButton {
 }
 
 const editorMenuItems = new OwnedRegistry<PluginMenuItem>();
-const noteMenuItems = new OwnedRegistry<PluginMenuItem>();
+const noteMenuItems = new OwnedRegistry<PluginNoteMenuItem>();
 const toolbarButtons = new OwnedRegistry<PluginToolbarButton>();
 
 export function registerEditorMenuItem(item: PluginMenuItem): Disposable {
@@ -222,11 +234,11 @@ export function subscribeEditorMenuItems(listener: () => void): () => void {
   return editorMenuItems.subscribe(listener);
 }
 
-export function registerNoteMenuItem(item: PluginMenuItem): Disposable {
+export function registerNoteMenuItem(item: PluginNoteMenuItem): Disposable {
   return noteMenuItems.register(item.plugin, item);
 }
 
-export function listNoteMenuItems(): PluginMenuItem[] {
+export function listNoteMenuItems(): PluginNoteMenuItem[] {
   return noteMenuItems.list();
 }
 

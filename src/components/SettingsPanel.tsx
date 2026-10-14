@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { checkGlobalShortcut, chooseBackgroundImage } from "../features/settings/api";
 import { UpdateSettingsSection } from "../features/update/UpdateSettingsSection";
+import { PluginSettingsSection } from "./PluginSettingsSection";
 import type {
   AccentColor,
   AppConfig,
@@ -523,6 +524,8 @@ export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: S
             onChange={(v) => setConfigValue("defaultViewMode", v)}
           />
         </section>
+
+        <PluginSettingsSection />
 
         <UpdateSettingsSection mode="settingsOnly" />
 

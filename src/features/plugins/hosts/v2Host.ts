@@ -386,7 +386,8 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
           id: `${owner}:${contribution.id}`,
           title: contribution.title,
           plugin: owner,
-          run: () => invokeHandler(contribution.runToken, []).then(() => undefined),
+          // 把用户右键的那篇笔记 id 一并交给插件，否则它无从知道作用于哪一篇。
+          run: (noteId) => invokeHandler(contribution.runToken, [noteId]).then(() => undefined),
         }),
       );
     },

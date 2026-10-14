@@ -4,6 +4,7 @@ import { ContextMenuProvider } from "./components/ContextMenu";
 import { MainWindow } from "./components/MainWindow";
 import { NotePad } from "./components/NotePad";
 import { TileShowcase } from "./components/TileShowcase";
+import { PluginPromptDialog } from "./components/PluginPromptDialog";
 import { ToastContainer } from "./components/Toast";
 import { tabToIndentListener } from "indent-textarea";
 import { getConfig } from "./features/settings/api";
@@ -96,6 +97,7 @@ function App() {
           <TileShowcase noteId={route.noteId} />
         )}
         <ToastContainer />
+        <PluginPromptDialog />
       </div>
     </ContextMenuProvider>
   );

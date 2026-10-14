@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
+import {
+  listEditorMenuItems,
+  subscribeEditorMenuItems,
+} from "../features/plugins/registry";
 import { getConfig } from "../features/settings/api";
 import type { AppConfig } from "../features/settings/types";
 import { requestSurfaceAction } from "../features/windows/surfaceActions";
@@ -31,6 +35,12 @@ export function ContextMenuProvider({ children }: { children: React.ReactNode })
   );
   const tileCtrlCloseRef = useRef(true);
   const tileContextMenuItems = useMemo(() => getTileContextMenuItems(t), [t]);
+  // 插件贡献的编辑器右键菜单项。
+  const editorMenuItems = useSyncExternalStore(
+    subscribeEditorMenuItems,
+    listEditorMenuItems,
+    listEditorMenuItems,
+  );
 
   useEffect(() => {
     getConfig()
@@ -210,9 +220,25 @@ export function ContextMenuProvider({ children }: { children: React.ReactNode })
                 action: () => runCommand("selectAll"),
                 disabled: false,
               },
+              // 插件贡献的编辑器菜单项。没有插件注册时不留多余分隔线。
+              ...editorMenuItems.flatMap((item) => [
+                { separator: true as const },
+                {
+                  label: item.title,
+                  shortcut: "",
+                  action: () => {
+                    void Promise.resolve()
+                      .then(() => item.run())
+                      .catch((error: unknown) => {
+                        console.error(`[plugins] 菜单项 ${item.id} 执行失败`, error);
+                      });
+                  },
+                  disabled: false,
+                },
+              ]),
             ]
         : [],
-    [menu, runCommand, t, tileContextMenuItems],
+    [menu, runCommand, t, tileContextMenuItems, editorMenuItems],
   );
 
   return (

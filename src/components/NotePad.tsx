@@ -13,7 +13,9 @@ import { reportInstallPreparation } from "../features/update/api";
 import type { UpdateInstallPrepareRequest } from "../features/update/types";
 import { showToast } from "./Toast";
 import { PluginCommandPanel } from "./PluginCommandPanel";
+import { CommandPalette } from "./CommandPalette";
 import { FindReplacePanel } from "./FindReplacePanel";
+import { dispatchCommandKeybinding } from "../features/commands/registry";
 import { createEditorAccessor, registerActiveContent } from "../features/plugins/activeContent";
 import {
   emitContentChanged,
@@ -172,6 +174,7 @@ export function NotePad({
   const [textRenderColor, setTextRenderColor] = useState("");
   const [isExiting, setIsExiting] = useState(false);
   const [pluginsPanelOpen, setPluginsPanelOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [activeSelection, setActiveSelection] = useState<Selection | null>(null);
   const [editorScrollTop, setEditorScrollTop] = useState(0);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -353,6 +356,22 @@ export function NotePad({
 
   useEffect(() => {
     emitFloralEvent("workspace:ready", undefined);
+  }, []);
+
+  // Ctrl/Cmd+Shift+P 呼出命令面板。
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.shiftKey &&
+        event.key.toLowerCase() === "p"
+      ) {
+        event.preventDefault();
+        setCommandPaletteOpen((open) => !open);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
 
   useEffect(() => {
@@ -1194,6 +1213,8 @@ export function NotePad({
                     }
                     // Markdown 快捷键（Ctrl+B/I//\ 等）
                     if (handleMarkdownShortcut(event)) return;
+                    // 内置快捷键优先，插件键位只在其未被处理时才介入。
+                    if (dispatchCommandKeybinding(event)) return;
 
                     if (event.key === "ArrowUp") {
                       const ta = contentRef.current;
@@ -1326,6 +1347,9 @@ export function NotePad({
           onClose={() => setFindReplaceOpen(false)}
         />
       )}
+      {commandPaletteOpen ? (
+        <CommandPalette onClose={() => setCommandPaletteOpen(false)} />
+      ) : null}
     </div>
   );
 }
