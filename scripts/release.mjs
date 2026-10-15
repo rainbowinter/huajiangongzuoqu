@@ -166,16 +166,116 @@ writeFileSync(join(uploadDir, "latest.json"), `${JSON.stringify(manifest, null, 
 
 // ---------------------------------------------------------------- 5. 收尾
 
-console.log(`\n[release] 完成。把下面这四个文件传进 GitHub Release（tag 用 v${version}）：`);
-console.log(`  （目录：src-tauri/target/release/upload-${version}/）`);
-for (const file of [`${assetBase}.exe`, assetName, `${assetName}.sig`, "latest.json"]) {
+const uploadFiles = [`${assetBase}.exe`, assetName, `${assetName}.sig`, "latest.json"];
+
+console.log(`\n[release] 产物就绪（目录：src-tauri/target/release/upload-${version}/）：`);
+for (const file of uploadFiles) {
   console.log(`    ${file}`);
 }
-console.log(
-  `\n[release] url 写的是：${assetUrl}\n` +
-    "[release] ⚠️ 资产名必须与上面完全一致（全 ASCII），GitHub 不会自己改名。",
-);
-console.log("\n[release] 别忘了：更新端点必须是 https，配置见 Docs/auto-update.md。");
+console.log(`[release] url 写的是：${assetUrl}`);
+
+// ---------------------------------------------------------------- 6. 上传
+
+const token = (
+  process.env.FLORAL_RELEASE_TOKEN ??
+  process.env.GITHUB_TOKEN ??
+  process.env.GH_TOKEN ??
+  ""
+).trim();
+
+if (args.includes("--upload")) {
+  if (!token) {
+    console.error(
+      "\n[release] --upload 需要一个 GitHub token，但环境里没有。\n" +
+        "[release] 建一个 fine-grained token（只勾这个仓库的 Contents: Read and write），放进\n" +
+        "[release]   FLORAL_RELEASE_TOKEN  或  GITHUB_TOKEN  （**别写进仓库**）",
+    );
+    process.exit(1);
+  }
+  await upload(token).catch((error) => {
+    console.error(`\n[release] 上传失败：${error.message}`);
+    process.exit(1);
+  });
+} else {
+  console.log("\n[release] 没带 --upload，上面四个文件请手工拖进 GitHub Release。");
+  console.log("[release] 想一条命令发完，设好 token 后加 --upload。");
+}
+
+/**
+ * 建/更新 Release 并把四个产物传上去。
+ *
+ * 用 REST API 而不是 `gh`（本机没装）。要注意的都在这：
+ *
+ * * **必须发成正式 Release**（`draft: false` / `prerelease: false`）——
+ *   更新端点是 `releases/latest/download/...`，草稿和预发布都不会被它指到。
+ * * 同名资产已存在时要先删再传，否则 API 会 422。
+ * * 二进制走 `uploads.github.com`，不是 `api.github.com`。
+ */
+async function upload(token) {
+  const tag = `v${version}`;
+  const api = `https://api.github.com/repos/${repoArg}`;
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": "floral-notepaper-release",
+  };
+
+  const request = async (url, options = {}) => {
+    const response = await fetch(url, { ...options, headers: { ...headers, ...options.headers } });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`${options.method ?? "GET"} ${url} → ${response.status} ${text.slice(0, 300)}`);
+    }
+    return response.status === 204 ? null : response.json();
+  };
+
+  // 释放可能已存在的同名资产（重复发布时）
+  let release = await fetch(`${api}/releases/tags/${tag}`, { headers }).then((r) =>
+    r.ok ? r.json() : null,
+  );
+
+  if (!release) {
+    console.log(`[release] 新建 Release ${tag}…`);
+    release = await request(`${api}/releases`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tag_name: tag,
+        name: `${productName} ${version}`,
+        body: manifest.notes,
+        draft: false,
+        prerelease: false,
+      }),
+    });
+  } else {
+    console.log(`[release] Release ${tag} 已存在，复用（资产按名字覆盖）`);
+  }
+
+  const existing = new Map((release.assets ?? []).map((asset) => [asset.name, asset.id]));
+
+  for (const file of uploadFiles) {
+    const name = file;
+    if (existing.has(name)) {
+      console.log(`[release] 删除同名旧资产 ${name}`);
+      await request(`${api}/releases/assets/${existing.get(name)}`, { method: "DELETE" });
+    }
+
+    const body = readFileSync(join(uploadDir, file));
+    console.log(`[release] 上传 ${name}（${(body.length / 1048576).toFixed(1)} MB）…`);
+    await request(
+      `https://uploads.github.com/repos/${repoArg}/releases/${release.id}/assets?name=${encodeURIComponent(name)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream", "Content-Length": String(body.length) },
+        body,
+      },
+    );
+  }
+
+  console.log(`\n[release] 上传完成：https://github.com/${repoArg}/releases/tag/${tag}`);
+  console.log("[release] 装了这个版本之后的机器，下次发版就会自动收到提示。");
+}
 
 /** 用 7-Zip（如果装了）或 PowerShell 的 Compress-Archive 打一个 zip。 */
 function makeZip(source, destination) {
