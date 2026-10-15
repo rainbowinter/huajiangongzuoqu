@@ -39,6 +39,16 @@ export function readWorkspaceFile(path: string): Promise<string> {
   return invoke("workspace_read_file", { path });
 }
 
+/**
+ * 读工作区文件的**原始字节**（PDF 这类二进制走这条）。
+ *
+ * 命令返回的是 `tauri::ipc::Response`，所以 `invoke` 直接给到 `ArrayBuffer` ——
+ * 不经 JSON 数组、不做 base64，也不会因为不是 UTF-8 而失败。
+ */
+export function readWorkspaceFileBytes(path: string): Promise<ArrayBuffer> {
+  return invoke<ArrayBuffer>("workspace_read_file_bytes", { path });
+}
+
 export function writeWorkspaceFile(path: string, content: string): Promise<void> {
   return invoke("workspace_write_file", { path, content });
 }

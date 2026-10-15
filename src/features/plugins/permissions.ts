@@ -29,6 +29,7 @@ export const PERMISSIONS = [
   "ui:decorations",
   "events",
   "files:register",
+  "files:view",
   "storage",
   "settings",
   "system:clipboard:read",

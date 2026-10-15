@@ -67,6 +67,11 @@ export function readExternalFile(path: string): Promise<string> {
   return invoke("read_external_file", { path });
 }
 
+/** 读外部文件的原始字节。见 `readWorkspaceFileBytes` 的说明。 */
+export function readExternalFileBytes(path: string): Promise<ArrayBuffer> {
+  return invoke<ArrayBuffer>("read_external_file_bytes", { path });
+}
+
 export function saveExternalFile(path: string, content: string): Promise<void> {
   return invoke("save_external_file", { path, content });
 }

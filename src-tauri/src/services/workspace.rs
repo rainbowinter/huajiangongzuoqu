@@ -297,6 +297,31 @@ pub fn read_text_file(roots: &[PathBuf], raw: &str) -> Result<String, AppError> 
     std::fs::read_to_string(&path).map_err(|_| err("workspaceFileNotText", "文件不是有效的 UTF-8 文本"))
 }
 
+/// 单个二进制文件的上限。
+///
+/// 比文本那条（4MB）宽得多：PDF 动辄几十兆。但它仍然是个**上限** —— 这条路径会把整份
+/// 文件读进内存再经 IPC 递出去，不设限的话一个几百兆的文件就能把两侧都拖垮。
+/// 流式传输留待以后。
+const MAX_BINARY_BYTES: u64 = 64 * 1024 * 1024;
+
+/// 读一个二进制文件，原样返回字节。
+///
+/// 与 [`read_text_file`] 的区别只在「不要求是 UTF-8」—— 路径校验、越界拒绝、大小上限
+/// 这些规矩完全一样，所以 PDF 走这条不会比文本文件拿到更大的权限。
+pub fn read_binary_file(roots: &[PathBuf], raw: &str) -> Result<Vec<u8>, AppError> {
+    let path = ensure_inside(roots, Path::new(raw.trim()))?;
+
+    let metadata = std::fs::metadata(&path).map_err(|_| err("workspacePathMissing", "文件不存在"))?;
+    if !metadata.is_file() {
+        return Err(err("workspaceNotFile", "目标不是文件"));
+    }
+    if metadata.len() > MAX_BINARY_BYTES {
+        return Err(err("workspaceFileTooLarge", "文件过大，暂不支持打开"));
+    }
+
+    std::fs::read(&path).map_err(|_| err("workspaceReadFailed", "读取文件失败"))
+}
+
 /// 写回一个文本文件；目标不存在时创建。
 pub fn write_text_file(roots: &[PathBuf], raw: &str, content: &str) -> Result<(), AppError> {
     let path = resolve_target(roots, raw)?;
@@ -432,6 +457,49 @@ mod tests {
     /// 否则拿未规范化的短路径去比前缀会误判成越界。
     fn roots_of(folders: &[&Path]) -> Vec<PathBuf> {
         roots_from_config(&as_strings(folders))
+    }
+
+    #[test]
+    fn reads_binary_bytes_verbatim() {
+        let root = temp_dir("bytes");
+        // 非 UTF-8 的字节序列：文本那条路径会明确拒绝，字节这条路必须原样带回来。
+        let payload: Vec<u8> = vec![0x25, 0x50, 0x44, 0x46, 0x00, 0xFF, 0xFE, 0x80];
+        fs::write(root.join("sample.pdf"), &payload).unwrap();
+
+        let bytes = read_binary_file(&roots_of(&[&root]), &root.join("sample.pdf").to_string_lossy())
+            .expect("应当读得到");
+
+        assert_eq!(bytes, payload);
+    }
+
+    #[test]
+    fn refuses_binary_reads_outside_the_roots() {
+        let root = temp_dir("bytes-outside");
+        let outside = temp_dir("elsewhere");
+        let target = outside.join("secret.bin");
+        fs::write(&target, b"not yours").unwrap();
+
+        let error = read_binary_file(&roots_of(&[&root]), &target.to_string_lossy())
+            .expect_err("工作区之外的文件不该读得到");
+
+        assert_eq!(error.code, "workspacePathOutside");
+    }
+
+    #[test]
+    fn refuses_binary_reads_over_the_size_limit() {
+        let root = temp_dir("bytes-huge");
+        let target = root.join("huge.bin");
+        fs::write(&target, b"x").unwrap();
+        // 不真写 64MB：把文件长度"说大"再靠 metadata 判断才是生产逻辑，这里直接造一个
+        // 稀疏文件即可（Windows 上 set_len 同样有效且不占空间）。
+        let file = fs::OpenOptions::new().write(true).open(&target).unwrap();
+        file.set_len(MAX_BINARY_BYTES + 1).unwrap();
+        drop(file);
+
+        let error = read_binary_file(&roots_of(&[&root]), &target.to_string_lossy())
+            .expect_err("超过上限应当被拒");
+
+        assert_eq!(error.code, "workspaceFileTooLarge");
     }
 
     #[test]

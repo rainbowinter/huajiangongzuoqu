@@ -20,7 +20,8 @@ export type FilePreviewKind =
   | "image"
   | "media"
   | "none"
-  | "custom";
+  | "custom"
+  | "view";
 
 const FILE_PREVIEW_KINDS = [
   "code",
@@ -31,6 +32,7 @@ const FILE_PREVIEW_KINDS = [
   "media",
   "none",
   "custom",
+  "view",
 ] as const;
 
 const KIND_SET: ReadonlySet<string> = new Set(FILE_PREVIEW_KINDS);
@@ -90,6 +92,24 @@ export interface FileType {
    * 可选值见 `features/markdown/codeThemes.ts` 的 `CODE_THEMES`。
    */
   highlightTheme?: CodeThemePreference;
+  /**
+   * `kind === "view"` 时的视图声明：插件把自己的 HTML / CSS / JS 交出来，
+   * 由宿主读成文本、拼成一份 `srcdoc`，塞进 `sandbox="allow-scripts"` 的 iframe。
+   *
+   * 与 `custom` 的区别是**能跑代码**（canvas、自己的脚本、blob Worker 都行），代价是
+   * 它在帧里拿不到任何 Tauri 能力 —— 边界与理由见 `Docs/plugin-view-sandbox.md`。
+   * 路径都相对插件目录。
+   */
+  view?: FileViewSpec;
+}
+
+export interface FileViewSpec {
+  /** 骨架 HTML。宿主会把下面的 css / js 内联进去后整体作为 srcdoc。 */
+  html: string;
+  /** 按顺序内联进 `<style>` 的样式表。 */
+  css?: string[];
+  /** 按顺序拼进同一个内联 module 的脚本。 */
+  js?: string[];
 }
 
 /** 宿主内置：只认 Markdown。其余全部依赖插件。 */

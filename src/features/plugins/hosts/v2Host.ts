@@ -735,6 +735,23 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
         });
       }
 
+      // 视图比「只登记一条扩展名规则」能力更强：插件交出来的代码会在宿主给的沙箱里
+      // **真的跑起来**（能画 canvas）。所以除了 files:register，还要单独一道 files:view ——
+      // 用户撤掉它就能让视图失效，而不必整个插件停用。沙箱边界见 Docs/plugin-view-sandbox.md。
+      const view = contribution.view;
+      if (contribution.kind === "view" && !view) {
+        throw Object.assign(new Error("kind 为 view 时必须提供 view 声明（html 必填）"), {
+          code: "invalidArgument",
+          details: { kind: contribution.kind },
+        });
+      }
+      if (view && !isGranted(declared, granted, "files:view")) {
+        throw Object.assign(new Error("注册文件视图需要 files:view 权限"), {
+          code: "permissionDenied",
+          details: { permission: "files:view" },
+        });
+      }
+
       const renderToken = contribution.renderToken;
       const dispose = registerHostFileType(
         {
@@ -747,6 +764,7 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
           ...(contribution.language ? { language: contribution.language } : {}),
           ...(contribution.font ? { font: contribution.font } : {}),
           ...(contribution.highlightTheme ? { highlightTheme: contribution.highlightTheme } : {}),
+          ...(view ? { view } : {}),
         },
         renderToken
           ? async (file) => {

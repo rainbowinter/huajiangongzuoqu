@@ -284,6 +284,30 @@ fn workspace_read_file(path: String) -> Result<String, AppError> {
     workspace::read_text_file(&workspace::roots_from_config(&config.workspace_folders), &path)
 }
 
+/// 读工作区文件的原始字节。
+///
+/// 返回 `tauri::ipc::Response` 而不是 `Vec<u8>`：这样 JS 侧拿到的是 **`ArrayBuffer`**，
+/// 不经 JSON 数组、不做 base64（几百兆的 PDF 走数字数组是不可想象的）。
+#[tauri::command]
+fn workspace_read_file_bytes(path: String) -> Result<tauri::ipc::Response, AppError> {
+    let store = default_store()?;
+    let config = store.load_config()?;
+    let bytes =
+        workspace::read_binary_file(&workspace::roots_from_config(&config.workspace_folders), &path)?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// 读外部文件的原始字节。与 `read_external_file` 同样的取舍：那条本就地不限路径。
+#[tauri::command]
+fn read_external_file_bytes(path: String) -> Result<tauri::ipc::Response, AppError> {
+    let bytes = std::fs::read(&path).map_err(|e| AppError {
+        code: "io".into(),
+        message: e.to_string(),
+        details: Default::default(),
+    })?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
 #[tauri::command]
 fn workspace_write_file(path: String, content: String) -> Result<(), AppError> {
     let store = default_store()?;
@@ -673,6 +697,8 @@ pub fn run() {
             workspace_move_entry,
             workspace_list_subdirs,
             take_startup_file,
+            workspace_read_file_bytes,
+            read_external_file_bytes,
             selfupdate::update_endpoint,
             docs::read_bundled_doc
         ])

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { getErrorMessage, readExternalFile } from "../features/notes/api";
 import { sanitizePluginHtml } from "../features/plugins/sanitizeHtml";
 import { readWorkspaceFile } from "../features/workspace/api";
+import { PluginFileView } from "./PluginFileView";
 import {
   getFileRenderer,
   type FileType,
@@ -212,6 +213,13 @@ export function FilePreview({ path, type }: FilePreviewProps) {
         </p>
       </div>
     );
+  }
+
+  // 插件视图：宿主拼 srcdoc、塞进沙箱 iframe。**不走 readText、也不走 sanitizePluginHtml**
+  // —— 那个消毒器是给「注入主世界的 HTML 字符串」用的，而这里的内容跑在自己的帧里。
+  // 边界与理由见 Docs/plugin-view-sandbox.md。
+  if (type.kind === "view") {
+    return <PluginFileView path={path} type={type} />;
   }
 
   if (type.kind === "image") {

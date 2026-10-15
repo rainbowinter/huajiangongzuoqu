@@ -150,6 +150,43 @@ export interface FileTypeContribution {
   highlightTheme?: CodeThemePreference;
   /** `kind === "custom"` 时的渲染回调令牌。 */
   renderToken?: string;
+  /**
+   * `kind === "view"` 时的视图声明（相对插件目录的路径）。
+   *
+   * 与 `custom` 分开一个权限词（`files:view`）：这里插件交出来的代码会跑在宿主给的
+   * 沙箱视图里，**能画 canvas、能跑自己的脚本**，比「只登记一条扩展名规则」能力更强，
+   * 值得单独可撤销。沙箱边界见 `Docs/plugin-view-sandbox.md`。
+   */
+  view?: { html: string; css?: string[]; js?: string[] };
+}
+
+/**
+ * 解析插件交上来的视图声明。
+ *
+ * `html` 必填（没有骨架就没得拼），`css` / `js` 是可选字符串数组 —— 路径都相对插件目录。
+ * 抽成独立函数是为了能单测：这里处理的是**不可信输入**，形状判断错一个就会出现
+ * 「插件说它有视图、宿主却拼不出东西」这种难查的故障。
+ */
+export function parseViewSpec(
+  raw: unknown,
+): { html: string; css?: string[]; js?: string[] } | undefined {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined;
+
+  const record = raw as Record<string, unknown>;
+  if (typeof record.html !== "string" || record.html.length === 0) return undefined;
+
+  const paths = (value: unknown): string[] | undefined => {
+    if (!Array.isArray(value)) return undefined;
+    const filtered = value.filter(
+      (item): item is string => typeof item === "string" && item.length > 0,
+    );
+    return filtered.length > 0 ? filtered : undefined;
+  };
+
+  const css = paths(record.css);
+  const js = paths(record.js);
+
+  return { html: record.html, ...(css ? { css } : {}), ...(js ? { js } : {}) };
 }
 
 /**
@@ -493,6 +530,7 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
         throw invalidArgument("files.registerType", "extensions 必须是非空数组");
       }
       const renderToken = asOptionalString(record.render);
+      const view = parseViewSpec(record.view);
 
       return ctx.bridge.registerFileType({
         id: asString(record.id, "files.registerType", "id"),
@@ -509,6 +547,7 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
           ? { highlightTheme: asCodeThemePreference(record.highlightTheme) }
           : {}),
         ...(renderToken ? { renderToken } : {}),
+        ...(view ? { view } : {}),
       });
     },
   },
