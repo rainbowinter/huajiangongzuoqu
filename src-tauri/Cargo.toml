@@ -45,6 +45,12 @@ keyring = { version = "3", features = ["apple-native", "windows-native", "linux-
 semver = "1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 sha2 = "0.10"
+# 插件市场：验签（清单用与应用自更新同一套 minisign 密钥）。
+# 两个都已经是 updater 插件的传递依赖（就在 Cargo.lock 里），加直接依赖不新增编译产物。
+# ⚠️ base64 必须是 0.22：0.21 只被 macOS 的 swift-rs 用着，Windows 上那份源码根本不会
+# 下载，钉 0.21 会让构建在这台机器上取不到包。
+minisign-verify = "0.3"
+base64 = "0.22"
 dirs = "6"
 
 [target.'cfg(unix)'.dependencies]

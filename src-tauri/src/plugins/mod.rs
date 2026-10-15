@@ -18,6 +18,7 @@ pub mod commands;
 pub mod errors;
 pub mod fontmeta;
 pub mod manifest;
+pub mod market;
 pub mod paths;
 pub mod state;
 pub mod store;

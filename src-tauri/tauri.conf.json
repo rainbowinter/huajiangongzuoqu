@@ -104,6 +104,10 @@
         "https://github.com/rainbowinter/huajiangongzuoqu/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlENDc3QjNFMjUxMTZFMDMKUldRRGJoRWxQbnRIbmZCR1EzUUpKcG54NjZEWWFFN1dxUEcvUGQ0ZHdveWpab2Y0UmZaaWpWOWIK"
+    },
+    "market": {
+      "endpoints": [],
+      "pubkey": ""
     }
   }
 }
