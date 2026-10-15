@@ -6,5 +6,7 @@
 //!
 //! 信任链与阶段划分见 `Docs/plugin-market.md`。
 
+pub mod catalog;
+pub mod commands;
 pub mod config;
 pub mod verify;

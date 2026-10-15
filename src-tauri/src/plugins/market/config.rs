@@ -86,14 +86,10 @@ fn string_list(value: Option<&Value>) -> Vec<String> {
 }
 
 /// 当前生效的市场配置（读的是 `tauri.conf.json` 里那份）。
+///
+/// 命令在 `commands.rs`（`plugins_market_endpoint` / `plugins_market_catalog`）。
 pub fn configured(app: &AppHandle) -> MarketConfig {
     MarketConfig::from_value(app.config().plugins.0.get("market"))
-}
-
-/// 给前端看：清单地址。`null` = 市场关闭，前端不显示任何相关界面。
-#[tauri::command]
-pub fn plugins_market_endpoint(app: AppHandle) -> Option<String> {
-    configured(&app).catalog_endpoint().map(str::to_string)
 }
 
 #[cfg(test)]

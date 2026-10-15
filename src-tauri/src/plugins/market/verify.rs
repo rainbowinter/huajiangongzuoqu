@@ -58,29 +58,14 @@ pub fn verify_signed(data: &[u8], signature_base64: &str, pubkey_base64: &str) -
         .map_err(|error| err(format!("验签不通过：{error}")))
 }
 
-/// 验签通过之后，取出签名里的 **trusted comment**。
-///
-/// ⚠️ 顺序不能反：minisign 的 global signature 覆盖了这段注释，而 `verify` 正是校验它
-/// 那一步。**先读注释就等于信任了攻击者可控的数据。** updater 源码里专门有一句注释
-/// 强调这点，这里照做。
-///
-/// 市场用它放清单的版本号，做防回滚（见 `Docs/plugin-market.md`）。
-pub fn verified_trusted_comment(
-    data: &[u8],
-    signature_base64: &str,
-    pubkey_base64: &str,
-) -> Result<String, AppError> {
-    let public_key = PublicKey::decode(&decode_base64_to_text(pubkey_base64)?)
-        .map_err(|error| err(format!("公钥解析失败：{error}")))?;
-    let signature = Signature::decode(&decode_base64_to_text(signature_base64)?)
-        .map_err(|error| err(format!("签名解析失败：{error}")))?;
-
-    public_key
-        .verify(data, &signature, true)
-        .map_err(|error| err(format!("验签不通过：{error}")))?;
-
-    Ok(signature.trusted_comment().to_string())
-}
+// 关于签名里的 `trusted_comment`（曾经打算把清单版本号放在那里做防回滚）：
+//
+// 1. **读它必须排在 `verify` 之后**。minisign 的 global signature 覆盖了这段注释，
+//    而 `verify` 正是校验它的那一步 —— 先读就等于信任了攻击者可控的数据。updater 的源码
+//    里专门有一句注释强调这点。
+// 2. 但**我们没法往里放东西**：`tauri signer sign` 自己写那段注释（`timestamp:… file:…`），
+//    没有留下塞自定义内容的参数。于是 `catalogVersion` 直接放在清单 JSON 里 ——
+//    正文整段都被签名覆盖，同样可信，还少一层解析。理由写在 `catalog.rs` 顶部。
 
 #[cfg(test)]
 mod tests {
@@ -144,17 +129,5 @@ mod tests {
         assert!(verify_signed(CATALOG.as_bytes(), "不是 base64", PUBKEY).is_err());
         assert!(verify_signed(CATALOG.as_bytes(), SIGNATURE, "不是 base64").is_err());
         assert!(verify_signed(CATALOG.as_bytes(), "", "").is_err());
-    }
-
-    #[test]
-    fn trusted_comment_is_only_readable_after_verification() {
-        // 验签通过才拿得到它。
-        let comment = verified_trusted_comment(CATALOG.as_bytes(), SIGNATURE, PUBKEY)
-            .expect("验签通过后应当读得到 trusted comment");
-        assert!(comment.contains("timestamp"), "实际拿到：{comment}");
-
-        // 内容被改过就不该给出任何注释。
-        let tampered = CATALOG.replace("[]", "[\"x\"]");
-        assert!(verified_trusted_comment(tampered.as_bytes(), SIGNATURE, PUBKEY).is_err());
     }
 }

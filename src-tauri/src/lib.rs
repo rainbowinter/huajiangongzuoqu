@@ -701,7 +701,8 @@ pub fn run() {
             read_external_file_bytes,
             selfupdate::update_endpoint,
             docs::read_bundled_doc,
-            plugins::market::config::plugins_market_endpoint
+            plugins::market::commands::plugins_market_endpoint,
+            plugins::market::commands::plugins_market_catalog
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
