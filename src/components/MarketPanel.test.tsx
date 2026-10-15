@@ -101,6 +101,42 @@ describe("安装确认框把权限列清楚", () => {
   test("确认按钮上写的是「安装」，不能是含糊的「确定」", () => {
     expect(render()).toContain("安装");
   });
+
+  test("更新时单独摆出「这次多要了哪些权限」", () => {
+    const markup = renderToStaticMarkup(
+      <ConfirmInstall
+        plugin={plugin()}
+        release={release({ version: "2.0.0", permissions: ["editor:read", "workspace:read"] })}
+        installed={{ version: "1.0.0", grantedPermissions: ["editor:read"] }}
+        busy={false}
+        onCancel={noop}
+        onConfirm={noop}
+      />,
+    );
+
+    expect(markup).toContain("新的");
+    expect(markup).toContain("workspace:read");
+    expect(markup).toContain("读取工作区里的文件");
+    // 按钮要说「更新」而不是「安装」—— 用户得知道自己在覆盖一个已经装好的东西。
+    expect(markup).toContain("更新");
+    expect(markup).toContain("1.0.0");
+    expect(markup).toContain("2.0.0");
+  });
+
+  test("权限没变时明说「权限没有变化」，不留白让人猜", () => {
+    const markup = renderToStaticMarkup(
+      <ConfirmInstall
+        plugin={plugin()}
+        release={release({ version: "1.1.0", permissions: ["editor:read"] })}
+        installed={{ version: "1.0.0", grantedPermissions: ["editor:read"] }}
+        busy={false}
+        onCancel={noop}
+        onConfirm={noop}
+      />,
+    );
+
+    expect(markup).toContain("权限没有变化");
+  });
 });
 
 describe("卸载确认框问清数据怎么办", () => {

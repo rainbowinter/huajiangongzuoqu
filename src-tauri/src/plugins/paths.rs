@@ -15,6 +15,7 @@
 //!     <uuid>.zip
 //!     <uuid>/
 //!     trash/
+//!   plugin-market.json          市场清单的版本水位（防回滚）
 //! ```
 //!
 //! 代码与数据分离是刻意的：用户替换/升级插件目录时不应丢失插件的持久化数据。
@@ -48,6 +49,8 @@ pub struct PluginPaths {
     /// ⚠️ **刻意不放 `plugins/` 里面**：那个目录下每个子目录都会被列举成插件，
     /// 一个 `.staging` 会让界面上凭空多出一个「损坏的插件」。
     pub staging_root: PathBuf,
+    /// `<data_dir>/plugin-market.json` —— 市场清单的版本水位（防回滚）。
+    pub market_progress_path: PathBuf,
 }
 
 impl PluginPaths {
@@ -58,6 +61,7 @@ impl PluginPaths {
             data_root: data_dir.join("plugin-data"),
             state_path: data_dir.join("plugins-state.json"),
             staging_root: data_dir.join("plugin-install"),
+            market_progress_path: data_dir.join("plugin-market.json"),
         }
     }
 
@@ -425,6 +429,10 @@ mod tests {
         assert_eq!(paths.data_root, data_dir.join("plugin-data"));
         assert_eq!(paths.state_path, data_dir.join("plugins-state.json"));
         assert_eq!(paths.staging_root, data_dir.join("plugin-install"));
+        assert_eq!(
+            paths.market_progress_path,
+            data_dir.join("plugin-market.json")
+        );
         assert_ne!(
             paths.root, paths.data_root,
             "插件代码与插件数据必须是不同目录"

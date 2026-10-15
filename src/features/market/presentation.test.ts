@@ -8,6 +8,7 @@ import {
   formatSize,
   isInstallable,
   isMarketVisible,
+  permissionsRequiringReview,
   releaseRelation,
   type MarketState,
 } from "./presentation";
@@ -194,5 +195,22 @@ describe("findInstalled", () => {
     const installed = [{ name: "a" }, { name: "b" }];
     expect(findInstalled(installed, "b")).toEqual({ name: "b" });
     expect(findInstalled(installed, "c")).toBeUndefined();
+  });
+});
+
+describe("permissionsRequiringReview", () => {
+  it("只挑出「新版本要、现在没授权」的那几个", () => {
+    const granted = ["editor:read", "ui:panel"];
+    const needed = ["editor:read", "ui:panel", "workspace:write", "storage"];
+
+    expect(permissionsRequiringReview(granted, needed)).toEqual(["workspace:write", "storage"]);
+  });
+
+  it("权限没变时是空表 —— 界面据此说「权限没有变化」", () => {
+    expect(permissionsRequiringReview(["editor:read"], ["editor:read"])).toEqual([]);
+  });
+
+  it("少了权限也算没有需要确认的（收紧不算风险）", () => {
+    expect(permissionsRequiringReview(["editor:read", "storage"], ["editor:read"])).toEqual([]);
   });
 });

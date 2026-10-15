@@ -183,3 +183,17 @@ export function findInstalled<T extends { name: string }>(
 ): T | undefined {
   return installed.find((plugin) => plugin.name === name);
 }
+
+/**
+ * 更新时**需要用户重新确认**的那几个权限：新版本要的、而现在没生效的。
+ *
+ * 为什么这件事必须单独算：插件更新时静默拿到新权限，等于把「装之前我确认」变成
+ * 「第一次确认就永久放行」。后端也按这条来 —— 授权表是「用户确认过的那份」，
+ * 新版本多出来的权限不重新确认就不会生效（只是相关功能可能不可用，所以界面上要说）。
+ */
+export function permissionsRequiringReview(
+  granted: readonly string[],
+  needed: readonly string[],
+): string[] {
+  return needed.filter((permission) => !granted.includes(permission));
+}

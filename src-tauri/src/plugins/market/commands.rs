@@ -7,8 +7,9 @@
 //! 会把 Tauri 的异步运行时线程堵死（仓库里 `updater/commands.rs` 是同样的处理）。
 
 use super::catalog::{self, PluginCatalog};
-use super::install::{self, InstallOutcome, UninstallOutcome};
 use super::config;
+use super::install::{self, InstallOutcome, UninstallOutcome};
+use super::progress;
 use crate::plugins::errors::app_error;
 use crate::plugins::manifest::CURRENT_API_VERSION;
 use crate::plugins::paths::PluginPaths;
@@ -35,8 +36,9 @@ pub fn plugins_market_endpoint(app: AppHandle) -> Option<String> {
 
 /// 取回并解析插件清单。
 ///
-/// 失败分两类，前端的处理不一样：
+/// 失败分三类，前端的处理不一样：
 /// - `marketDisabled` —— 没配市场，属于「不该走到这里」；
+/// - `marketCatalogRolledBack` —— 拿到的是**旧的**清单（防回滚），界面该说清楚；
 /// - 其余（网络、验签、格式）—— 属于真的出错，要如实告诉用户。
 #[tauri::command]
 pub async fn plugins_market_catalog(app: AppHandle) -> Result<PluginCatalog, AppError> {
@@ -48,14 +50,21 @@ pub async fn plugins_market_catalog(app: AppHandle) -> Result<PluginCatalog, App
     let pubkey = settings.pubkey.clone();
     let host = host_env(&app);
 
-    tauri::async_runtime::spawn_blocking(move || catalog::fetch_catalog(&endpoint, &pubkey, &host))
-        .await
-        .map_err(|error| {
-            app_error(
-                "marketTaskJoinFailed",
-                format!("获取插件清单的任务失败：{error}"),
-            )
-        })?
+    tauri::async_runtime::spawn_blocking(move || {
+        let catalog = catalog::fetch_catalog(&endpoint, &pubkey, &host)?;
+        // 验签通过之后才轮到防回滚：拿一份没验过签的清单去推进水位，等于把这件事
+        // 交给攻击者。
+        let paths = PluginPaths::resolve()?;
+        progress::accept_and_record(&paths, &endpoint, catalog.catalog_version)?;
+        Ok(catalog)
+    })
+    .await
+    .map_err(|error| {
+        app_error(
+            "marketTaskJoinFailed",
+            format!("获取插件清单的任务失败：{error}"),
+        )
+    })?
 }
 
 /// 从市场装一个插件。

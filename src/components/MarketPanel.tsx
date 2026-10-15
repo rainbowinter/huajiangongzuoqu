@@ -6,6 +6,7 @@ import {
   defaultRelease,
   findInstalled,
   formatSize,
+  permissionsRequiringReview,
   releaseRelation,
   type MarketState,
 } from "../features/market/presentation";
@@ -38,7 +39,13 @@ interface MarketPanelProps {
 
 /** 确认框里在等用户点头的那件事。 */
 type PendingAction =
-  | { kind: "install"; plugin: MarketPlugin; release: MarketRelease }
+  | {
+      kind: "install";
+      plugin: MarketPlugin;
+      release: MarketRelease;
+      /** 已装的那份（更新/换版本时带上，用来算「这次新增了哪些权限」）。 */
+      installed?: { version: string; grantedPermissions: readonly string[] };
+    }
   | { kind: "uninstall"; plugin: MarketPlugin; installedVersion: string };
 
 export function MarketPanel({ installed, onChanged }: MarketPanelProps) {
@@ -118,7 +125,9 @@ export function MarketPanel({ installed, onChanged }: MarketPanelProps) {
         chosenVersion={chosenVersion}
         onChooseVersion={chooseVersion}
         onRefresh={() => void refresh()}
-        onInstall={(plugin, release) => setPending({ kind: "install", plugin, release })}
+        onInstall={(plugin, release, installed) =>
+          setPending({ kind: "install", plugin, release, ...(installed ? { installed } : {}) })
+        }
         onUninstall={(plugin, installedVersion) =>
           setPending({ kind: "uninstall", plugin, installedVersion })
         }
@@ -128,6 +137,7 @@ export function MarketPanel({ installed, onChanged }: MarketPanelProps) {
         <ConfirmInstall
           plugin={pending.plugin}
           release={pending.release}
+          {...(pending.installed ? { installed: pending.installed } : {})}
           busy={busy}
           onCancel={() => setPending(null)}
           onConfirm={() => void runInstall(pending.plugin, pending.release)}
@@ -163,7 +173,11 @@ function CatalogBody({
   chosenVersion: Record<string, string>;
   onChooseVersion: (name: string, version: string) => void;
   onRefresh: () => void;
-  onInstall: (plugin: MarketPlugin, release: MarketRelease) => void;
+  onInstall: (
+    plugin: MarketPlugin,
+    release: MarketRelease,
+    installed?: { version: string; grantedPermissions: readonly string[] },
+  ) => void;
   onUninstall: (plugin: MarketPlugin, version: string) => void;
 }) {
   if (state.stage === "loading" || state.stage === "unknown") {
@@ -229,7 +243,11 @@ function MarketRow({
   busy: boolean;
   chosenVersion: string | undefined;
   onChooseVersion: (name: string, version: string) => void;
-  onInstall: (plugin: MarketPlugin, release: MarketRelease) => void;
+  onInstall: (
+    plugin: MarketPlugin,
+    release: MarketRelease,
+    installed?: { version: string; grantedPermissions: readonly string[] },
+  ) => void;
   onUninstall: (plugin: MarketPlugin, version: string) => void;
 }) {
   const release = useMemo(() => {
@@ -357,7 +375,20 @@ function MarketRow({
         <button
           type="button"
           disabled={disabled}
-          onClick={() => release && onInstall(plugin, release)}
+          onClick={() =>
+            release &&
+            onInstall(
+              plugin,
+              release,
+              // 已经是市场装的才算「更新」：确认框要靠这份算新增权限。
+              fromMarket && installedManifest
+                ? {
+                    version: installedManifest.version,
+                    grantedPermissions: installedManifest.grantedPermissions,
+                  }
+                : undefined,
+            )
+          }
           className={`shrink-0 px-2.5 h-6 rounded-md text-[10.5px] transition-colors ${
             disabled
               ? "text-ink-ghost bg-paper-warm cursor-default"
@@ -380,25 +411,62 @@ function MarketRow({
 export function ConfirmInstall({
   plugin,
   release,
+  installed,
   busy,
   onCancel,
   onConfirm,
 }: {
   plugin: MarketPlugin;
   release: MarketRelease;
+  /**
+   * 已装的那一份（更新 / 换版本时给）。**有它才会算「这次新增了哪些权限」** ——
+   * 那一步是更新流程里最要紧的：新版本多要一个权限，必须让用户再看一眼。
+   */
+  installed?: { version: string; grantedPermissions: readonly string[] };
   busy: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
   const unknown = unknownPermissions(release.permissions);
+  const isUpdate = Boolean(installed);
+  const added = installed
+    ? permissionsRequiringReview(installed.grantedPermissions, release.permissions)
+    : [];
+  const title = isUpdate
+    ? `更新 ${plugin.name} ${installed?.version} → ${release.version}`
+    : `安装 ${plugin.name} ${release.version}`;
 
   return (
-    <Modal onCancel={onCancel} title={`安装 ${plugin.name} ${release.version}`}>
+    <Modal onCancel={onCancel} title={title}>
       <div className="space-y-3">
+        {/* 更新时先摆「这次多了什么权限」：用户上次确认的是旧那份，多出来的必须重看。 */}
+        {isUpdate ? (
+          added.length > 0 ? (
+            <div className="rounded-lg bg-bamboo-mist/30 px-2.5 py-2">
+              {/* ⚠️ 这里不能写 `**新的**` —— JSX 里那两个字面星号会原样显示出来。 */}
+              <p className="text-[11px] text-ink-soft mb-1">
+                这一版要求下面这些<em className="not-italic font-medium">新的</em>权限：
+              </p>
+              <ul className="space-y-0.5">
+                {added.map((permission) => (
+                  <li key={permission} className="text-[11px] leading-relaxed">
+                    <span className="text-ink-soft">{describePermission(permission)}</span>{" "}
+                    <span className="font-mono text-[10px] text-ink-ghost">{permission}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <p className="text-[11px] text-ink-ghost">权限没有变化。</p>
+          )
+        ) : null}
+
         <div>
           <p className="text-[11px] text-ink-ghost mb-1.5">
             {release.permissions.length > 0
-              ? "这个插件要使用以下权限："
+              ? isUpdate
+                ? "这一版的全部权限："
+                : "这个插件要使用以下权限："
               : "这个插件没有声明任何权限。"}
           </p>
           <ul className="space-y-1">
@@ -435,7 +503,7 @@ export function ConfirmInstall({
       <ModalActions
         busy={busy}
         onCancel={onCancel}
-        confirmLabel="安装"
+        confirmLabel={isUpdate ? "更新" : "安装"}
         onConfirm={onConfirm}
       />
     </Modal>
