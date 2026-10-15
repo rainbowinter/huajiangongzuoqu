@@ -44,7 +44,8 @@
       "appimage"
     ],
     "resources": {
-      "../example-plugins-v2": "example-plugins-v2"
+      "../example-plugins-v2": "example-plugins-v2",
+      "../Docs/user": "docs"
     },
     "createUpdaterArtifacts": true,
     "linux": {

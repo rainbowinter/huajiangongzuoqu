@@ -69,6 +69,17 @@
     }
   },
   "main": {
+    "about": {
+      "title": "關於",
+      "whatsNew": "新功能",
+      "guide": "使用指南",
+      "feedback": "意見反饋"
+    },
+    "doc": {
+      "label": "說明文件 · 唯讀",
+      "close": "關閉",
+      "closeHint": "關掉文件，回到原來的筆記"
+    },
     "category": {
       "confirmDelete": "確認刪除「{{category}}」？",
       "confirmDeleteAction": "確認刪除",

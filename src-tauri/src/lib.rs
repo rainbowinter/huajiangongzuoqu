@@ -1,4 +1,5 @@
 pub mod desktop;
+pub mod docs;
 pub mod json_io;
 pub mod locales;
 pub mod plugins;
@@ -672,7 +673,8 @@ pub fn run() {
             workspace_move_entry,
             workspace_list_subdirs,
             take_startup_file,
-            selfupdate::update_endpoint
+            selfupdate::update_endpoint,
+            docs::read_bundled_doc
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

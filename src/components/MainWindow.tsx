@@ -15,6 +15,8 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { exportMarkdownNote, importMarkdownNote } from "../features/importExport/api";
 import { MarkdownPreview } from "../features/markdown/MarkdownPreview";
+import { ABOUT_DOCS, type AboutDoc } from "../features/docs/catalog";
+import { readBundledDoc } from "../features/docs/api";
 import { applyAlign } from "../features/markdown/alignText";
 import { renderMarkdownLines } from "../features/markdown/syntaxHighlight";
 import { showToast } from "./Toast";
@@ -717,6 +719,20 @@ export function MainWindow({
   const [activePanelId, setActivePanelId] = useState<string | null>(
     initialSettingsOpen && initialConfig ? "settings" : null,
   );
+
+  /**
+   * 只读说明文档（「关于」那几篇、插件详细信息）。
+   *
+   * 有值时正文区显示它而不是当前笔记。内容是**内存里的字符串**，既不是磁盘上的笔记、
+   * 也不是外部文件 —— 所以它绕开保存路由，也完全不碰 `externalFiles`（那个列表同时
+   * 还是「这是不是外部文件」的判据，往里塞东西会连累保存逻辑）。
+   *
+   * 用户在左侧选了别的东西就把它清掉（见三处 `setSelectedId`）：文档是「临时看一眼」，
+   * 不该粘在笔记上面不走。
+   */
+  const [docView, setDocView] = useState<{ title: string; content: string } | null>(null);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const aboutMenuRef = useRef<HTMLDivElement | null>(null);
   const [standalonePanels, setStandalonePanels] = useState<PluginPanelDef[]>(() =>
     listPluginPanels().filter((panel) => panel.standalone),
   );
@@ -1686,6 +1702,57 @@ export function MainWindow({
       window.removeEventListener("blur", closeOnBlur);
     };
   }, [openPopover, popoverRef]);
+
+  // 「关于」菜单：点外面 / 按 Esc / 窗口失焦收起。与上面的插件浮层同一套做法。
+  useEffect(() => {
+    if (!aboutOpen) return undefined;
+
+    const closeOnOutside = (event: Event) => {
+      const target = event.target as Node | null;
+      // 触发按钮也在 aboutMenuRef 里，一并排除 —— 它自己的 click 负责收起，
+      // 不排掉会变成「mousedown 先关、随后的 click 又开」。
+      if (target && aboutMenuRef.current?.contains(target)) return;
+      setAboutOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAboutOpen(false);
+    };
+    const blur = () => setAboutOpen(false);
+
+    document.addEventListener("mousedown", closeOnOutside, true);
+    document.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("blur", blur);
+
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutside, true);
+      document.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("blur", blur);
+    };
+  }, [aboutOpen]);
+
+  /** 打开一篇只读说明文档（「关于」的三篇、插件详细信息都走这里）。 */
+  const openDocView = useCallback((title: string, content: string) => {
+    setDocView({ title, content });
+    setAboutOpen(false);
+  }, []);
+
+  /**
+   * 「关于」里的某一项：内容随包分发。
+   *
+   * 读不到（装机时资源没拷进去、或者文件名写错了）就**如实报错**，不要开一个空白页
+   * 让人以为「这功能就这样」。
+   */
+  const openAboutDoc = useCallback(
+    (doc: AboutDoc) => {
+      const title = t(doc.titleKey, { defaultValue: doc.fallbackTitle });
+      setAboutOpen(false);
+      void readBundledDoc(doc.name)
+        .then((content) => setDocView({ title, content }))
+        .catch((error) => showToast(getErrorMessage(error)));
+    },
+    [t],
+  );
+
   const saveStateLabel = useMemo<Record<SaveState, string>>(
     () => ({
       idle: t("main.statusBar.saveState.idle", { defaultValue: "未选择" }),
@@ -1836,6 +1903,8 @@ export function MainWindow({
       contentValueRef.current = note.content;
       saveStateRef.current = "saved";
       setSelectedId(note.id);
+      // 选了笔记就等于离开了说明文档。
+      setDocView(null);
       setTitle(note.title);
       setContent(note.content);
       setSaveState("saved");
@@ -1881,6 +1950,7 @@ export function MainWindow({
     contentValueRef.current = "";
     saveStateRef.current = "idle";
     setSelectedId(null);
+    setDocView(null);
     setTitle("");
     setContent("");
     setSaveState("idle");
@@ -1948,6 +2018,8 @@ export function MainWindow({
         contentValueRef.current = fileContent;
         saveStateRef.current = "saved";
         setSelectedId(filePath);
+        // 同理：打开文件也离开文档。
+        setDocView(null);
         setTitle(displayTitle);
         setContent(fileContent);
         setSaveState("saved");
@@ -3677,6 +3749,51 @@ export function MainWindow({
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
               </svg>
             </button>
+            {/* 「关于」：拉出三篇随包说明文档。右上角这一排按钮都是「针对整个应用」
+                的操作，与设置、置顶放在一起。 */}
+            <div className="relative" ref={aboutMenuRef}>
+              <button
+                onClick={() => setAboutOpen((open) => !open)}
+                className={`w-10 h-11 flex items-center justify-center transition-all cursor-pointer ${
+                  aboutOpen
+                    ? "text-bamboo bg-bamboo-mist/50"
+                    : "text-ink-ghost hover:text-ink-faint hover:bg-paper-warm"
+                }`}
+                title={t("main.about.title", { defaultValue: "关于" })}
+                aria-haspopup="menu"
+                aria-expanded={aboutOpen}
+              >
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 16v-4" />
+                  <path d="M12 8h.01" />
+                </svg>
+              </button>
+
+              {aboutOpen && (
+                <div className="absolute right-0 top-full z-50 mt-1 min-w-[136px] py-1.5 bg-cloud/95 backdrop-blur-sm border border-paper-deep/50 rounded-lg shadow-lg">
+                  {ABOUT_DOCS.map((doc) => (
+                    <button
+                      key={doc.name}
+                      onClick={() => openAboutDoc(doc)}
+                      className="w-full flex items-center px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer whitespace-nowrap"
+                    >
+                      {t(doc.titleKey, { defaultValue: doc.fallbackTitle })}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {/* 右上角：有新版时冒一颗胶囊。没更新时它渲染成 null，什么都不占。 */}
             <UpdateBadge controller={update} />
             {!isMacOS && (
@@ -4564,6 +4681,32 @@ export function MainWindow({
               ) : null}
             </div>
 
+            {/* 说明文档顶掉笔记的标题栏：留着笔记的标题去显示别的文档，看起来就像
+                「这篇笔记里写的居然是使用指南」。 */}
+            {docView ? (
+              <div
+                key={`doc-${docView.title}`}
+                className="animate-note-enter px-6 pt-4 pb-2 shrink-0 border-b border-paper-deep/15 flex items-start justify-between gap-4"
+              >
+                <div className="min-w-0">
+                  <div className="text-[20px] font-display font-bold text-ink tracking-wide truncate">
+                    {docView.title}
+                  </div>
+                  <div className="mt-1.5">
+                    <span className="text-[10px] text-ink-ghost font-mono">
+                      {t("main.doc.label", { defaultValue: "说明文档 · 只读" })}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setDocView(null)}
+                  className="shrink-0 px-3 h-7 rounded-lg text-[11px] text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/40 transition-all cursor-pointer"
+                  title={t("main.doc.closeHint", { defaultValue: "关掉文档，回到原来的笔记" })}
+                >
+                  {t("main.doc.close", { defaultValue: "关闭" })}
+                </button>
+              </div>
+            ) : (
             <div
               key={noteTransitionKey}
               className="animate-note-enter px-6 pt-4 pb-2 shrink-0 border-b border-paper-deep/15"
@@ -4620,13 +4763,25 @@ export function MainWindow({
                 </span>
               </div>
             </div>
+            )}
 
             <div
               key={effectiveViewMode}
               ref={splitContainerRef}
               className="flex-1 flex min-h-0 animate-view-fade"
             >
-              {standalonePreview && selectedFileType && activeFilePath ? (
+              {docView ? (
+                // 只读文档：直接渲染内存里那段 Markdown。**不走 FilePreview** ——
+                // 那个是照 `path` 读盘的，这里没有盘上的文件。
+                <div className="flex-1 min-h-0 overflow-y-auto">
+                  <div className="max-w-[46rem] mx-auto px-8 py-6">
+                    <MarkdownPreview
+                      content={docView.content}
+                      fontSize={settingsConfig?.fontSize ?? 14}
+                    />
+                  </div>
+                </div>
+              ) : standalonePreview && selectedFileType && activeFilePath ? (
                 zoomableStandalone ? (
                   <div className="relative flex flex-col min-h-0 min-w-0 flex-1">
                     {previewZoomBadge}
@@ -5137,7 +5292,7 @@ export function MainWindow({
               }`}
             >
               {mountedSidePanel === "plugins" ? (
-                <PluginCommandPanel onClose={handleClosePlugins} />
+                <PluginCommandPanel onClose={handleClosePlugins} onOpenDoc={openDocView} />
               ) : null}
             </div>
             <div

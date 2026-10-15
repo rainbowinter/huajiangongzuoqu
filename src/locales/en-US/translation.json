@@ -69,6 +69,17 @@
     }
   },
   "main": {
+    "about": {
+      "title": "About",
+      "whatsNew": "What's new",
+      "guide": "Guide",
+      "feedback": "Feedback"
+    },
+    "doc": {
+      "label": "Documentation · read-only",
+      "close": "Close",
+      "closeHint": "Close the document and go back to the note"
+    },
     "category": {
       "confirmDelete": "Delete \"{{category}}\"?",
       "confirmDeleteAction": "Confirm Delete",

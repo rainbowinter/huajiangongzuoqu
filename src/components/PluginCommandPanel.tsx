@@ -14,11 +14,19 @@ import {
 } from "../features/plugins/logs";
 import { unknownPermissions } from "../features/plugins/permissions";
 import {
+  listDecorations,
+  listEditorGutters,
+  listEditorMenuItems,
   listLoadedPlugins,
+  listNoteMenuItems,
   listPluginCommands,
+  listPluginPanels,
+  listPopovers,
+  listToolbarButtons,
   subscribeLoadedPlugins,
   subscribePluginCommands,
 } from "../features/plugins/registry";
+import { buildPluginDetails, type PluginContribution } from "../features/docs/pluginDetails";
 import type { PluginCommand, PluginRuntimeRecord, PluginStatus } from "../features/plugins/types";
 import { PluginParams, parseSettingFields } from "./PluginParams";
 import { Switch } from "./Switch";
@@ -26,6 +34,44 @@ import { showToast } from "./Toast";
 
 interface PluginCommandPanelProps {
   onClose: () => void;
+  /**
+   * 打开一篇只读文档。插件详情在这里生成，**显示交给宿主** —— 正文区是它的地盘。
+   *
+   * 可选：快速便签窗口（NotePad）里没有能放文档的地方，那种情况下**不显示**
+   * 「详细信息」按钮 —— 显示一个点了没反应的按钮比不显示更糟。
+   */
+  onOpenDoc?: (title: string, content: string) => void;
+}
+
+/**
+ * 把一个插件当前注册出去的贡献点整理成分组清单。
+ *
+ * 这些都是**活的**注册表（插件被停用时条目会自己消失），所以每次点「详细信息」现读一遍
+ * 才是准的 —— 缓存下来的话，停用某个插件之后详情里还会写着它加过什么。
+ */
+function contributionsOf(name: string): PluginContribution[] {
+  const owned = <T,>(items: readonly T[], field: (item: T) => string | undefined) =>
+    items.filter((item) => field(item) === name);
+
+  return [
+    { label: "面板", items: owned(listPluginPanels(), (p) => p.plugin).map((p) => p.title) },
+    {
+      label: "工具栏按钮",
+      items: owned(listToolbarButtons(), (b) => b.plugin).map((b) => b.title),
+    },
+    { label: "工具栏浮层", items: owned(listPopovers(), (p) => p.plugin).map((p) => p.title) },
+    { label: "命令", items: owned(listPluginCommands(), (c) => c.plugin).map((c) => c.title) },
+    { label: "行旁注", items: owned(listEditorGutters(), (g) => g.plugin).map((g) => g.title) },
+    {
+      label: "行内装饰",
+      items: owned(listDecorations(), (d) => d.plugin).map((d) => d.title),
+    },
+    {
+      label: "编辑器菜单",
+      items: owned(listEditorMenuItems(), (m) => m.plugin).map((m) => m.title),
+    },
+    { label: "笔记菜单", items: owned(listNoteMenuItems(), (m) => m.plugin).map((m) => m.title) },
+  ];
 }
 
 const STATUS_LABEL: Record<PluginStatus, string> = {
@@ -66,6 +112,7 @@ function PluginRow({
   onToggle,
   onRevoke,
   onToggleExpand,
+  onOpenDoc,
 }: {
   record: PluginRuntimeRecord;
   busy: boolean;
@@ -73,6 +120,7 @@ function PluginRow({
   onToggle: (record: PluginRuntimeRecord) => void;
   onRevoke: (record: PluginRuntimeRecord, permission: string) => void;
   onToggleExpand: (name: string) => void;
+  onOpenDoc?: (title: string, content: string) => void;
 }) {
   const { manifest, status, error, sandboxed } = record;
   const unknown = useMemo(
@@ -169,6 +217,32 @@ function PluginRow({
         <span className="text-[10px] text-ink-ghost truncate flex-1" title={manifest.dirPath}>
           {manifest.dirPath}
         </span>
+        {/* 「详细信息」：把清单里的东西摊开给人看。装了一堆插件之后，
+            「这个到底是干嘛的」不该靠来回开关去试。 */}
+        {onOpenDoc ? (
+          <button
+            type="button"
+            onClick={() =>
+              onOpenDoc(
+                manifest.name,
+                buildPluginDetails({
+                  record,
+                  contributions: contributionsOf(manifest.name),
+                  settings: parseSettingFields(manifest).map((field) => ({
+                    key: field.key,
+                    title: field.title,
+                    type: field.type,
+                    description: field.description,
+                  })),
+                }),
+              )
+            }
+            className="shrink-0 px-2 h-6 rounded-md text-[10px] text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50 transition-colors cursor-pointer"
+            title="这个插件具体做了什么"
+          >
+            详细信息
+          </button>
+        ) : null}
       </div>
 
       {/* 展开区。权限和参数都放这儿，而不是常驻在行上。
@@ -251,7 +325,7 @@ function LogList({ entries }: { entries: Array<PluginLogEntry & { plugin: string
   );
 }
 
-export function PluginCommandPanel({ onClose }: PluginCommandPanelProps) {
+export function PluginCommandPanel({ onClose, onOpenDoc }: PluginCommandPanelProps) {
   const plugins = useRegistry(listLoadedPlugins, subscribeLoadedPlugins);
   const commands = useRegistry<PluginCommand>(listPluginCommands, subscribePluginCommands);
   const logRevision = useSyncExternalStore(
@@ -481,6 +555,7 @@ export function PluginCommandPanel({ onClose }: PluginCommandPanelProps) {
                     onToggle={(item) => void handleToggle(item)}
                     onRevoke={(item, permission) => void handleRevoke(item, permission)}
                     onToggleExpand={handleToggleExpand}
+                    onOpenDoc={onOpenDoc}
                   />
                 ))}
               </div>

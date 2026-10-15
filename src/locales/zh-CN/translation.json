@@ -71,6 +71,17 @@
     }
   },
   "main": {
+    "about": {
+      "title": "关于",
+      "whatsNew": "新功能",
+      "guide": "使用指南",
+      "feedback": "意见反馈"
+    },
+    "doc": {
+      "label": "说明文档 · 只读",
+      "close": "关闭",
+      "closeHint": "关掉文档，回到原来的笔记"
+    },
     "category": {
       "confirmDelete": "确认删除「{{category}}」？",
       "confirmDeleteAction": "确认删除",
