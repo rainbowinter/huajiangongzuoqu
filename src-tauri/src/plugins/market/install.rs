@@ -785,6 +785,21 @@ mod tests {
             let mut writer = zip::ZipWriter::new(&mut buffer);
             let options = SimpleFileOptions::default()
                 .compression_method(zip::CompressionMethod::Deflated);
+
+            // **显式的目录条目**，名字以 `/` 结尾 —— 7-Zip 就是这么写的（实测看过
+            // `font-pack` 与 `font-pack/fonts` 两条），而正是这个形状让「带子目录的
+            // 插件装不上」的那个 bug 漏了过去。
+            let mut dirs: Vec<String> = vec![format!("{name}/")];
+            for (relative, _) in files {
+                let parts: Vec<&str> = relative.split('/').collect();
+                if parts.len() > 1 {
+                    dirs.push(format!("{name}/{}/", parts[..parts.len() - 1].join("/")));
+                }
+            }
+            for dir in dirs {
+                writer.add_directory(dir, options).unwrap();
+            }
+
             writer.start_file(format!("{name}/plugin.json"), options).unwrap();
             writer.write_all(manifest.as_bytes()).unwrap();
             for (relative, content) in files {
@@ -889,6 +904,44 @@ mod tests {
                 .flatten()
                 .all(|entry| entry.file_name() != "demo"),
             "工作区里不该留下东西"
+        );
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn installs_a_plugin_that_has_subdirectories() {
+        // 回归测试：带子目录的包（`font-pack` 的 `fonts/`、`css-modifier` 的 `styles/`）
+        // 曾经被判成「路径不安全」而装不上 —— 因为 zip 里目录条目的名字以 `/` 结尾。
+        let (paths, root) = temp_paths("subdirs");
+        let bytes = plugin_zip(
+            "demo",
+            MANIFEST,
+            &[
+                ("index.js", "// plugin"),
+                ("assets/theme.css", "body{}"),
+                ("assets/nested/deep.txt", "deep"),
+            ],
+        );
+
+        let outcome = install_from_bytes(&paths, &request("demo", "1.0.0", &bytes, &[]), &bytes)
+            .expect("带子目录的插件必须能装");
+
+        assert_eq!(outcome.name, "demo");
+        assert_eq!(
+            fs::read_to_string(paths.root.join("demo").join("assets").join("theme.css")).unwrap(),
+            "body{}"
+        );
+        assert_eq!(
+            fs::read_to_string(
+                paths.root
+                    .join("demo")
+                    .join("assets")
+                    .join("nested")
+                    .join("deep.txt")
+            )
+            .unwrap(),
+            "deep"
         );
 
         fs::remove_dir_all(root).ok();

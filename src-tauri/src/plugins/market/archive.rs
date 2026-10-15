@@ -152,7 +152,7 @@ pub fn plan_archive(entries: &[RawEntry], plugin: &str) -> Result<ArchivePlan, A
             ));
         }
 
-        let Some(relative) = strip_root(&entry.name, plugin) else {
+        let Some(stripped) = strip_root(&entry.name, plugin) else {
             return Err(reject(
                 "marketArchiveUnexpectedEntry",
                 format!(
@@ -161,6 +161,16 @@ pub fn plan_archive(entries: &[RawEntry], plugin: &str) -> Result<ArchivePlan, A
                 ),
                 &entry.name,
             ));
+        };
+
+        // ⚠️ **目录条目的名字以 `/` 结尾**（`font-pack/fonts/`）—— 7-Zip 就是这么写的。
+        // 那个斜杠是「这是目录」的标记，不是路径的一部分；不去掉的话会切成
+        // `["fonts", ""]`，末段为空被当成不安全，于是**任何带子目录的插件都装不上**
+        // （实测踩过：font-pack 的 `fonts/`）。
+        let relative = if entry.is_dir {
+            stripped.strip_suffix('/').unwrap_or(stripped)
+        } else {
+            stripped
         };
 
         // 顶层目录自己那一条（`pdf-viewer/`）可以出现，跳过即可。
@@ -396,12 +406,15 @@ mod tests {
         }
     }
 
-    /// 一份最普通的包：顶层目录 + plugin.json + index.js。
+    /// 一份最普通的包：顶层目录 + plugin.json + index.js + 一个子目录。
     fn good_entries() -> Vec<RawEntry> {
         vec![
             dir("demo/"),
             entry("demo/plugin.json", 120),
             entry("demo/index.js", 400),
+            // 子目录**自己那一条**（7-Zip 会写出来），名字以 `/` 结尾。
+            dir("demo/assets/"),
+            entry("demo/assets/theme.css", 200),
         ]
     }
 
@@ -412,10 +425,46 @@ mod tests {
         let relatives: Vec<&str> = plan.entries.iter().map(|e| e.relative.as_str()).collect();
         assert_eq!(
             relatives,
-            vec!["plugin.json", "index.js"],
+            vec!["plugin.json", "index.js", "assets", "assets/theme.css"],
             "顶层目录本身那一条要跳过，其余去掉前缀"
         );
-        assert_eq!(plan.total_bytes, 520);
+        assert_eq!(plan.total_bytes, 720);
+    }
+
+    #[test]
+    fn accepts_nested_directory_entries() {
+        // ⚠️ 这条是回归测试。zip 里的目录条目名字**以 `/` 结尾**（`demo/assets/`），
+        // 那个斜杠是「这是目录」的标记而不是路径的一部分。曾经没去掉它，于是
+        // `demo/assets/` 被切成 `["assets", ""]`、末段为空判成不安全 ——
+        // **任何带子目录的插件都装不上**（实测踩过：font-pack 的 `fonts/`）。
+        let plan = plan_archive(&good_entries(), "demo").expect("带子目录的包必须能装");
+
+        let assets = plan
+            .entries
+            .iter()
+            .find(|entry| entry.relative == "assets")
+            .expect("子目录本身那一条要在计划里");
+        assert!(assets.is_dir, "它应当被当成目录");
+        assert_eq!(assets.size, 0, "目录不占字节");
+    }
+
+    #[test]
+    fn rejects_a_file_entry_that_pretends_to_be_a_directory() {
+        // 名字以 `/` 结尾、却**不是**目录条目 —— zip 里这东西是不合法的，别替它猜。
+        let entries = vec![
+            entry("demo/plugin.json", 1),
+            RawEntry {
+                name: "demo/assets/".to_string(),
+                size: 10,
+                is_dir: false,
+                is_symlink: false,
+            },
+        ];
+
+        assert_eq!(
+            plan_archive(&entries, "demo").unwrap_err().code,
+            "marketArchiveUnsafePath"
+        );
     }
 
     #[test]
@@ -588,6 +637,11 @@ mod tests {
 
     /// 打一个最小可用的 zip（deflate），用来验解压这一步本身。
     fn make_zip(files: &[(&str, &str)]) -> Vec<u8> {
+        make_zip_with_dirs(files, &[])
+    }
+
+    /// 同上，外加**显式的目录条目**（7-Zip 会写，而它的名字以 `/` 结尾）。
+    fn make_zip_with_dirs(files: &[(&str, &str)], dirs: &[&str]) -> Vec<u8> {
         use zip::write::SimpleFileOptions;
 
         let mut buffer = io::Cursor::new(Vec::new());
@@ -595,6 +649,9 @@ mod tests {
             let mut writer = zip::ZipWriter::new(&mut buffer);
             let options = SimpleFileOptions::default()
                 .compression_method(zip::CompressionMethod::Deflated);
+            for name in dirs {
+                writer.add_directory(*name, options).unwrap();
+            }
             for (name, content) in files {
                 writer.start_file(*name, options).unwrap();
                 writer.write_all(content.as_bytes()).unwrap();
@@ -613,15 +670,20 @@ mod tests {
 
     #[test]
     fn unpacks_a_real_zip() {
-        let bytes = make_zip(&[
-            ("demo/plugin.json", r#"{ "name": "demo", "main": "index.js" }"#),
-            ("demo/index.js", "// plugin"),
-            ("demo/js/lib.js", "// lib"),
-        ]);
+        // 打一个**带显式目录条目**的包 —— 7-Zip 就是这么写的，而「目录条目名字以 `/`
+        // 结尾」正是踩过的那个坑。`start_file("demo/js/lib.js")` 不会自己带上目录条目。
+        let bytes = make_zip_with_dirs(
+            &[
+                ("demo/plugin.json", r#"{ "name": "demo", "main": "index.js" }"#),
+                ("demo/index.js", "// plugin"),
+                ("demo/js/lib.js", "// lib"),
+            ],
+            &["demo/js/"],
+        );
         let target = temp_dir("ok");
 
         let plan = unpack(io::Cursor::new(bytes), "demo", &target).expect("应当解压成功");
-        assert_eq!(plan.entries.len(), 3);
+        assert_eq!(plan.entries.len(), 4, "三个文件 + 一条目录条目");
         assert_eq!(
             fs::read_to_string(target.join("index.js")).unwrap(),
             "// plugin"
@@ -630,6 +692,7 @@ mod tests {
             fs::read_to_string(target.join("js").join("lib.js")).unwrap(),
             "// lib"
         );
+        assert!(target.join("js").is_dir());
 
         fs::remove_dir_all(&target).ok();
     }
