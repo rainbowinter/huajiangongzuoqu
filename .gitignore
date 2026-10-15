@@ -75,3 +75,6 @@ Docs/windows-install-chain-code-review.md
 ## 插件市场的产物（zip 与签名都可以重新生成）
 plugin-market/dist/
 plugin-market/*.sig
+
+## PDF 插件的 pdf.js（按 version + sha256 从 CDN 取，见 scripts/fetch-pdfjs.mjs）
+example-plugins-v2/pdf-viewer/vendor/

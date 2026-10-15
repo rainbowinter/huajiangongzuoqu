@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   MAX_ANNOTATION_CHARS,
+  VIEW_WORKER_ELEMENT_ID,
   buildViewDocument,
   isCompleteViewSpec,
   parseViewMessage,
@@ -109,6 +110,42 @@ describe("拼 srcdoc", () => {
     expect(document).not.toContain(`content:'${closingStyle}'`);
     expect(document).toContain(`const s = "<\\/script>";`);
     expect(document).toContain("body::after{content:'<\\/style>'}");
+  });
+});
+
+describe("视图里的 worker 源码", () => {
+  const base = { html: "<div id=app></div>", css: [], js: [] };
+  const closingScript = "<" + "/script>";
+
+  test("当文本塞进去，不执行 —— 它不是给主线程跑的", () => {
+    const document = buildViewDocument({ ...base, worker: "self.onmessage = () => {};" });
+
+    expect(document).toContain(`<script type="text/plain" id="${VIEW_WORKER_ELEMENT_ID}">`);
+    expect(document).toContain("self.onmessage");
+    // 放进 js 数组会被当代码执行；这个块必须是 text/plain。
+    expect(document.match(/<script type="module">/g)).toHaveLength(1);
+  });
+
+  test("排在主脚本之前：插件在模块求值时就要读得到它", () => {
+    const document = buildViewDocument({ ...base, js: ["floralView.ready();"], worker: "// w" });
+
+    expect(document.indexOf(VIEW_WORKER_ELEMENT_ID)).toBeLessThan(
+      document.indexOf("floralView.ready();"),
+    );
+  });
+
+  test("worker 源码里的结束标签也要转义", () => {
+    const document = buildViewDocument({
+      ...base,
+      worker: `const s = "${closingScript}";`,
+    });
+
+    expect(document).not.toContain(`const s = "${closingScript}";`);
+    expect(document).toContain(`const s = "<\\/script>";`);
+  });
+
+  test("没声明 worker 就一个字节都不拼进去", () => {
+    expect(buildViewDocument(base)).not.toContain(VIEW_WORKER_ELEMENT_ID);
   });
 });
 

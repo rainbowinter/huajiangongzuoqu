@@ -1,0 +1,17 @@
+<!-- 视图的骨架。宿主会把 view/viewer.css 与那两份 js 内联进来，整体作为 srcdoc。 -->
+<header class="toolbar">
+  <span class="title" id="doc-name"></span>
+  <span class="spacer"></span>
+
+  <button type="button" id="zoom-out" title="缩小" aria-label="缩小">−</button>
+  <span class="readout" id="zoom-label">100%</span>
+  <button type="button" id="zoom-in" title="放大" aria-label="放大">+</button>
+  <button type="button" id="zoom-fit" title="适应宽度">适应宽度</button>
+
+  <span class="sep"></span>
+  <span class="readout" id="page-label">—</span>
+</header>
+
+<main class="scroller" id="scroller">
+  <p class="hint" id="hint">正在读取文件…</p>
+</main>

@@ -445,6 +445,7 @@ await api.files.registerType({
 | `image`    | ❌             | ✅ 图片     | 通过 asset 协议直接显示                          |
 | `media`    | ❌             | ✅ 播放器   | 音频 / 视频                                      |
 | `custom`   | ❌             | ✅ 插件渲染 | 调 `render(file)`，返回值经 `sanitizePluginHtml` |
+| `view`     | ❌             | ✅ 沙箱视图 | 插件交出自己的 HTML/CSS/JS，跑在沙箱里           |
 | `none`     | ❌             | ❌          | 只在侧栏出现，点开提示暂不支持                   |
 
 **「有没有编辑器」和「有没有预览面板」是两件独立的事。** `.py`、`.log`、`.txt` 打开就
@@ -477,6 +478,69 @@ Markdown 规则是唯一一条。装上 `example-plugins-v2/file-reader/` 之后
 
 > `extensions` 为空数组会被判为参数错误。`kind` 拼错也会明确报错，而不是静默回落到
 > 某个默认值 —— 那样插件作者会以为注册成功了，却一直看不到期望的渲染结果。
+
+### `kind: "view"` — 插件自己的渲染界面
+
+`custom` 只能返回一段 HTML 字符串（还要过消毒白名单，没有 `<canvas>` / `<script>`）。
+想画 canvas、想跑自己的脚本、想用一个真正的库（pdf.js 那种），就得用 `view`：
+
+```js
+await api.files.registerType({
+  id: "pdf",
+  extensions: ["pdf"],
+  label: "PDF",
+  badge: "PDF",
+  color: "#c0392b",
+  kind: "view",
+  view: {
+    html: "view/index.html", // 骨架（进入 <body>）
+    css: ["view/viewer.css"], // 按顺序内联进 <style>
+    js: ["vendor/lib.js", "view/viewer.js"], // 按顺序拼进**同一个**内联 module
+    worker: "vendor/lib.worker.js", // 可选：Web Worker 的源码，见下
+  },
+});
+```
+
+这个能力比「登记一条扩展名规则」强得多（插件交出来的代码会**真的跑起来**），所以除了
+`files:register` 还要单独一道 **`files:view`** 权限 —— 用户撤掉它就能让视图失效，
+不必停用整个插件。
+
+**沙箱边界与那几条实测结论见 [`Docs/plugin-view-sandbox.md`](./plugin-view-sandbox.md)**，
+写插件前值得先看一遍。三条最容易踩的：
+
+1. **帧是 opaque origin，取不到任何外部资源。** 所以宿主把上面几样**全读成文本内联**进去；
+   你的代码里不要写 `fetch("./x.json")`、也不要指望相对路径的资源 —— 要用什么就让宿主
+   内联什么（多出来的文件写进 `js` / `css` 列表）。
+2. **`new Worker(<地址>)` 会被 CORS 挡掉，`new Worker(blob:)` 可以。**
+   所以 `worker` 指定的文件由宿主塞进
+   `<script type="text/plain" id="floral-worker-src">`（**不执行**，只当文本），
+   你自己读出来做成 blob：
+   ```js
+   const source = document.getElementById("floral-worker-src").textContent;
+   globalThis.pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(
+     new Blob([source], { type: "text/javascript" }),
+   );
+   ```
+3. **`js` 列表里的文件全部共享一个模块作用域**（拼成一个 module）。第三方库的顶层名字
+   可能和你撞车，所以自己的代码**包一层 IIFE**。
+
+`html` / `css` / `js` / `worker` 的路径都相对插件目录，且都会被校验（不许绝对路径、不许
+`..`、单个文件有大小上限）。
+
+与宿主的往来只有一条通道：`window.floralView`（`docs/plugin-view-sandbox.md` 里有完整
+列表）。文件内容是**主动要**的 —— 插件拿不到路径：
+
+```js
+floralView.onMessage((message) => {
+  if (message.t === "init") floralView.requestDocument(); // { name, path, theme }
+  if (message.t === "document") render(new Uint8Array(message.bytes)); // ArrayBuffer
+  if (message.t === "documentError") showError(message.message);
+});
+floralView.ready(); // 别忘了：宿主收到它才会发 init
+```
+
+完整可运行的样例见 `example-plugins-v2/pdf-viewer/`（pdf.js 的 PDF 阅读器，含 worker）；
+它是怎么拿到 pdf.js、为什么要把那份文件改一处，见 [`Docs/pdf-viewer.md`](./pdf-viewer.md)。
 
 ### `api.fonts` — 自带字体
 

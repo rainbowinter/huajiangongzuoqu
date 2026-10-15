@@ -115,6 +115,18 @@ window.addEventListener("message", (event) => {
 `;
 
 /**
+ * worker 源码那个块的 id。**插件作者要在自己的视图代码里读它**，所以这是一个约定：
+ *
+ * ```js
+ * const source = document.getElementById("floral-worker-src").textContent;
+ * pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+ * ```
+ *
+ * （写成 `type="text/plain"` 是为了**不执行**它 —— 那份文件是给 worker 用的。）
+ */
+export const VIEW_WORKER_ELEMENT_ID = "floral-worker-src";
+
+/**
  * 拼出 iframe 的 `srcdoc`。
  *
  * **为什么是内联而不是给一串资源 URL**：帧是 opaque origin，外部 `<script type="module">`
@@ -131,9 +143,22 @@ export function buildViewDocument(options: {
   css: string[];
   /** 读好的脚本，按顺序，拼在桥接代码之后。 */
   js: string[];
+  /**
+   * 读好的 worker 源码：塞进一个 `type="text/plain"` 的块里，**不执行**，
+   * 只等插件自己读出来做成 blob（见 `VIEW_WORKER_ELEMENT_ID`）。
+   */
+  worker?: string;
 }): string {
   const styles = options.css.map((sheet) => `<style>${escapeForStyle(sheet)}</style>`).join("\n");
   const script = escapeForScript([VIEW_PRELUDE, ...options.js].join("\n;\n"));
+  const worker = options.worker
+    ? [
+        `<script type="text/plain" id="${VIEW_WORKER_ELEMENT_ID}">`,
+        escapeForScript(options.worker),
+        "</script>",
+        "",
+      ].join("")
+    : "";
 
   return [
     "<!doctype html>",
@@ -144,6 +169,8 @@ export function buildViewDocument(options: {
     styles,
     "</head><body>",
     options.html,
+    // worker 的源码放在主脚本**之前**：插件在模块求值时就能读到它。
+    worker,
     `<script type="module">${script}</script>`,
     "</body></html>",
   ].join("\n");

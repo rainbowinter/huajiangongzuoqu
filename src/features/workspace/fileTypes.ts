@@ -110,6 +110,19 @@ export interface FileViewSpec {
   css?: string[];
   /** 按顺序拼进同一个内联 module 的脚本。 */
   js?: string[];
+  /**
+   * 一份**只当文本塞进去、不执行**的脚本，通常是 **Web Worker 的源码**（pdf.js 的
+   * `pdf.worker.min.mjs` 就是这种）。
+   *
+   * 为什么不放进 `js`：视图帧是 opaque origin，`new Worker(<外部地址>)` 会被 CORS 挡掉
+   * （实测见 `Docs/plugin-view-sandbox.md`），所以插件必须先把源码做成 blob 再
+   * `new Worker(blob:, { type: "module" })`。源码得先以**文本**形式进到帧里，而放进 `js`
+   * 会被当代码执行（那份文件是给 worker 用的，主线程跑它没有意义）。
+   *
+   * 宿主把它塞进 `<script type="text/plain" id="floral-worker-src">`，插件自己读
+   * `textContent` —— 那个 id 定义在 `viewBridge.ts` 的 `VIEW_WORKER_ELEMENT_ID`。
+   */
+  worker?: string;
 }
 
 /** 宿主内置：只认 Markdown。其余全部依赖插件。 */

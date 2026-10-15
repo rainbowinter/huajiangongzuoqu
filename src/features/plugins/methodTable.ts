@@ -157,7 +157,7 @@ export interface FileTypeContribution {
    * 沙箱视图里，**能画 canvas、能跑自己的脚本**，比「只登记一条扩展名规则」能力更强，
    * 值得单独可撤销。沙箱边界见 `Docs/plugin-view-sandbox.md`。
    */
-  view?: { html: string; css?: string[]; js?: string[] };
+  view?: { html: string; css?: string[]; js?: string[]; worker?: string };
 }
 
 /**
@@ -169,7 +169,7 @@ export interface FileTypeContribution {
  */
 export function parseViewSpec(
   raw: unknown,
-): { html: string; css?: string[]; js?: string[] } | undefined {
+): { html: string; css?: string[]; js?: string[]; worker?: string } | undefined {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined;
 
   const record = raw as Record<string, unknown>;
@@ -185,8 +185,16 @@ export function parseViewSpec(
 
   const css = paths(record.css);
   const js = paths(record.js);
+  // worker 是**单个**路径（一份源码），不是列表。
+  const worker =
+    typeof record.worker === "string" && record.worker.length > 0 ? record.worker : undefined;
 
-  return { html: record.html, ...(css ? { css } : {}), ...(js ? { js } : {}) };
+  return {
+    html: record.html,
+    ...(css ? { css } : {}),
+    ...(js ? { js } : {}),
+    ...(worker ? { worker } : {}),
+  };
 }
 
 /**

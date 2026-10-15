@@ -38,13 +38,16 @@ export function loadViewDocument(type: FileType): Promise<string> {
 
     const read = (relativePath: string) => readPluginAsset(owner, relativePath);
 
-    const [html, css, js] = await Promise.all([
+    const [html, css, js, worker] = await Promise.all([
       read(spec.html),
       Promise.all((spec.css ?? []).map(read)),
       Promise.all((spec.js ?? []).map(read)),
+      // worker 只是**文本**：pdf.js 那份 1.4MB 的 worker 源码要原样进到帧里，
+      // 由插件自己做成 blob 再 new Worker（帧是 opaque origin，外部地址会被 CORS 挡掉）。
+      spec.worker ? read(spec.worker) : Promise.resolve(undefined),
     ]);
 
-    return buildViewDocument({ html, css, js });
+    return buildViewDocument({ html, css, js, worker });
   })();
 
   documentCache.set(type.id, pending);

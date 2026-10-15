@@ -15,7 +15,8 @@
     "release": "node scripts/release.mjs",
     "plugin": "node scripts/plugin.mjs",
     "version:sync": "node scripts/set-version.mjs",
-    "prepare": "husky"
+    "prepare": "husky",
+    "pdfjs": "node scripts/fetch-pdfjs.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "~2.12",
