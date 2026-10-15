@@ -22,11 +22,14 @@ use std::path::{Path, PathBuf};
 /// * 1 —— 初版：每个插件只有 `enabled` 与 `grantedPermissions`。
 /// * 2 —— 每个插件增加 `installedFiles`：随应用分发的那些文件在被写下去时的哈希，
 ///   供版本校正判断「这个文件用户动过没有」。
+/// * 3 —— 每个插件增加 `origin`：这个插件是随应用分发的，还是从插件市场装的。
+///   内置版本校正靠它避开市场插件（见 [`PluginOrigin`]）。
 ///
 /// 这个字段**一直就在文件里，却从来没人读过**。现在补上迁移：`load` 读到低版本会就地
-/// 升级并写回。1 → 2 本身不需要搬任何数据，但壳子得先立着 —— 将来真要改字段含义时，
-/// 低版本文件才会被自动送进 `migrate`。
-const STATE_VERSION: u32 = 2;
+/// 升级并写回。2 → 3 不需要搬数据（老文件里的插件当然都是随应用分发的，缺省即
+/// `Bundled`），但壳子得先立着 —— 将来真要改字段含义时，低版本文件才会被自动送进
+/// `migrate`。
+const STATE_VERSION: u32 = 3;
 
 /// 文件里没有 `version` 字段时的取值。
 ///
@@ -39,6 +42,29 @@ fn default_state_version() -> u32 {
 fn default_enabled() -> bool {
     // 新放进插件目录的插件默认是启用的，否则用户会以为没生效。
     true
+}
+
+/// 插件是打哪来的。
+///
+/// **存在的唯一理由是划清管辖范围**：内置版本校正（`sync`）负责把随应用分发的那几个
+/// 插件刷到最新，但它对市场插件**无权过问** —— 一个市场装的 `outline 3.0` 会被内置的
+/// `outline 2.1` 当成「版本更低」或「版本更高」乱来，而两者根本不是一套东西。
+///
+/// 缺省是 `Bundled`：老状态文件里没有这个字段，而那些插件确实都是随应用分发或用户自己
+/// 放进去的。宁可把它们当成内置的（最多是被校正一次，还会先备份），也不能反过来 ——
+/// 反过来等于宣布「所有老插件都归市场管」，那才是真的乱。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PluginOrigin {
+    #[default]
+    Bundled,
+    Market,
+}
+
+impl PluginOrigin {
+    fn is_bundled(&self) -> bool {
+        matches!(self, Self::Bundled)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,6 +83,11 @@ pub struct PluginStateEntry {
     /// 「无法判断」处理（见 `sync`）。空表不写进文件，免得状态文件被一堆 `{}` 撑肿。
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub installed_files: BTreeMap<String, String>,
+    /// 打哪来的。缺省 `Bundled`（见 [`PluginOrigin`]）。
+    ///
+    /// `Bundled` 不写进文件：绝大多数插件都是这一类，写了只是把状态文件撑肿。
+    #[serde(default, skip_serializing_if = "PluginOrigin::is_bundled")]
+    pub origin: PluginOrigin,
 }
 
 impl Default for PluginStateEntry {
@@ -65,6 +96,7 @@ impl Default for PluginStateEntry {
             enabled: default_enabled(),
             granted_permissions: None,
             installed_files: BTreeMap::new(),
+            origin: PluginOrigin::Bundled,
         }
     }
 }
@@ -116,11 +148,11 @@ impl PluginStateFile {
 
 /// 把状态文件升到 [`STATE_VERSION`]，返回是否真的动过。
 ///
-/// 迁移**逐级进行**，不要写成直接跳到最新版：将来加到 3 时，一个从 1 升上来的文件仍然
-/// 要依次跑过 1→2、2→3 两步，跳过去会漏掉中间那步的数据搬动。现在逐级加分支即可。
+/// 迁移**逐级进行**，不要写成直接跳到最新版：将来加到 4 时，一个从 1 升上来的文件仍然
+/// 要依次跑过 1→2、2→3、3→4 三步，跳过去会漏掉中间那步的数据搬动。现在逐级加分支即可。
 ///
-/// 目前唯一的 1 → 2 不需要搬数据：新增的 `installedFiles` 是一张空表，老文件靠
-/// `#[serde(default)]` 照样读得出来，这里只把版本号推上去。
+/// 目前两步都不需要搬数据：新增的 `installedFiles` 是一张空表、新增的 `origin` 缺省就是
+/// `Bundled`，老文件靠 `#[serde(default)]` 照样读得出来，这里只把版本号推上去。
 fn migrate(state: &mut PluginStateFile) -> bool {
     if state.version >= STATE_VERSION {
         return false;
@@ -207,12 +239,7 @@ pub fn set_enabled(
 ) -> Result<PluginStateFile, AppError> {
     ensure_known(paths, name)?;
 
-    let data_dir = paths
-        .state_path
-        .parent()
-        .ok_or_else(|| app_error("pluginStatePathInvalid", "插件状态路径不合法"))?;
-
-    let mut state = load(&paths.state_path, data_dir);
+    let mut state = load(&paths.state_path, state_dir(paths)?);
     state.plugins.entry(name.to_string()).or_default().enabled = enabled;
     save(&paths.state_path, &state)?;
     Ok(state)
@@ -240,14 +267,56 @@ pub fn set_granted_permissions(
         }
     }
 
-    let data_dir = paths
-        .state_path
-        .parent()
-        .ok_or_else(|| app_error("pluginStatePathInvalid", "插件状态路径不合法"))?;
-
-    let mut state = load(&paths.state_path, data_dir);
+    let mut state = load(&paths.state_path, state_dir(paths)?);
     let entry = state.plugins.entry(name.to_string()).or_default();
     entry.granted_permissions = Some(granted);
+    save(&paths.state_path, &state)?;
+    Ok(state)
+}
+
+fn state_dir(paths: &super::paths::PluginPaths) -> Result<&Path, AppError> {
+    paths
+        .state_path
+        .parent()
+        .ok_or_else(|| app_error("pluginStatePathInvalid", "插件状态路径不合法"))
+}
+
+/// 记下一笔「从插件市场装的」。
+///
+/// **一次读、一次写**：来源与授权必须同时落地。拆成两次读改写会出现「来源记了、权限没记」
+/// 的中间态，而那个状态下 `grantedPermissions` 是 `None` —— 语义是「按清单声明全量授予」，
+/// 插件之后偷偷加一个权限就立刻生效，用户当初确认的那份清单形同虚设。
+///
+/// ⚠️ 所以这里**一定要写 `Some(...)`**，永远不留 `None`。这是「装之前列清楚、我确认」
+/// 这条承诺能在代码里成立的前提。
+pub fn record_market_install(
+    paths: &super::paths::PluginPaths,
+    name: &str,
+    granted: Vec<String>,
+) -> Result<PluginStateFile, AppError> {
+    super::paths::validate_plugin_name(name)?;
+
+    let mut state = load(&paths.state_path, state_dir(paths)?);
+    let entry = state.plugins.entry(name.to_string()).or_default();
+    entry.origin = PluginOrigin::Market;
+    entry.granted_permissions = Some(granted);
+    // 市场插件不参与内置校正，`installedFiles` 那套哈希对它没有意义。
+    entry.installed_files.clear();
+    // 覆盖安装（更新/降级）时**不动** `enabled`：用户停用它是个决定，不该被一次更新抹掉。
+    save(&paths.state_path, &state)?;
+    Ok(state)
+}
+
+/// 卸载时把这个插件的状态条目整个删掉。
+///
+/// 删掉而不是留个空壳，是因为留下的 `grantedPermissions` 会在**下次装同一个名字**时被
+/// 直接沿用 —— 那等于绕过了「装之前我确认」这一步。
+pub fn record_uninstall(
+    paths: &super::paths::PluginPaths,
+    name: &str,
+) -> Result<PluginStateFile, AppError> {
+    let mut state = load(&paths.state_path, state_dir(paths)?);
+    state.plugins.remove(name);
     save(&paths.state_path, &state)?;
     Ok(state)
 }
@@ -510,6 +579,140 @@ mod tests {
             !raw.contains("installedFiles"),
             "空哈希表不该写进文件，否则状态文件会被一堆空对象撑肿：{raw}"
         );
+        assert!(
+            !raw.contains("origin"),
+            "随应用分发是绝大多数情况，不该写进文件：{raw}"
+        );
+
+        fs::remove_dir_all(data_dir.parent().unwrap()).ok();
+    }
+
+    // ------------------------------------------------------------ 市场装的插件
+
+    fn market_paths(tag: &str) -> (super::super::paths::PluginPaths, PathBuf) {
+        let mut root = std::env::temp_dir();
+        root.push(format!("floral-plugin-state-{tag}-{}", uuid::Uuid::new_v4()));
+        let data_dir = root.join("notes");
+        let paths = super::super::paths::PluginPaths::from_data_dir(&data_dir);
+        paths.ensure_dirs().expect("ensure dirs");
+        (paths, root)
+    }
+
+    #[test]
+    fn market_install_records_origin_and_never_leaves_grants_unset() {
+        let (paths, root) = market_paths("market");
+        let granted = vec!["editor:read".to_string(), "ui:panel".to_string()];
+
+        let state = record_market_install(&paths, "demo", granted.clone()).unwrap();
+        let entry = state.entry("demo");
+
+        assert_eq!(entry.origin, PluginOrigin::Market);
+        assert_eq!(
+            entry.granted_permissions,
+            Some(granted.clone()),
+            "必须写 Some(...)：None 的语义是「按清单全量自动授予」，那样插件之后偷偷加一个\
+             权限就立刻生效，用户确认过的清单形同虚设"
+        );
+
+        // 用户没确认过的权限，即便插件后来声明了也不生效。
+        let declared = vec![
+            "editor:read".to_string(),
+            "ui:panel".to_string(),
+            "workspace:read".to_string(),
+        ];
+        assert_eq!(
+            entry.effective_permissions(&declared),
+            granted,
+            "没确认过的新权限不该生效"
+        );
+
+        // 落盘之后还要读得回来。
+        let reloaded = load(&paths.state_path, &paths.data_dir);
+        assert_eq!(reloaded.entry("demo").origin, PluginOrigin::Market);
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn market_reinstall_keeps_the_enabled_flag() {
+        let (paths, root) = market_paths("reinstall");
+        record_market_install(&paths, "demo", vec![]).unwrap();
+
+        // 用户停用了它。
+        let mut state = load(&paths.state_path, &paths.data_dir);
+        state.plugins.entry("demo".to_string()).or_default().enabled = false;
+        save(&paths.state_path, &state).unwrap();
+
+        // 之后有一次覆盖安装（更新或降级）。
+        record_market_install(&paths, "demo", vec!["editor:read".to_string()]).unwrap();
+
+        assert!(
+            !load(&paths.state_path, &paths.data_dir).entry("demo").enabled,
+            "用户停用是个决定，不该被一次更新抹掉"
+        );
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn uninstall_forgets_the_entry_entirely() {
+        let (paths, root) = market_paths("uninstall");
+        record_market_install(&paths, "demo", vec!["editor:read".to_string()]).unwrap();
+
+        record_uninstall(&paths, "demo").unwrap();
+
+        let state = load(&paths.state_path, &paths.data_dir);
+        assert!(
+            !state.plugins.contains_key("demo"),
+            "留下的授权会在下次装同一个名字时被沿用 —— 那等于绕过了「装之前我确认」"
+        );
+        // 条目没了之后，重新装进来自然是「从未配置过」的状态。
+        assert_eq!(state.entry("demo").origin, PluginOrigin::Bundled);
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    /// 手写一份 v2 格式的状态文件（那时没有 `origin`）。
+    fn write_v2_state(path: &Path, data_dir: &Path) {
+        let raw = format!(
+            r#"{{
+                "version": 2,
+                "dataDir": "{}",
+                "plugins": {{
+                    "demo": {{
+                        "enabled": false,
+                        "grantedPermissions": ["editor:read"],
+                        "installedFiles": {{ "index.js": "abc" }}
+                    }}
+                }}
+            }}"#,
+            data_dir.display().to_string().replace('\\', "\\\\")
+        );
+        fs::write(path, raw).unwrap();
+    }
+
+    #[test]
+    fn migrates_v2_state_and_defaults_origin_to_bundled() {
+        let (path, data_dir) = temp_state("migrate-v2");
+        write_v2_state(&path, &data_dir);
+
+        let (state, migrated) = load_with_migration(&path, &data_dir);
+        assert!(migrated, "读到 v2 应报告升级过");
+        assert_eq!(state.version, STATE_VERSION);
+
+        let entry = state.entry("demo");
+        assert_eq!(
+            entry.origin,
+            PluginOrigin::Bundled,
+            "老插件都是随应用分发或用户自己放进去的 —— 缺省必须是 Bundled，否则内置校正就\
+             再也不管它们了"
+        );
+        assert!(!entry.enabled, "升级不该把停用的插件重新启用");
+        assert_eq!(
+            entry.granted_permissions,
+            Some(vec!["editor:read".to_string()])
+        );
+        assert_eq!(entry.installed_files.get("index.js"), Some(&"abc".to_string()));
 
         fs::remove_dir_all(data_dir.parent().unwrap()).ok();
     }

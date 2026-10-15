@@ -51,7 +51,6 @@
 //! `catalogVersion` 读自**已验证签名**的 JSON，旁边记一句「它可信是因为验签已经过了」。
 
 use super::super::errors::{app_error, with_detail};
-use super::super::manifest::CURRENT_API_VERSION;
 use super::super::paths::validate_plugin_name;
 use super::super::sync::version_is_newer;
 use super::verify::verify_signed;
@@ -543,6 +542,7 @@ fn request_error(url: &str, error: &impl std::fmt::Display) -> AppError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::super::manifest::CURRENT_API_VERSION;
 
     fn host() -> HostEnv {
         HostEnv {

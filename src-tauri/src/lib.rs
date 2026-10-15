@@ -702,7 +702,9 @@ pub fn run() {
             selfupdate::update_endpoint,
             docs::read_bundled_doc,
             plugins::market::commands::plugins_market_endpoint,
-            plugins::market::commands::plugins_market_catalog
+            plugins::market::commands::plugins_market_catalog,
+            plugins::market::commands::plugins_market_install,
+            plugins::market::commands::plugins_market_uninstall
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

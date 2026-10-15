@@ -7,9 +7,11 @@
 //! 会把 Tauri 的异步运行时线程堵死（仓库里 `updater/commands.rs` 是同样的处理）。
 
 use super::catalog::{self, PluginCatalog};
+use super::install::{self, InstallOutcome, UninstallOutcome};
 use super::config;
 use crate::plugins::errors::app_error;
 use crate::plugins::manifest::CURRENT_API_VERSION;
+use crate::plugins::paths::PluginPaths;
 use crate::services::notes::AppError;
 use tauri::AppHandle;
 
@@ -52,6 +54,61 @@ pub async fn plugins_market_catalog(app: AppHandle) -> Result<PluginCatalog, App
             app_error(
                 "marketTaskJoinFailed",
                 format!("获取插件清单的任务失败：{error}"),
+            )
+        })?
+}
+
+/// 从市场装一个插件。
+///
+/// `approved_permissions` 是**用户在确认框里看到并同意**的那一份（来自清单）。后端把它
+/// 原样记进状态，既不补也不减 —— 这就是「装之前列清楚、我确认」在代码里的落点。
+///
+/// 装完前端要自己做两件事：`reloadPlugins()` 让新插件跑起来、刷新插件列表。
+#[tauri::command]
+pub async fn plugins_market_install(
+    name: String,
+    version: String,
+    url: String,
+    sha256: String,
+    approved_permissions: Vec<String>,
+) -> Result<InstallOutcome, AppError> {
+    let paths = PluginPaths::resolve()?;
+    let request = install::InstallRequest {
+        name,
+        version,
+        url,
+        sha256,
+        approved_permissions,
+    };
+
+    // 下载是阻塞 IO，必须离异步运行时的线程远点。
+    tauri::async_runtime::spawn_blocking(move || install::install(&paths, &request))
+        .await
+        .map_err(|error| {
+            app_error(
+                "marketTaskJoinFailed",
+                format!("安装插件的任务失败：{error}"),
+            )
+        })?
+}
+
+/// 卸载一个市场装的插件。
+///
+/// `delete_data` 由用户在界面上选择（默认**不删**）：代码与数据本来就是分开的，
+/// 重装能恢复设置。`install::uninstall` 会拒绝卸载不是市场装的插件。
+#[tauri::command]
+pub async fn plugins_market_uninstall(
+    name: String,
+    delete_data: bool,
+) -> Result<UninstallOutcome, AppError> {
+    let paths = PluginPaths::resolve()?;
+
+    tauri::async_runtime::spawn_blocking(move || install::uninstall(&paths, &name, delete_data))
+        .await
+        .map_err(|error| {
+            app_error(
+                "marketTaskJoinFailed",
+                format!("卸载插件的任务失败：{error}"),
             )
         })?
 }

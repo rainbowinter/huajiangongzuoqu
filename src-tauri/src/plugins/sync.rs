@@ -19,6 +19,7 @@
 
 use super::manifest::{read_manifest_file, PluginManifestFile};
 use super::paths::{is_plain_relative, validate_plugin_name, PluginPaths};
+use super::market;
 use super::state::{self, PluginStateEntry};
 use crate::services::notes::AppError;
 use crate::updater::sha256_hex;
@@ -163,6 +164,15 @@ pub fn sync_bundled_plugins(paths: &PluginPaths, bundled_root: &Path) -> SyncRep
         let installed_dir = paths.root.join(&name);
         if !installed_dir.is_dir() {
             // 规矩 1：只更新已装的。这里是**唯一**决定不播种的地方。
+            continue;
+        }
+
+        // 规矩 3：市场装的插件不归内置校正管。
+        //
+        // 内置的 `outline 2.1` 对着市场装的 `outline 3.0`，两边版本号各说各话 ——
+        // 内置校正无权碰市场插件（判据与市场那边共用一份，见 `market::install`）。
+        if market::install::is_market_origin(&state, &name, &installed_dir) {
+            sync_log!("跳过 {name}：它是从插件市场装的");
             continue;
         }
 
@@ -648,6 +658,29 @@ mod tests {
         fn user_edit(&self, name: &str, file: &str, body: &str) {
             fs::write(self.paths.root.join(name).join(file), body).expect("write user edit");
         }
+
+        /// 把已装的那个标成「市场装的」。`marker` 决定走哪一条证据。
+        fn mark_market(&self, name: &str, use_state: bool, marker: bool) {
+            if use_state {
+                let mut state = self.load_state();
+                state
+                    .plugins
+                    .entry(name.to_string())
+                    .or_default()
+                    .origin = state::PluginOrigin::Market;
+                state::save(&self.paths.state_path, &state).expect("save state");
+            }
+            if marker {
+                let body = format!(
+                    r#"{{ "name": "{name}", "version": "1.0.0", "sha256": "ab", "installedAt": "2026-01-01T00:00:00Z" }}"#
+                );
+                fs::write(
+                    self.paths.root.join(name).join(market::install::MARKER_FILE),
+                    body,
+                )
+                .expect("write marker");
+            }
+        }
     }
 
     impl Drop for Fixture {
@@ -687,6 +720,29 @@ mod tests {
             "规矩 1：只更新已装的，绝不替用户新增"
         );
         assert!(report.is_empty(), "什么都没做就不该有报告");
+    }
+
+    #[test]
+    fn never_touches_plugins_installed_from_the_market() {
+        let fixture = Fixture::new("market");
+        // 内置 2.0.0、已装 1.0.0：按通常规则「内置更新」会把已装的覆盖掉。
+        fixture.bundle("outline", "2.0.0", "// bundled");
+        fixture.install("outline", "1.0.0", "// from market");
+
+        for (use_state, marker) in [(true, false), (false, true)] {
+            fixture.mark_market("outline", use_state, marker);
+            let report = fixture.sync();
+
+            assert_eq!(
+                fixture.installed("outline", "index.js"),
+                "// from market",
+                "市场装的插件不归内置校正管（use_state={use_state} marker={marker}）"
+            );
+            assert!(
+                report.is_empty(),
+                "跳过一个不归自己管的东西不算「做了什么」，不该出现在报告里"
+            );
+        }
     }
 
     #[test]

@@ -11,6 +11,10 @@
 //!   plugin-data/                插件数据，与代码分离，插件更新不丢数据
 //!     <name>/kv.json
 //!     <name>/settings.json
+//!   plugin-install/             市场安装的工作区（下载、解压、换目录、待清理的旧版本）
+//!     <uuid>.zip
+//!     <uuid>/
+//!     trash/
 //! ```
 //!
 //! 代码与数据分离是刻意的：用户替换/升级插件目录时不应丢失插件的持久化数据。
@@ -36,6 +40,14 @@ pub struct PluginPaths {
     pub data_root: PathBuf,
     /// `<data_dir>/plugins-state.json`
     pub state_path: PathBuf,
+    /// `<data_dir>/plugin-install` —— 市场安装的工作区。
+    ///
+    /// 换目录要落盘、下载与解压都要有地方，用同一个数据目录保证**同盘**（跨盘的
+    /// `rename` 在 Windows 上会直接失败）。
+    ///
+    /// ⚠️ **刻意不放 `plugins/` 里面**：那个目录下每个子目录都会被列举成插件，
+    /// 一个 `.staging` 会让界面上凭空多出一个「损坏的插件」。
+    pub staging_root: PathBuf,
 }
 
 impl PluginPaths {
@@ -45,6 +57,7 @@ impl PluginPaths {
             root: data_dir.join("plugins"),
             data_root: data_dir.join("plugin-data"),
             state_path: data_dir.join("plugins-state.json"),
+            staging_root: data_dir.join("plugin-install"),
         }
     }
 
@@ -53,11 +66,17 @@ impl PluginPaths {
         Ok(Self::from_data_dir(default_store()?.data_dir()))
     }
 
-    /// 确保三个目录存在。`plugin-data/<name>` 按需创建。
+    /// 确保目录存在。`plugin-data/<name>` 与工作区里的临时目录都按需创建。
     pub fn ensure_dirs(&self) -> Result<(), AppError> {
         fs::create_dir_all(&self.root)?;
         fs::create_dir_all(&self.data_root)?;
+        fs::create_dir_all(&self.staging_root)?;
         Ok(())
+    }
+
+    /// 市场安装的工作目录（每个安装尝试一个，互不打架）。
+    pub fn trash_dir(&self) -> PathBuf {
+        self.staging_root.join("trash")
     }
 
     /// 某个插件的数据目录，按需创建。
@@ -405,9 +424,14 @@ mod tests {
         assert_eq!(paths.root, data_dir.join("plugins"));
         assert_eq!(paths.data_root, data_dir.join("plugin-data"));
         assert_eq!(paths.state_path, data_dir.join("plugins-state.json"));
+        assert_eq!(paths.staging_root, data_dir.join("plugin-install"));
         assert_ne!(
             paths.root, paths.data_root,
             "插件代码与插件数据必须是不同目录"
+        );
+        assert!(
+            !paths.staging_root.starts_with(&paths.root),
+            "工作区不能在 plugins/ 里面：那里每个子目录都会被列举成插件"
         );
     }
 }

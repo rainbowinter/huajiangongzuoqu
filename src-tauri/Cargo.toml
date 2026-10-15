@@ -51,6 +51,10 @@ sha2 = "0.10"
 # 下载，钉 0.21 会让构建在这台机器上取不到包。
 minisign-verify = "0.3"
 base64 = "0.22"
+# 解压插件 zip。zip 4 已经是 tauri-plugin-updater 在 Windows 上的传递依赖（就在 Cargo.lock 里）。
+# ⚠️ 只开 deflate 后端：默认特性会拉进 zstd / xz / bzip2 / aes 一整套压缩器，而我们只读
+# 自己发出去的 deflate zip。flate2 与 miniz_oxide 也都在本地缓存里。
+zip = { version = "4", default-features = false, features = ["deflate-flate2"] }
 dirs = "6"
 
 [target.'cfg(unix)'.dependencies]
