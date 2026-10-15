@@ -1,4 +1,5 @@
 import { memo, useState, useCallback, useEffect, useMemo, useRef } from "react";
+import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -299,6 +300,21 @@ function Blockquote({
   );
 }
 
+/**
+ * 表格单元格的样式：在 GFM 给的列对齐之上补一个「默认靠左」。
+ *
+ * `| :---: |` 这类标记由 remark-gfm 解析成每个单元格的 `align`。**它到不了 `align` 这个
+ * prop 上** —— `hast-util-to-jsx-runtime` 会把它转成 `style={{ textAlign }}` 再传进来
+ * （实测确认过），所以这里要透传 `style`。以前 `th` 写死了 `text-left`、`style` 直接丢掉，
+ * 表现就是**列对齐一直不生效**：写了 `:---:` 还是照样靠左。
+ *
+ * 没写标记时显式写 `left`，而不是留给继承：列的左右该由表格自己决定，不该被外面的容器
+ * （`<center>`、`::: center`）牵着走。
+ */
+function cellStyle(style?: CSSProperties): CSSProperties {
+  return { textAlign: "left", ...style };
+}
+
 const staticComponents: Components = {
   h1: ({ children, id }) => (
     <h1 id={id} className="text-[1.57em] font-display font-bold text-ink mt-6 mb-4 tracking-wide">
@@ -401,12 +417,19 @@ const staticComponents: Components = {
   ),
   // ⚠️ 表格**不在这里**：它的复制按钮要回头去切编辑区原文，必须拿得到当前 `content`，
   // 所以挪到下面 `components` 里按需构造。见那里的注释。
-  th: ({ children }) => (
-    <th className="text-left px-3 py-1.5 border md-table font-semibold text-ink text-[0.85em] bg-paper-warm/50">
+  th: ({ children, style }) => (
+    <th
+      style={cellStyle(style)}
+      className="px-3 py-1.5 border md-table font-semibold text-ink text-[0.85em] bg-paper-warm/50"
+    >
       {children}
     </th>
   ),
-  td: ({ children }) => <td className="px-3 py-1.5 border md-table text-ink-soft">{children}</td>,
+  td: ({ children, style }) => (
+    <td style={cellStyle(style)} className="px-3 py-1.5 border md-table text-ink-soft">
+      {children}
+    </td>
+  ),
   input: ({ checked, node: _node, ...props }) => (
     <input {...props} checked={checked} disabled className="mr-1.5 accent-bamboo" />
   ),

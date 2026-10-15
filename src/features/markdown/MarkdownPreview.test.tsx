@@ -84,6 +84,67 @@ describe("段落对齐", () => {
   });
 });
 
+/**
+ * GFM 表格的列对齐（`| :---: |`）。
+ *
+ * 这一直是**坏的**：`th` 上写死了 `text-left`，把 remark-gfm 给的 `align` 丢在一边。
+ * 更隐蔽的是开着 HTML 渲染那条管线 —— 默认的消毒白名单里根本没有 `align`，会被悄悄
+ * 剥掉。所以两种管线都要验。
+ */
+describe("表格的列对齐", () => {
+  const ALIGNED = ["| 左 | 中 | 右 |", "| :--- | :---: | ---: |", "| 1 | 2 | 3 |"].join("\n");
+  const PLAIN = ["| 甲 | 乙 |", "| --- | --- |", "| 1 | 2 |"].join("\n");
+
+  /**
+   * 对齐最终是**内联样式**，不是 class。
+   *
+   * 原因值得记一笔：remark-gfm 给的 `align` 到不了 `align` 这个 prop 上 ——
+   * `hast-util-to-jsx-runtime` 会先把它转成 `style={{ textAlign }}` 再传进组件。
+   * 所以断言要盯 `style`，盯 class 会一直绿（因为默认值也是靠左），把 bug 放过去。
+   */
+  const alignStyles = (markup: string, tag: "th" | "td") =>
+    [...markup.matchAll(new RegExp(`<${tag} style="([^"]*)"`, "g"))].map((match) => match[1]);
+
+  test(":--- / :---: / ---: 分别对应靠左 / 居中 / 靠右", () => {
+    const markup = renderToStaticMarkup(<MarkdownPreview content={ALIGNED} />);
+
+    expect(alignStyles(markup, "th")).toEqual([
+      "text-align:left",
+      "text-align:center",
+      "text-align:right",
+    ]);
+    expect(alignStyles(markup, "td")).toEqual([
+      "text-align:left",
+      "text-align:center",
+      "text-align:right",
+    ]);
+  });
+
+  test("没写标记的列按 GFM 默认值靠左", () => {
+    const markup = renderToStaticMarkup(<MarkdownPreview content={PLAIN} />);
+
+    expect(alignStyles(markup, "th")).toEqual(["text-align:left", "text-align:left"]);
+    expect(alignStyles(markup, "td")).toEqual(["text-align:left", "text-align:left"]);
+  });
+
+  // `align` 本来就在消毒的全局白名单（`attributes["*"]`）里，这条管线不需要额外放宽；
+  // 留着这条测试是因为它同时盖住了「`style` 透传」在两条管线上都对。
+  test("开着 HTML 渲染（多走 rehype-raw + 消毒）时列对齐也在", () => {
+    const markup = renderToStaticMarkup(<MarkdownPreview content={ALIGNED} renderHtml />);
+
+    expect(alignStyles(markup, "th")).toEqual([
+      "text-align:left",
+      "text-align:center",
+      "text-align:right",
+    ]);
+    expect(alignStyles(markup, "td")).toEqual([
+      "text-align:left",
+      "text-align:center",
+      "text-align:right",
+    ]);
+  });
+});
+
 describe("表格的复制按钮", () => {
   test("有表格就有按钮", () => {
     const markup = renderToStaticMarkup(<MarkdownPreview content={WITH_TABLE} />);
