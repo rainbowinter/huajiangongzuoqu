@@ -6,6 +6,8 @@
  * 的脚本里。清单的形状必须与 Rust 侧 `plugins/market/catalog.rs` 的 DTO 对得上，
  * `catalog.test.ts` 里有一条专门盯这个的用例。
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 /** 清单格式版本。与 Rust 的 `CATALOG_SCHEMA` 必须一致。 */
 export const SCHEMA = 1;
@@ -43,6 +45,53 @@ export function compareVersions(a, b) {
 
 export function emptyCatalog() {
   return { schema: SCHEMA, catalogVersion: 0, plugins: [] };
+}
+
+/** 图标源文件的大小上限。与宿主的 `manifest::MAX_ICON_BYTES` 一致。 */
+export const MAX_ICON_BYTES = 32 * 1024;
+/** 允许的图标扩展名（白名单 —— 这个内容会被内联进清单、渲染成 `<img>`）。 */
+const ICON_EXTENSIONS = ["svg", "png", "jpg", "jpeg"];
+
+/**
+ * 把插件目录里的图标读成 **data URL**，内联进清单。
+ *
+ * 为什么内联而不是让发布脚本把图标也传上去、清单里写个地址：清单是一份**签过名的静态
+ * 文件**，内联之后图标也跟着被签名覆盖（换个图标必须重新签名），而且应用打开市场时不会
+ * 为了一堆小图标额外发请求，离线也能看。图标本身很小，几 KB。
+ *
+ * 读不到、扩展名不对、太大 → 返回 `null`（界面用默认图标），**不报错**：图标是装饰，
+ * 不该拦着发布。
+ */
+export function readIconDataUrl(pluginDir, relativePath) {
+  if (!relativePath || typeof relativePath !== "string") return null;
+
+  const relative = relativePath.trim();
+  // 相对路径的安全检查与宿主一致：不许绝对路径、不许 `..`、不许反斜杠与 `:`。
+  if (!relative || relative !== relativePath.trim()) return null;
+  if (relative.startsWith("/") || relative.includes("\\") || relative.includes(":")) return null;
+  if (relative.split("/").some((segment) => !segment || segment === "." || segment === "..")) {
+    return null;
+  }
+
+  const extension = relative.split(".").pop()?.toLowerCase() ?? "";
+  if (!ICON_EXTENSIONS.includes(extension)) return null;
+
+  const path = join(pluginDir, relative);
+  let bytes;
+  try {
+    bytes = readFileSync(path);
+  } catch {
+    return null;
+  }
+  if (bytes.length === 0 || bytes.length > MAX_ICON_BYTES) return null;
+
+  const mime =
+    extension === "png"
+      ? "image/png"
+      : extension === "jpg" || extension === "jpeg"
+        ? "image/jpeg"
+        : "image/svg+xml";
+  return `data:${mime};base64,${bytes.toString("base64")}`;
 }
 
 /** 解析一份已有清单；格式不认识就抛错（别硬着头皮往上写）。 */
@@ -97,6 +146,10 @@ export function upsertPlugin(catalog, meta) {
   entry.description = meta.description;
   if (meta.author) entry.author = meta.author;
   if (meta.homepage) entry.homepage = meta.homepage;
+
+  // 图标**完全跟着 plugin.json**：这一版把 icon 去掉了，清单里那条也要跟着没
+  // （`undefined` 在序列化时会被丢掉）。不然用户会看到一个已经不存在的旧图标。
+  entry.icon = meta.icon ?? undefined;
 
   return entry;
 }

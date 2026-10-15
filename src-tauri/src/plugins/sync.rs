@@ -630,6 +630,7 @@ mod tests {
             homepage: None,
             permissions: Vec::new(),
             contributes: None,
+            icon: None,
         }
     }
 

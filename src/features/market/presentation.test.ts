@@ -10,9 +10,10 @@ import {
   isMarketVisible,
   permissionsRequiringReview,
   releaseRelation,
+  updateAvailable,
   type MarketState,
 } from "./presentation";
-import type { MarketPlugin, MarketRelease } from "./types";
+import type { MarketCatalog, MarketPlugin, MarketRelease } from "./types";
 
 function release(overrides: Partial<MarketRelease> = {}): MarketRelease {
   return {
@@ -195,6 +196,40 @@ describe("findInstalled", () => {
     const installed = [{ name: "a" }, { name: "b" }];
     expect(findInstalled(installed, "b")).toEqual({ name: "b" });
     expect(findInstalled(installed, "c")).toBeUndefined();
+  });
+});
+
+describe("updateAvailable", () => {
+  function catalogWith(version: string | undefined): MarketCatalog {
+    return {
+      schema: 1,
+      catalogVersion: 1,
+      plugins: [
+        {
+          name: "demo",
+          description: "",
+          ...(version ? { latest: version } : {}),
+          releases: [],
+        },
+      ],
+    };
+  }
+
+  it("清单里的版本更新时才给出版本号", () => {
+    expect(updateAvailable({ name: "demo", version: "1.0.0" }, catalogWith("1.1.0"))).toBe("1.1.0");
+    expect(updateAvailable({ name: "demo", version: "1.0.0" }, catalogWith("1.0.0"))).toBeNull();
+    expect(updateAvailable({ name: "demo", version: "1.1.0" }, catalogWith("1.0.0"))).toBeNull();
+  });
+
+  it("比不了大小的版本号不提示更新", () => {
+    // 猜不出来就别提示 —— 用户点过去发现是降级，比不提示更糟。
+    expect(updateAvailable({ name: "demo", version: "nightly" }, catalogWith("1.0.0"))).toBeNull();
+  });
+
+  it("没有市场、清单里没有这个插件、清单里没有可装版本 —— 都是不提示", () => {
+    expect(updateAvailable({ name: "demo", version: "1.0.0" }, null)).toBeNull();
+    expect(updateAvailable({ name: "other", version: "1.0.0" }, catalogWith("1.1.0"))).toBeNull();
+    expect(updateAvailable({ name: "demo", version: "1.0.0" }, catalogWith(undefined))).toBeNull();
   });
 });
 

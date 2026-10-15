@@ -39,6 +39,7 @@ import {
   comparableVersion,
   emptyCatalog,
   readCatalog,
+  readIconDataUrl,
   serializeCatalog,
   upsertPlugin,
 } from "./lib/catalog.mjs";
@@ -184,6 +185,8 @@ const entry = upsertPlugin(catalog, {
   description: String(manifest.description ?? ""),
   ...(manifest.author ? { author: String(manifest.author) } : {}),
   ...(manifest.homepage ? { homepage: String(manifest.homepage) } : {}),
+  // 图标内联进清单：市场在**装之前**也得有图可看，而那时本地还没有这个插件的文件。
+  icon: readIconDataUrl(pluginDir, manifest.icon),
 });
 
 try {

@@ -40,6 +40,13 @@ export interface MarketPlugin {
   description: string;
   author?: string;
   homepage?: string;
+  /**
+   * 图标，**内联在清单里的 data URL**（与本地插件那边同一个形状）。
+   *
+   * 为什么内联而不是给个图片地址：清单是签过名的静态文件，内联之后图标也跟着被签名
+   * 覆盖，且打开市场不会额外发一堆请求、离线也能看。写歪或超长的图标会被丢掉（`undefined`）。
+   */
+  icon?: string;
   /** 版本**从新到旧**（Rust 侧排好的）。 */
   releases: MarketRelease[];
   /** 整个插件都不能动的原因码。 */

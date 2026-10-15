@@ -87,6 +87,8 @@ fn invalid_record(
         warnings,
         dir_path: dir.display().to_string(),
         origin: state::PluginOrigin::Bundled,
+        // 清单都读不出来，图标更没得谈。
+        icon: None,
     }
 }
 

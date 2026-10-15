@@ -1,6 +1,10 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error 发布脚本是 .mjs（不参与 tsc 的源码构建），这里只取它的纯函数。
 import {
+  MAX_ICON_BYTES,
   addRelease,
   buildRelease,
   bumpCatalog,
@@ -8,6 +12,7 @@ import {
   comparableVersion,
   emptyCatalog,
   readCatalog,
+  readIconDataUrl,
   serializeCatalog,
   upsertPlugin,
 } from "./catalog.mjs";
@@ -104,6 +109,47 @@ describe("往清单里加一版", () => {
     expect(second).toBe(first);
     expect(second.description).toBe("新的");
     expect(second.author).toBe("我");
+  });
+});
+
+describe("图标：读成 data URL 内联进清单", () => {
+  const dir = mkdtempSync(join(tmpdir(), "floral-icon-"));
+  writeFileSync(join(dir, "icon.svg"), "<svg/>");
+  writeFileSync(join(dir, "a.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  writeFileSync(join(dir, "big.svg"), "x".repeat(MAX_ICON_BYTES + 1));
+
+  it("svh / png / jpg 各给对 MIME", () => {
+    expect(readIconDataUrl(dir, "icon.svg")).toMatch(/^data:image\/svg\+xml;base64,/);
+    expect(readIconDataUrl(dir, "a.png")).toMatch(/^data:image\/png;base64,/);
+  });
+
+  it("读不到、不是图片、太大、路径可疑 —— 一律 null（用默认图标，不拦发布）", () => {
+    for (const bad of [
+      undefined,
+      null,
+      "",
+      "   ",
+      "nope.svg",
+      "index.js",
+      "icon",
+      "../icon.svg",
+      "/etc/icon.svg",
+      "a\\b.svg",
+      "C:/icon.svg",
+      "big.svg",
+    ]) {
+      expect(readIconDataUrl(dir, bad as string)).toBeNull();
+    }
+  });
+
+  it("写进条目里；plugin.json 里去掉了图标，清单里那条也跟着没", () => {
+    const catalog = emptyCatalog();
+    const first = upsertPlugin(catalog, { name: "demo", description: "", icon: "data:image/png;base64,AA" });
+    expect(first.icon).toBe("data:image/png;base64,AA");
+
+    upsertPlugin(catalog, { name: "demo", description: "" });
+    expect(first.icon).toBeUndefined();
+    expect(serializeCatalog(catalog)).not.toContain("icon");
   });
 });
 

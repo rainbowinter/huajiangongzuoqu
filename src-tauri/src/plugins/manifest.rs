@@ -47,6 +47,9 @@ pub struct PluginManifestFile {
     pub permissions: Vec<String>,
     #[serde(default)]
     pub contributes: Option<serde_json::Value>,
+    /// 图标：插件目录下的**相对路径**（`.svg` / `.png` 之类）。没写就用宿主的默认图标。
+    #[serde(default)]
+    pub icon: Option<String>,
 }
 
 /// 返回给前端的插件记录。字段是旧 `PluginManifest` 的超集，前端类型可增量扩展。
@@ -77,6 +80,70 @@ pub struct PluginManifest {
     pub dir_path: String,
     /// 打哪来的（随应用分发 / 插件市场）。界面靠它决定「这个能不能从市场更新/卸载」。
     pub origin: PluginOrigin,
+    /// 图标，**已经做成 data URL**（`data:image/svg+xml;base64,…`）。
+    ///
+    /// 为什么在 Rust 这边做、而不是把路径给前端让它自己取：
+    ///
+    /// * asset 协议的范围是**运行时逐个放行**的（字体就是那么做的），而那要额外一条命令
+    ///   在渲染之前跑完；data URL 没有这个时序问题，也不必碰 CSP；
+    /// * 市场那边给的就是 data URL（清单里内联着，见 `Docs/plugin-market.md`），
+    ///   两边同一形状 ⇒ 前端只有一条渲染路径。
+    ///
+    /// 没写 `icon`、文件不在、扩展名不像图片、或文件过大时都是 `None`，界面上退回默认图标。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+}
+
+/// 图标文件允许的扩展名。**白名单**：图标会被塞进 `<img>`，不该是 `.js` 那种东西。
+const ICON_EXTENSIONS: [&str; 4] = ["svg", "png", "jpg", "jpeg"];
+
+/// 图标文件的大小上限。图标是 16–40px 的东西，32KB 已经非常宽裕。
+///
+/// 这个上限**同时约束市场清单**：清单里的图标是内联的 data URL，而清单本身只有 4MB
+/// （见 `market/catalog.rs`），一个几百 KB 的「图标」能把整份清单撑爆。
+pub const MAX_ICON_BYTES: u64 = 32 * 1024;
+
+/// 把插件目录里的图标读成 data URL。
+///
+/// 任何一步不对都返回 `None`（**不报错**）：图标是锦上添花，一个写错的 `icon` 字段不该让
+/// 整个插件判为损坏。这与「插件清单缺字段就整个不合法」是两回事。
+pub fn read_icon(dir: &Path, relative: Option<&str>) -> Option<String> {
+    let relative = relative?.trim();
+    if !super::paths::is_plain_relative(relative) {
+        return None;
+    }
+
+    let extension = Path::new(relative)
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase)?;
+    if !ICON_EXTENSIONS.contains(&extension.as_str()) {
+        return None;
+    }
+
+    let path = dir.join(relative);
+    let metadata = fs::metadata(&path).ok()?;
+    if !metadata.is_file() || metadata.len() > MAX_ICON_BYTES {
+        return None;
+    }
+
+    let bytes = fs::read(&path).ok()?;
+    Some(data_url(&extension, &bytes))
+}
+
+/// 字节 → data URL。MIME 只认这几种，认不出就按图片里最保守的那个来。
+fn data_url(extension: &str, bytes: &[u8]) -> String {
+    let mime = match extension {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        _ => "image/svg+xml",
+    };
+    format!("data:{mime};base64,{}", base64_encode(bytes))
+}
+
+fn base64_encode(bytes: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
 pub fn read_manifest_file(dir: &Path) -> Result<PluginManifestFile, AppError> {
@@ -172,6 +239,7 @@ pub fn to_dto(
         warnings,
         dir_path: dir_path.display().to_string(),
         origin,
+        icon: read_icon(dir_path, manifest.icon.as_deref()),
     }
 }
 
@@ -191,6 +259,7 @@ mod tests {
             homepage: None,
             permissions: Vec::new(),
             contributes: None,
+            icon: None,
         }
     }
 
@@ -313,5 +382,103 @@ mod tests {
 
         assert!(!dto.valid);
         assert_eq!(dto.invalid_reason.as_deref(), Some("apiVersionUnsupported:99"));
+    }
+
+    // ------------------------------------------------------------ 图标
+
+    fn temp_plugin_dir(tag: &str) -> PathBuf {
+        let mut dir = std::env::temp_dir();
+        dir.push(format!(
+            "floral-plugin-icon-{tag}-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[test]
+    fn reads_an_icon_as_a_data_url() {
+        let dir = temp_plugin_dir("ok");
+        fs::write(dir.join("icon.svg"), "<svg/>").unwrap();
+
+        let icon = read_icon(&dir, Some("icon.svg")).expect("应当读出图标");
+
+        assert!(
+            icon.starts_with("data:image/svg+xml;base64,"),
+            "形状必须是 data URL —— 市场那边给的是同一个形状，前端只有一条渲染路径：{icon}"
+        );
+        assert!(icon.ends_with("PHN2Zy8+" /* "<svg/>" 的 base64 */) || icon.len() > 20);
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn png_and_jpeg_get_their_own_mime() {
+        let dir = temp_plugin_dir("mime");
+        fs::write(dir.join("a.png"), [0x89, 0x50, 0x4e, 0x47]).unwrap();
+        fs::write(dir.join("b.jpeg"), [0xff, 0xd8]).unwrap();
+
+        assert!(read_icon(&dir, Some("a.png")).unwrap().starts_with("data:image/png;base64,"));
+        assert!(read_icon(&dir, Some("b.jpeg")).unwrap().starts_with("data:image/jpeg;base64,"));
+        // 大小写不敏感。
+        fs::write(dir.join("C.PNG"), [0x89]).unwrap();
+        assert!(read_icon(&dir, Some("C.PNG")).unwrap().starts_with("data:image/png;base64,"));
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_broken_icon_falls_back_to_none_instead_of_failing() {
+        // 图标是锦上添花：写错一个 `icon` 字段不该让整个插件判为损坏。
+        let dir = temp_plugin_dir("broken");
+        fs::write(dir.join("icon.svg"), "<svg/>").unwrap();
+        fs::write(dir.join("big.svg"), "x".repeat(MAX_ICON_BYTES as usize + 1)).unwrap();
+
+        for bad in [
+            None,
+            Some(""),
+            Some("   "),
+            Some("nope.svg"),          // 文件不在
+            Some("../icon.svg"),       // 想往外跑
+            Some("/etc/icon.svg"),     // 绝对路径
+            Some("sub/../../icon.svg"),
+            Some("icon.js"),           // 不是图片
+            Some("icon"),              // 没有扩展名
+            Some("big.svg"),           // 太大
+            Some("dir.svg/"),          // 不是普通文件
+        ] {
+            assert!(
+                read_icon(&dir, bad).is_none(),
+                "{bad:?} 应当退回默认图标（None），而不是报错"
+            );
+        }
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn dto_carries_the_icon_and_survives_its_absence() {
+        let dir = temp_plugin_dir("dto");
+        fs::write(dir.join("icon.svg"), "<svg/>").unwrap();
+
+        let mut manifest = manifest_with(2, "index.js");
+        manifest.icon = Some("icon.svg".to_string());
+        let dto = to_dto("demo", &dir, &manifest, true, vec![], PluginOrigin::Bundled);
+        assert!(dto.icon.unwrap().starts_with("data:image/svg+xml;base64,"));
+
+        manifest.icon = None;
+        let dto = to_dto("demo", &dir, &manifest, true, vec![], PluginOrigin::Bundled);
+        assert!(dto.icon.is_none());
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn manifest_field_is_optional() {
+        // 老插件没有 `icon`，照样解析得出来。
+        let parsed: PluginManifestFile =
+            serde_json::from_str(r#"{ "name": "demo", "version": "1.0.0", "main": "index.js" }"#)
+                .expect("应能解析");
+        assert!(parsed.icon.is_none());
     }
 }

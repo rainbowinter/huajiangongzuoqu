@@ -28,8 +28,10 @@ import {
 } from "../features/plugins/registry";
 import { buildPluginDetails, type PluginContribution } from "../features/docs/pluginDetails";
 import type { PluginCommand, PluginRuntimeRecord, PluginStatus } from "../features/plugins/types";
-import { useMarketEnabled } from "../features/market/useMarket";
+import { updateAvailable } from "../features/market/presentation";
+import { useMarket, useMarketEnabled } from "../features/market/useMarket";
 import { MarketPanel } from "./MarketPanel";
+import { PluginIcon } from "./PluginIcon";
 import { PluginParams, parseSettingFields } from "./PluginParams";
 import { Switch } from "./Switch";
 import { showToast } from "./Toast";
@@ -111,17 +113,22 @@ function PluginRow({
   record,
   busy,
   expanded,
+  updateTo,
   onToggle,
   onRevoke,
   onToggleExpand,
+  onGoToMarket,
   onOpenDoc,
 }: {
   record: PluginRuntimeRecord;
   busy: boolean;
   expanded: boolean;
+  /** 市场里有更新的版本时是那个版本号；否则 `null`。 */
+  updateTo: string | null;
   onToggle: (record: PluginRuntimeRecord) => void;
   onRevoke: (record: PluginRuntimeRecord, permission: string) => void;
   onToggleExpand: (name: string) => void;
+  onGoToMarket: (name: string) => void;
   onOpenDoc?: (title: string, content: string) => void;
 }) {
   const { manifest, status, error, sandboxed } = record;
@@ -165,6 +172,7 @@ function PluginRow({
           ) : (
             <span className="w-[10px] shrink-0" />
           )}
+          <PluginIcon icon={manifest.icon} size={15} className="text-ink-ghost/70" />
           <span className="text-[12.5px] text-ink-soft truncate">{manifest.name}</span>
         </button>
         <span className="text-[10px] text-ink-ghost shrink-0">v{manifest.version || "?"}</span>
@@ -202,6 +210,24 @@ function PluginRow({
           </span>
         ) : null}
       </div>
+
+      {/* 市场里有新版：在这里就要能看见，否则用户得自己去市场那个页签里一行行找。
+          点它跳到市场并高亮那一行 —— 安装（含权限重新确认）仍然只在市场那一条路上走。 */}
+      {updateTo && updateTo !== manifest.version ? (
+        <div className="flex items-center gap-1.5 mt-1">
+          <span className="text-[10px] px-1.5 py-0.5 rounded-md text-bamboo bg-bamboo-mist/40">
+            市场有新版本 v{updateTo}
+          </span>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onGoToMarket(manifest.name)}
+            className="text-[10px] px-1.5 py-0.5 rounded-md text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50 transition-colors cursor-pointer disabled:opacity-40"
+          >
+            去更新
+          </button>
+        </div>
+      ) : null}
 
       {manifest.description ? (
         <p className="text-[11px] text-ink-ghost mt-1">{manifest.description}</p>
@@ -344,6 +370,15 @@ export function PluginCommandPanel({ onClose, onOpenDoc }: PluginCommandPanelPro
 
   /** 市场没配的话连这个 tab 都不出现（`null` = 还没问出来，也不出现）。 */
   const marketEnabled = useMarketEnabled();
+  /** 「去更新」要跳过去高亮的那一行。 */
+  const [focusPlugin, setFocusPlugin] = useState<string | null>(null);
+
+  /**
+   * 市场清单。**只在配了市场时才有** —— 面板打开时会去取一次（与打开市场页签同一条路径），
+   * 用来给「市场有新版本」那个徽标算依据。
+   */
+  const market = useMarket();
+  const catalog = market.state.stage === "ready" ? market.state.catalog : null;
 
   const handleToggleExpand = useCallback((name: string) => {
     setExpandedPlugins((current) => {
@@ -434,6 +469,12 @@ export function PluginCommandPanel({ onClose, onOpenDoc }: PluginCommandPanelPro
   /** 已装插件的清单，喂给插件市场判断「装过没有、能不能更新」。 */
   const installedManifests = useMemo(() => plugins.map((record) => record.manifest), [plugins]);
 
+  /** 「去更新」：跳到市场那个页签，并让那一行高亮出来。 */
+  const handleGoToMarket = useCallback((name: string) => {
+    setFocusPlugin(name);
+    setTab("market");
+  }, []);
+
   const tabs: Array<{ key: typeof tab; label: string; count: number }> = [
     { key: "plugins", label: "插件", count: plugins.length },
     { key: "commands", label: "命令", count: commands.length },
@@ -495,7 +536,11 @@ export function PluginCommandPanel({ onClose, onOpenDoc }: PluginCommandPanelPro
           <button
             key={entry.key}
             type="button"
-            onClick={() => setTab(entry.key)}
+            onClick={() => {
+              setTab(entry.key);
+              // 手点进来的就不高亮了 —— 高亮只服务于「去更新」那一下。
+              setFocusPlugin(null);
+            }}
             className={`px-2 py-1 text-[11px] rounded-lg transition-colors cursor-pointer ${
               tab === entry.key
                 ? "text-bamboo bg-bamboo-mist/50"
@@ -567,6 +612,8 @@ export function PluginCommandPanel({ onClose, onOpenDoc }: PluginCommandPanelPro
                     record={record}
                     busy={busy}
                     expanded={expandedPlugins.has(record.manifest.name)}
+                    updateTo={updateAvailable(record.manifest, catalog)}
+                    onGoToMarket={handleGoToMarket}
                     onToggle={(item) => void handleToggle(item)}
                     onRevoke={(item, permission) => void handleRevoke(item, permission)}
                     onToggleExpand={handleToggleExpand}
@@ -608,7 +655,12 @@ export function PluginCommandPanel({ onClose, onOpenDoc }: PluginCommandPanelPro
         {tab === "logs" ? <LogList entries={logs} /> : null}
 
         {tab === "market" ? (
-          <MarketPanel installed={installedManifests} onChanged={handleMarketChanged} />
+          <MarketPanel
+            installed={installedManifests}
+            onChanged={handleMarketChanged}
+            market={market}
+            focusPlugin={focusPlugin}
+          />
         ) : null}
       </div>
 

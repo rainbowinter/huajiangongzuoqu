@@ -1,11 +1,13 @@
 {
   "name": "markdown-table",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "apiVersion": 2,
   "main": "index.js",
   "description": "把用空格或制表符分隔的文本转换成 Markdown 表格（Ctrl+\\ 触发）",
   "author": "花笺",
-  "permissions": ["editor:read"],
+  "permissions": [
+    "editor:read"
+  ],
   "contributes": {
     "settings": [
       {
@@ -14,11 +16,18 @@
         "title": "优先分隔符",
         "description": "遇到混排文本时优先按哪种方式切分",
         "options": [
-          { "value": "tab-first", "label": "制表符优先" },
-          { "value": "space-only", "label": "只按空白切分" }
+          {
+            "value": "tab-first",
+            "label": "制表符优先"
+          },
+          {
+            "value": "space-only",
+            "label": "只按空白切分"
+          }
         ],
         "default": "tab-first"
       }
     ]
-  }
+  },
+  "icon": "icon.svg"
 }

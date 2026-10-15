@@ -1,11 +1,16 @@
 {
   "name": "math-symbols",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "apiVersion": 2,
   "main": "index.js",
   "description": "公式面板：结构模板（分式/上下标/矩阵…）+ 分类符号表，点一下插到光标处，模板会顺手把光标送进第一个占位符",
   "author": "花笺",
-  "permissions": ["ui:panel", "ui:style", "editor:write", "settings"],
+  "permissions": [
+    "ui:panel",
+    "ui:style",
+    "editor:write",
+    "settings"
+  ],
   "contributes": {
     "settings": [
       {
@@ -16,5 +21,6 @@
         "default": true
       }
     ]
-  }
+  },
+  "icon": "icon.svg"
 }

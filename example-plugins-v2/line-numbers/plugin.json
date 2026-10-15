@@ -1,11 +1,16 @@
 {
   "name": "line-numbers",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "apiVersion": 2,
   "main": "index.js",
   "description": "行号：在编辑区左侧标出每一行的行号，随滚动同步，栏宽可调",
   "author": "花笺",
-  "permissions": ["ui:gutter", "editor:read", "events", "settings"],
+  "permissions": [
+    "ui:gutter",
+    "editor:read",
+    "events",
+    "settings"
+  ],
   "contributes": {
     "settings": [
       {
@@ -19,5 +24,6 @@
         "step": 2
       }
     ]
-  }
+  },
+  "icon": "icon.svg"
 }

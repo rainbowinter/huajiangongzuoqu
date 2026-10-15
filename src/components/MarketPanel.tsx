@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getErrorMessage } from "../features/notes/api";
 import { installPlugin, uninstallPlugin } from "../features/market/api";
 import {
@@ -11,9 +11,10 @@ import {
   type MarketState,
 } from "../features/market/presentation";
 import type { MarketPlugin, MarketRelease } from "../features/market/types";
-import { useMarket } from "../features/market/useMarket";
+import type { MarketController } from "../features/market/useMarket";
 import { describePermission, isPermission, unknownPermissions } from "../features/plugins/permissions";
 import type { PluginManifest } from "../features/plugins/types";
+import { PluginIcon } from "./PluginIcon";
 import { showToast } from "./Toast";
 
 /**
@@ -35,6 +36,13 @@ interface MarketPanelProps {
   installed: readonly PluginManifest[];
   /** 装完 / 卸完之后宿主该做的事：重载插件、刷新列表。 */
   onChanged: () => Promise<void>;
+  /**
+   * 清单的取回状态。**由面板外面传进来**，不是这里自己 `useMarket()` —— 插件列表那边
+   * 也要用它算「市场有新版本」，两个 hook 实例会各取一次清单。
+   */
+  market: MarketController;
+  /** 从「去更新」跳过来时，把这一行高亮出来（免得用户在列表里找不到）。 */
+  focusPlugin?: string | null;
 }
 
 /** 本地已有的同名插件（不是在市场装的）——替换它需要用户再点一次头。 */
@@ -57,8 +65,8 @@ type PendingAction =
     }
   | { kind: "uninstall"; plugin: MarketPlugin; installedVersion: string };
 
-export function MarketPanel({ installed, onChanged }: MarketPanelProps) {
-  const { state, refresh } = useMarket();
+export function MarketPanel({ installed, onChanged, market, focusPlugin }: MarketPanelProps) {
+  const { state, refresh } = market;
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<PendingAction | null>(null);
   /** 用户手动选过的版本（按插件名记）。没选过就用清单给的默认版。 */
@@ -142,6 +150,7 @@ export function MarketPanel({ installed, onChanged }: MarketPanelProps) {
       <CatalogBody
         state={state}
         installed={installed}
+        focusPlugin={focusPlugin}
         busy={busy}
         chosenVersion={chosenVersion}
         onChooseVersion={chooseVersion}
@@ -188,6 +197,7 @@ export function MarketPanel({ installed, onChanged }: MarketPanelProps) {
 function CatalogBody({
   state,
   installed,
+  focusPlugin,
   busy,
   chosenVersion,
   onChooseVersion,
@@ -197,6 +207,7 @@ function CatalogBody({
 }: {
   state: MarketState;
   installed: readonly PluginManifest[];
+  focusPlugin?: string | null;
   busy: boolean;
   chosenVersion: Record<string, string>;
   onChooseVersion: (name: string, version: string) => void;
@@ -249,6 +260,7 @@ function CatalogBody({
           key={`${plugin.name}-${plugin.newestVersion ?? ""}`}
           plugin={plugin}
           installedManifest={findInstalled(installed, plugin.name)}
+          focused={plugin.name === focusPlugin}
           busy={busy}
           chosenVersion={chosenVersion[plugin.name]}
           onChooseVersion={onChooseVersion}
@@ -263,6 +275,7 @@ function CatalogBody({
 function MarketRow({
   plugin,
   installedManifest,
+  focused,
   busy,
   chosenVersion,
   onChooseVersion,
@@ -271,6 +284,8 @@ function MarketRow({
 }: {
   plugin: MarketPlugin;
   installedManifest: PluginManifest | undefined;
+  /** 刚被「去更新」跳过来指着的那个插件。 */
+  focused: boolean;
   busy: boolean;
   chosenVersion: string | undefined;
   onChooseVersion: (name: string, version: string) => void;
@@ -324,9 +339,24 @@ function MarketRow({
 
   const relation = release ? releaseRelation(installedVersion, release.version) : "install";
 
+  // 「去更新」跳过来时把这一行滚到中间 —— 列表长了以后用户根本找不到是哪一个。
+  const rowRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (focused) rowRef.current?.scrollIntoView({ block: "center" });
+  }, [focused]);
+
+  // 图标优先用清单里的（那是**将要装上的那一版**），其次用本地已装那份的，都没有就用默认。
+  const icon = plugin.icon ?? installedManifest?.icon;
+
   return (
-    <div className="px-3 py-2 rounded-xl hover:bg-paper-warm transition-colors">
+    <div
+      ref={rowRef}
+      className={`px-3 py-2 rounded-xl transition-colors ${
+        focused ? "bg-bamboo-mist/25 ring-1 ring-bamboo/30" : "hover:bg-paper-warm"
+      }`}
+    >
       <div className="flex items-center gap-2">
+        <PluginIcon icon={icon} size={16} className="text-ink-ghost/70" />
         <span className="text-[12.5px] text-ink-soft truncate flex-1" title={plugin.name}>
           {plugin.name || "（无法识别的一条）"}
         </span>

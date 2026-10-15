@@ -24,9 +24,19 @@ plugins/hello/
   "apiVersion": 2,
   "main": "index.js",
   "description": "打个招呼",
+  "author": "你",
+  "homepage": "https://example.com/hello",
+  "icon": "icon.svg",
   "permissions": ["ui:toast"]
 }
 ```
+
+`icon` 是可选的（`svg` / `png` / `jpg`，**不超过 32KB**）：插件列表与插件市场会显示它，
+没写就用宿主的默认图标。路径是插件目录下的相对路径，**别写绝对路径**。
+
+> 图标里请**自己带上颜色**：它是以 `<img>` 渲染的独立 SVG，拿不到界面的
+> `currentColor`，也不跟着明暗主题变。用中间调（明暗背景下都能看清），
+> 例如示例插件里那几个 `#3a7a52` / `#2f6b8a` / `#c2692e`。
 
 `index.js`
 
@@ -801,6 +811,9 @@ Worker 隔离的是**宿主能力**：插件拿不到 `window`、`document`、Ta
   权限（更新一版多声明一个），应用会**重新列一遍**要求确认 —— 没确认过的权限不会生效。
   权限名请照 `src/features/plugins/permissions.ts` 里的词汇表写，拼错了只会被忽略。
 - **zip 结构必须是「恰好一层顶层目录，名字等于插件名」**（`pdf-viewer/plugin.json`）。
+- **版本号只从 `plugin.json` 读**，发布脚本不接受另外指定 —— 两处写版本号迟早会不一致，
+  而不一致的后果是「装上去的版本和清单里写的不是一个」。
+- `icon` 会被**内联进清单**（转成 data URL），所以用户还没装就能在市场上看到图标。
 - 发布用 `npm run plugin -- --dir <插件目录> --repo <插件仓库>`。
 
 完整流程、清单格式与安全约定见 [`Docs/plugin-market.md`](./plugin-market.md)。

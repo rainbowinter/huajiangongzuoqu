@@ -185,6 +185,26 @@ export function findInstalled<T extends { name: string }>(
 }
 
 /**
+ * 清单里有没有比已装版本更新的可装版本；有就返回那个版本号。
+ *
+ * 只认「更新」（market 的版本比已装的新）。清单里只有旧版本时返回 `null` —— 那不是
+ * 「有更新」，而用户在插件面板里看到一个大字「有新版本」然后点过去发现是降级，比不提示更糟。
+ *
+ * 判据与市场那一行按钮上的文案共用 `releaseRelation`，两处不会说不到一起去。
+ */
+export function updateAvailable(
+  installed: { name: string; version: string },
+  catalog: MarketCatalog | null,
+): string | null {
+  if (!catalog) return null;
+
+  const entry = catalog.plugins.find((plugin) => plugin.name === installed.name);
+  if (!entry?.latest) return null;
+
+  return releaseRelation(installed.version, entry.latest) === "newer" ? entry.latest : null;
+}
+
+/**
  * 更新时**需要用户重新确认**的那几个权限：新版本要的、而现在没生效的。
  *
  * 为什么这件事必须单独算：插件更新时静默拿到新权限，等于把「装之前我确认」变成

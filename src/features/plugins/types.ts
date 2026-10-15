@@ -43,6 +43,14 @@ export interface PluginManifest {
    * 避开市场插件。
    */
   origin?: "bundled" | "market";
+  /**
+   * 图标，**已经是 data URL**（Rust 侧按 `plugin.json` 的 `icon` 读出来做的）。
+   *
+   * 没有这个字段就用宿主的默认图标 —— 插件不提供图标是完全正常的。
+   * ⚠️ 别指望它是路径：data URL 是为了绕开 asset 协议的范围放行时机，也为了和市场那边
+   * （清单里内联的图标）同一个形状。
+   */
+  icon?: string;
 }
 
 /**

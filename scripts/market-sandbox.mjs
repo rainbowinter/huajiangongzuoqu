@@ -40,6 +40,7 @@ import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readIconDataUrl } from "./lib/catalog.mjs";
 import { signFile } from "./lib/sign.mjs";
 import { makeZip } from "./lib/zip.mjs";
 
@@ -129,6 +130,7 @@ for (const name of readdirSync(pluginsRoot, { withFileTypes: true })
       description: String(manifest.description ?? ""),
       ...(manifest.author ? { author: String(manifest.author) } : {}),
       ...(manifest.homepage ? { homepage: String(manifest.homepage) } : {}),
+      icon: readIconDataUrl(dir, manifest.icon),
     },
     // `url` 里的端口要等服务器真的绑上才知道，先占个位，下面再补。
     release: {

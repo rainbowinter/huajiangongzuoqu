@@ -97,6 +97,12 @@ pub struct PluginCatalog {
 pub struct CatalogPlugin {
     pub name: String,
     pub description: String,
+    /// 图标，内联成 data URL（与本地插件那边**同一个形状**，前端只有一条渲染路径）。
+    ///
+    /// 认不出、超长就丢掉（`None`）而不是把这条插件判为坏 —— 图标是装饰，一个写歪的
+    /// 图标不该让人装不了插件。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub author: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -161,6 +167,7 @@ struct RawPlugin {
     description: Option<String>,
     author: Option<String>,
     homepage: Option<String>,
+    icon: Option<String>,
     /// 同上，逐条解析。
     releases: Option<Vec<serde_json::Value>>,
 }
@@ -281,11 +288,36 @@ fn build_plugin(
         description: raw.description.unwrap_or_default(),
         author: non_empty(raw.author),
         homepage: non_empty(raw.homepage),
+        icon: normalize_icon(raw.icon),
         latest,
         releases,
         blocked,
     }
 }
+
+/// 清单里的图标只接受**内联的图片 data URL**，且不许超长。
+///
+/// 白名单而不是黑名单：这个字符串会被塞进 `<img src>`。非法的一律当没有 ——
+/// 装饰性的东西不该让插件变成「装不了」。
+fn normalize_icon(icon: Option<String>) -> Option<String> {
+    let icon = icon?.trim().to_string();
+    if icon.len() > MAX_ICON_CHARS {
+        return None;
+    }
+    let allowed = [
+        "data:image/svg+xml;base64,",
+        "data:image/png;base64,",
+        "data:image/jpeg;base64,",
+    ];
+    allowed
+        .iter()
+        .any(|prefix| icon.starts_with(prefix))
+        .then_some(icon)
+}
+
+/// 清单里图标的长度上限。图标源文件那边卡 32KB（`manifest::MAX_ICON_BYTES`），
+/// base64 之后大约 44KB，这里给一点余量。
+const MAX_ICON_CHARS: usize = 48 * 1024;
 
 fn build_release(raw: RawRelease, host: &HostEnv, name_usable: bool) -> CatalogRelease {
     let version = raw.version.unwrap_or_default();
@@ -354,6 +386,7 @@ fn malformed_plugin() -> CatalogPlugin {
         description: String::new(),
         author: None,
         homepage: None,
+        icon: None,
         releases: Vec::new(),
         blocked: Some("marketPluginMalformed".to_string()),
         latest: None,
@@ -884,6 +917,47 @@ mod tests {
         assert_eq!(normalize_sha256(&upper).unwrap(), "a".repeat(64));
         assert_eq!(normalize_sha256("  aa  "), None, "长度不对就不认");
         assert_eq!(normalize_sha256(""), None);
+    }
+
+    #[test]
+    fn keeps_a_well_formed_icon_and_drops_a_bogus_one() {
+        let svg = format!("data:image/svg+xml;base64,{}", "A".repeat(64));
+        let with_icon = one_release(&format!(
+            r#"{{ "name": "demo", "icon": "{svg}", "releases": [{{
+                 "version": "1.0.0", "apiVersion": 2, "url": "https://e.com/a.zip",
+                 "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }}] }}"#
+        ));
+        assert_eq!(with_icon.icon.as_deref(), Some(svg.as_str()));
+
+        // 认不出的图标当没有 —— **而不是**把这条插件判为坏：装饰性的东西不该让人装不了插件。
+        for bogus in [
+            "https://example.com/icon.svg",             // 不是内联的
+            "data:text/html;base64,PHNjcmlwdD4=",       // 不是图片
+            "data:image/svg+xml,<svg/>",                // 没有 base64 标记
+            "javascript:alert(1)",
+        ] {
+            let plugin = one_release(&format!(
+                r#"{{ "name": "demo", "icon": "{bogus}", "releases": [{{
+                     "version": "1.0.0", "apiVersion": 2, "url": "https://e.com/a.zip",
+                     "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }}] }}"#
+            ));
+
+            assert!(plugin.icon.is_none(), "{bogus} 应当被丢掉");
+            assert_eq!(plugin.blocked, None, "图标坏了不影响这个插件本身");
+            assert_eq!(plugin.latest.as_deref(), Some("1.0.0"));
+        }
+    }
+
+    #[test]
+    fn drops_an_oversized_icon() {
+        let huge = format!("data:image/png;base64,{}", "A".repeat(MAX_ICON_CHARS));
+        let plugin = one_release(&format!(
+            r#"{{ "name": "demo", "icon": "{huge}", "releases": [{{
+                 "version": "1.0.0", "apiVersion": 2, "url": "https://e.com/a.zip",
+                 "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }}] }}"#
+        ));
+
+        assert!(plugin.icon.is_none(), "超长的图标会把整份清单撑大，必须丢掉");
     }
 
     #[test]
