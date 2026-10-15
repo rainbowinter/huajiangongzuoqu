@@ -21,6 +21,7 @@ import type { AppConfig, ThemeOption } from "./features/settings/types";
 import { getInitialRoute } from "./features/windows/windowRoutes";
 import { syncLanguage } from "./locales";
 import { listen } from "@tauri-apps/api/event";
+import { SandboxProbe, sandboxProbeEnabled } from "./dev/SandboxProbe";
 
 /** 应用主题色到 document 属性 */
 function applyAccent(accent?: string) {
@@ -150,6 +151,9 @@ function App() {
         )}
         <ToastContainer />
         <PluginPromptDialog />
+        {/* 沙箱探针：验证「插件视图」的隔离前提。平时不挂，只在开发模式且 URL 带
+            `?sandboxProbe=1` 时跑（见 src/dev/SandboxProbe.tsx 与 Docs/plugin-view-sandbox.md）。 */}
+        {sandboxProbeEnabled() ? <SandboxProbe /> : null}
       </div>
     </ContextMenuProvider>
   );
