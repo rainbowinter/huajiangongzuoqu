@@ -75,7 +75,15 @@
       "title": "关于",
       "whatsNew": "新功能",
       "guide": "使用指南",
-      "feedback": "意见反馈"
+      "feedback": "意见反馈",
+      "docs": "说明文档",
+      "downloadAndUpdate": "下载与更新",
+      "releasePage": "发布页",
+      "updateSource": "更新源",
+      "updateSourceNone": "未配置",
+      "dataLocation": "数据位置",
+      "notesDir": "笔记",
+      "pluginsDir": "插件"
     },
     "doc": {
       "label": "说明文档 · 只读",

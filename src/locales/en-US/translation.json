@@ -73,7 +73,15 @@
       "title": "About",
       "whatsNew": "What's new",
       "guide": "Guide",
-      "feedback": "Feedback"
+      "feedback": "Feedback",
+      "docs": "Documentation",
+      "downloadAndUpdate": "Download & updates",
+      "releasePage": "Releases",
+      "updateSource": "Update source",
+      "updateSourceNone": "Not configured",
+      "dataLocation": "Where your data lives",
+      "notesDir": "Notes",
+      "pluginsDir": "Plugins"
     },
     "doc": {
       "label": "Documentation · read-only",

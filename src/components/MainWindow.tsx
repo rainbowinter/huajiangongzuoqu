@@ -15,12 +15,11 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { exportMarkdownNote, importMarkdownNote } from "../features/importExport/api";
 import { MarkdownPreview } from "../features/markdown/MarkdownPreview";
-import { ABOUT_DOCS, type AboutDoc } from "../features/docs/catalog";
-import { readBundledDoc } from "../features/docs/api";
 import { applyAlign } from "../features/markdown/alignText";
 import { renderMarkdownLines } from "../features/markdown/syntaxHighlight";
 import { showToast } from "./Toast";
 import { PluginCommandPanel } from "./PluginCommandPanel";
+import { AboutPanel } from "./AboutPanel";
 import { CommandPalette } from "./CommandPalette";
 import { FindReplacePanel } from "./FindReplacePanel";
 import { dispatchCommandKeybinding, registerBuiltinCommand } from "../features/commands/registry";
@@ -163,7 +162,7 @@ import {
 } from "../features/windows/controls";
 
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
-type SidePanelMode = "settings" | "plugins" | "standalone";
+type SidePanelMode = "settings" | "plugins" | "about" | "standalone";
 
 /** 活动栏里「笔记」那一格的 id。工作文件夹的 id 直接用它自己的绝对路径。 */
 const EXPLORER_NOTES = "notes";
@@ -731,8 +730,6 @@ export function MainWindow({
    * 不该粘在笔记上面不走。
    */
   const [docView, setDocView] = useState<{ title: string; content: string } | null>(null);
-  const [aboutOpen, setAboutOpen] = useState(false);
-  const aboutMenuRef = useRef<HTMLDivElement | null>(null);
   const [standalonePanels, setStandalonePanels] = useState<PluginPanelDef[]>(() =>
     listPluginPanels().filter((panel) => panel.standalone),
   );
@@ -1703,55 +1700,10 @@ export function MainWindow({
     };
   }, [openPopover, popoverRef]);
 
-  // 「关于」菜单：点外面 / 按 Esc / 窗口失焦收起。与上面的插件浮层同一套做法。
-  useEffect(() => {
-    if (!aboutOpen) return undefined;
-
-    const closeOnOutside = (event: Event) => {
-      const target = event.target as Node | null;
-      // 触发按钮也在 aboutMenuRef 里，一并排除 —— 它自己的 click 负责收起，
-      // 不排掉会变成「mousedown 先关、随后的 click 又开」。
-      if (target && aboutMenuRef.current?.contains(target)) return;
-      setAboutOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setAboutOpen(false);
-    };
-    const blur = () => setAboutOpen(false);
-
-    document.addEventListener("mousedown", closeOnOutside, true);
-    document.addEventListener("keydown", closeOnEscape);
-    window.addEventListener("blur", blur);
-
-    return () => {
-      document.removeEventListener("mousedown", closeOnOutside, true);
-      document.removeEventListener("keydown", closeOnEscape);
-      window.removeEventListener("blur", blur);
-    };
-  }, [aboutOpen]);
-
   /** 打开一篇只读说明文档（「关于」的三篇、插件详细信息都走这里）。 */
   const openDocView = useCallback((title: string, content: string) => {
     setDocView({ title, content });
-    setAboutOpen(false);
   }, []);
-
-  /**
-   * 「关于」里的某一项：内容随包分发。
-   *
-   * 读不到（装机时资源没拷进去、或者文件名写错了）就**如实报错**，不要开一个空白页
-   * 让人以为「这功能就这样」。
-   */
-  const openAboutDoc = useCallback(
-    (doc: AboutDoc) => {
-      const title = t(doc.titleKey, { defaultValue: doc.fallbackTitle });
-      setAboutOpen(false);
-      void readBundledDoc(doc.name)
-        .then((content) => setDocView({ title, content }))
-        .catch((error) => showToast(getErrorMessage(error)));
-    },
-    [t],
-  );
 
   const saveStateLabel = useMemo<Record<SaveState, string>>(
     () => ({
@@ -2686,6 +2638,14 @@ export function MainWindow({
   const handleOpenPlugins = useCallback(() => {
     togglePanel("plugins");
   }, [togglePanel]);
+
+  const handleOpenAbout = useCallback(() => {
+    togglePanel("about");
+  }, [togglePanel]);
+
+  const handleCloseAbout = useCallback(() => {
+    setActivePanelId(null);
+  }, []);
 
   const handleClosePlugins = useCallback(() => {
     setActivePanelId(null);
@@ -3749,50 +3709,34 @@ export function MainWindow({
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
               </svg>
             </button>
-            {/* 「关于」：拉出三篇随包说明文档。右上角这一排按钮都是「针对整个应用」
-                的操作，与设置、置顶放在一起。 */}
-            <div className="relative" ref={aboutMenuRef}>
-              <button
-                onClick={() => setAboutOpen((open) => !open)}
-                className={`w-10 h-11 flex items-center justify-center transition-all cursor-pointer ${
-                  aboutOpen
-                    ? "text-bamboo bg-bamboo-mist/50"
-                    : "text-ink-ghost hover:text-ink-faint hover:bg-paper-warm"
-                }`}
-                title={t("main.about.title", { defaultValue: "关于" })}
-                aria-haspopup="menu"
-                aria-expanded={aboutOpen}
+            {/* 「关于」：开右侧栏。
+                做成侧栏而不是标题栏上的下拉菜单 —— 下拉会被标题栏那套拖拽/叠层吃掉
+                点击（实测点不动），而且**它放不下东西**：版本、下载地址、更新源、
+                数据目录这些本来就属于「关于」该说的。 */}
+            <button
+              onClick={handleOpenAbout}
+              className={`w-10 h-11 flex items-center justify-center transition-all cursor-pointer ${
+                visibleSidePanel === "about"
+                  ? "text-bamboo bg-bamboo-mist/50"
+                  : "text-ink-ghost hover:text-ink-faint hover:bg-paper-warm"
+              }`}
+              title={t("main.about.title", { defaultValue: "关于" })}
+            >
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
               >
-                <svg
-                  width="15"
-                  height="15"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <circle cx="12" cy="12" r="9" />
-                  <path d="M12 16v-4" />
-                  <path d="M12 8h.01" />
-                </svg>
-              </button>
-
-              {aboutOpen && (
-                <div className="absolute right-0 top-full z-50 mt-1 min-w-[136px] py-1.5 bg-cloud/95 backdrop-blur-sm border border-paper-deep/50 rounded-lg shadow-lg">
-                  {ABOUT_DOCS.map((doc) => (
-                    <button
-                      key={doc.name}
-                      onClick={() => openAboutDoc(doc)}
-                      className="w-full flex items-center px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer whitespace-nowrap"
-                    >
-                      {t(doc.titleKey, { defaultValue: doc.fallbackTitle })}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 16v-4" />
+                <path d="M12 8h.01" />
+              </svg>
+            </button>
 
             {/* 右上角：有新版时冒一颗胶囊。没更新时它渲染成 null，什么都不占。 */}
             <UpdateBadge controller={update} />
@@ -5293,6 +5237,23 @@ export function MainWindow({
             >
               {mountedSidePanel === "plugins" ? (
                 <PluginCommandPanel onClose={handleClosePlugins} onOpenDoc={openDocView} />
+              ) : null}
+            </div>
+            <div
+              className={`absolute inset-0 w-[360px] h-full transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                mountedSidePanel === "about"
+                  ? sidePanelContentVisible && visibleSidePanel === "about"
+                    ? "translate-x-0 opacity-100"
+                    : "pointer-events-none translate-x-4 opacity-0"
+                  : "pointer-events-none translate-x-4 opacity-0"
+              }`}
+            >
+              {mountedSidePanel === "about" ? (
+                <AboutPanel
+                  onClose={handleCloseAbout}
+                  onOpenDoc={openDocView}
+                  notesDir={settingsConfig?.dataDir}
+                />
               ) : null}
             </div>
             <div

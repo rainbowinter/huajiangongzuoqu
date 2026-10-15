@@ -73,7 +73,15 @@
       "title": "關於",
       "whatsNew": "新功能",
       "guide": "使用指南",
-      "feedback": "意見反饋"
+      "feedback": "意見反饋",
+      "docs": "說明文件",
+      "downloadAndUpdate": "下載與更新",
+      "releasePage": "發佈頁",
+      "updateSource": "更新來源",
+      "updateSourceNone": "未設定",
+      "dataLocation": "資料位置",
+      "notesDir": "筆記",
+      "pluginsDir": "外掛"
     },
     "doc": {
       "label": "說明文件 · 唯讀",
