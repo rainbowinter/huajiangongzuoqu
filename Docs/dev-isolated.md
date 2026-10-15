@@ -46,12 +46,22 @@ npm run tauri dev
 多出来的参数会原样转给 `tauri dev`，而 `tauri dev` 的 `--config <文件>` 会把那份 JSON
 **合并**进配置：
 
+```powershell
+# PowerShell：必须写 npm.cmd —— 它默认的执行策略会拦掉 npm.ps1，
+# 报错是「无法加载文件 …\npm.ps1，因为在此系统上禁止运行脚本」，与项目无关。
+npm.cmd run dev:isolated -- --config .devdata/market-override.json
+```
+
 ```bash
+# Git Bash / cmd
 npm run dev:isolated -- --config .devdata/market-override.json
 ```
 
 临时文件放 `.devdata/`（已被 gitignore）。插件市场的本地沙箱
 （`node scripts/market-sandbox.mjs`）就是这么接上去的，见 `Docs/plugin-market.md`。
+
+⚠️ 这两条命令都**要在仓库根目录里跑**（`npm run` 要找 `package.json`，
+`--config` 是相对路径）。
 
 ## 不要做的事
 

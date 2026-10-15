@@ -199,9 +199,16 @@ node scripts/market-sandbox.mjs            # 按住它，另开一个终端跑�
 
 它把 `example-plugins-v2/` 里每个插件打成 zip、造一份清单、用**测试密钥**
 （`~/.tauri/market-test.key`，与生产私钥无关）签名，再在回环端口上托管，最后把配置覆盖
-写进 `.devdata/market-override.json` 并打印启动命令：
+写进 `.devdata/market-override.json` 并打印启动命令（**要先 cd 到仓库根目录**）：
+
+```powershell
+# PowerShell：必须写 npm.cmd —— 执行策略默认拦掉 npm.ps1
+cd E:\fwinter\Projects\floral-notepaper-main
+npm.cmd run dev:isolated -- --config .devdata/market-override.json
+```
 
 ```bash
+# Git Bash / cmd
 npm run dev:isolated -- --config .devdata/market-override.json
 ```
 

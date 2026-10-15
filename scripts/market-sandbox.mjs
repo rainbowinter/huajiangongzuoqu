@@ -217,8 +217,19 @@ writeFileSync(
 );
 
 console.log(
-  "\n[sandbox] 现在另开一个终端，启动隔离实例（不会碰正式安装的那个应用）：\n" +
-    "\n    npm run dev:isolated -- --config .devdata/market-override.json\n" +
-    "\n[sandbox] 然后：右侧栏 → 插件 → 市场（没配市场时这个页签根本不出现）。",
+  "\n[sandbox] 现在另开一个终端，**先 cd 到仓库目录**再起隔离实例（不会碰正式安装的那个应用）：\n" +
+    "\n   PowerShell（必须写 npm.cmd —— 它的执行策略默认拦掉 npm.ps1）：" +
+    `\n       cd ${root}` +
+    `\n       npm.cmd run dev:isolated -- --config .devdata/market-override.json` +
+    "\n\n   Git Bash / cmd：" +
+    `\n       cd ${toPosixPath(root)}` +
+    `\n       npm run dev:isolated -- --config .devdata/market-override.json` +
+    "\n\n[sandbox] 然后：右侧栏 → 插件 → 市场（没配市场时这个页签根本不出现）。",
 );
 console.log("[sandbox] 这里会实时打出应用发过来的每个请求。Ctrl+C 结束。\n");
+
+/** `E:\a\b` → `/e/a/b`，只是为了把能在 Git Bash 里粘贴的路径打出来。 */
+function toPosixPath(path) {
+  const posix = path.replace(/\\/g, "/");
+  return posix.replace(/^([A-Za-z]):/, (_match, drive) => `/${drive.toLowerCase()}`);
+}
