@@ -2,16 +2,19 @@
  * 一条命令产出「可以发布的更新产物」。
  *
  * ```bash
- * npm run release                       # 只产出产物，放在 bundle/nsis/ 下
- * npm run release -- --repo me/floral   # 顺带把 latest.json 里的 URL 写成该仓库的地址
+ * npm run release                  # 构建 + 打包 + 签名 + 写 latest.json
+ * npm run release -- --skip-build  # 产物不满意时，不重新构建只重出
  * ```
  *
- * 产出三样东西（外加安装器本身）：
+ * 产物统一放在 `src-tauri/target/release/upload-<版本>/`，四个文件一次拖进 GitHub Release 即可。
  *
- * 1. `<产品名>_<版本>_x64-setup.exe`        —— 安装器，给人手动下载用
- * 2. `<产品名>_<版本>_x64-setup.exe.zip`    —— 更新器要的产物：一个**装着安装器的 zip**
- * 3. 上面那个 zip 的 `.sig`                 —— minisign 签名
- * 4. `latest.json`                          —— 更新端点要读的清单
+ * ## 为什么产物名是纯 ASCII
+ *
+ * Tauri 打出来的安装器叫 `花笺_<版本>_x64-setup.exe`。**这个中文名不能在发布资产里用**：
+ * GitHub 上传后会把开头的「花笺」吃掉，实际存成 `_2.0.1_x64-setup.exe.zip`，
+ * 于是 `latest.json` 里写的 URL 直接 404 —— 更新器下载不到任何东西，
+ * 而这个失败是**静默**的（界面上什么都不会发生）。
+ * 已经实测踩过一次（v2.0.1 首发），所以这里一律换成 ASCII 名字再上传。
  *
  * ## 为什么自己打包，而不是靠 `createUpdaterArtifacts`
  *
@@ -23,22 +26,25 @@
  * 产物结构是照 updater 插件源码里的说明来的：
  *
  * ```text
- * [AppName]_[version]_x64-setup.exe.zip
- *   └── [AppName]_[version]_x64-setup.exe
+ * <ASCII 名>_x64-setup.exe.zip
+ *   └── <ASCII 名>_x64-setup.exe
  * ```
  */
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+/** 发布仓库。改了仓库就改这一行，或者用 `--repo` / `FLORAL_RELEASE_REPO` 覆盖。 */
+const DEFAULT_REPO = "rainbowinter/huajiangongzuoqu";
+
+/** 发布资产的名字前缀，**必须是纯 ASCII**（见文件头的说明）。 */
+const ASSET_SLUG = "floral-notepaper";
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const nsisDir = join(root, "src-tauri", "target", "release", "bundle", "nsis");
 const configPath = join(root, "src-tauri", "tauri.conf.json");
-
-/** 发布仓库。改了仓库就改这一行，或者用 `--repo` / `FLORAL_RELEASE_REPO` 覆盖。 */
-const DEFAULT_REPO = "rainbowinter/huajiangongzuoqu";
 
 const args = process.argv.slice(2);
 const repoArg = (() => {
@@ -50,10 +56,15 @@ const repoArg = (() => {
 const config = JSON.parse(readFileSync(configPath, "utf8"));
 const version = config.version;
 const productName = config.productName;
-const bundleBase = `${productName}_${version}_x64-setup`;
-const installer = join(nsisDir, `${bundleBase}.exe`);
 
-/** 私钥：环境变量优先，否则用默认位置。这一步失败就别往下走了。 */
+/** Tauri 打出来的那个安装器（名字带中文，只用来当输入，不直接上传）。 */
+const builtInstaller = join(nsisDir, `${productName}_${version}_x64-setup.exe`);
+
+/** 上传用的名字，全 ASCII。 */
+const assetBase = `${ASSET_SLUG}_${version}_x64-setup`;
+const uploadDir = join(root, "src-tauri", "target", "release", `upload-${version}`);
+
+/** 私钥：环境变量优先，否则用默认位置。 */
 const privateKey =
   process.env.TAURI_SIGNING_PRIVATE_KEY?.trim() ||
   join(homedir(), ".tauri", "floral-notepaper.key");
@@ -67,6 +78,7 @@ if (!process.env.TAURI_SIGNING_PRIVATE_KEY && !existsSync(privateKey)) {
 }
 
 console.log(`[release] 版本 ${version}，产品名 ${productName}`);
+console.log(`[release] 上传用名 ${assetBase}.exe[.zip]`);
 
 // ---------------------------------------------------------------- 1. 构建
 
@@ -93,12 +105,18 @@ if (args.includes("--skip-build")) {
   }
 }
 
-if (!existsSync(installer)) {
-  console.error(`[release] 找不到安装器：${installer}`);
+if (!existsSync(builtInstaller)) {
+  console.error(`[release] 找不到安装器：${builtInstaller}`);
   process.exit(1);
 }
 
-// ------------------------------------------------------- 2. 打更新用的 zip
+// -------------------------------------------- 2. 用 ASCII 名字重整一份产物
+
+rmSync(uploadDir, { recursive: true, force: true });
+mkdirSync(uploadDir, { recursive: true });
+
+const installer = join(uploadDir, `${assetBase}.exe`);
+copyFileSync(builtInstaller, installer);
 
 const zipPath = `${installer}.zip`;
 makeZip(installer, zipPath);
@@ -133,10 +151,8 @@ const signature = readFileSync(signaturePath, "utf8").trim();
 
 // ------------------------------------------------------------ 4. latest.json
 
-const assetName = `${bundleBase}.exe.zip`;
-const assetUrl = repoArg
-  ? `https://github.com/${repoArg}/releases/latest/download/${encodeURIComponent(assetName)}`
-  : `https://<把这里换成你的发布地址>/${assetName}`;
+const assetName = `${assetBase}.exe.zip`;
+const assetUrl = `https://github.com/${repoArg}/releases/latest/download/${assetName}`;
 
 const manifest = {
   version,
@@ -146,22 +162,20 @@ const manifest = {
     "windows-x86_64": { signature, url: assetUrl },
   },
 };
-const manifestPath = join(nsisDir, "latest.json");
-writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+writeFileSync(join(uploadDir, "latest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 
-console.log("\n[release] 完成。要上传的东西：");
-for (const file of [`${bundleBase}.exe`, assetName, `${assetName}.sig`, "latest.json"]) {
-  console.log(`  src-tauri/target/release/bundle/nsis/${file}`);
-}
-if (!repoArg) {
-  console.log(
-    "\n[release] 注意：这次没给 --repo，latest.json 里的 url 是占位的。\n" +
-      "[release] 用 `npm run release -- --repo <用户名>/<仓库>` 可以让它直接写好。",
-  );
+// ---------------------------------------------------------------- 5. 收尾
+
+console.log(`\n[release] 完成。把下面这四个文件传进 GitHub Release（tag 用 v${version}）：`);
+console.log(`  （目录：src-tauri/target/release/upload-${version}/）`);
+for (const file of [`${assetBase}.exe`, assetName, `${assetName}.sig`, "latest.json"]) {
+  console.log(`    ${file}`);
 }
 console.log(
-  "\n[release] 提醒：更新端点必须是 https，且 endpoints 要填在 tauri.conf.json 里（见 Docs/auto-update.md）。",
+  `\n[release] url 写的是：${assetUrl}\n` +
+    "[release] ⚠️ 资产名必须与上面完全一致（全 ASCII），GitHub 不会自己改名。",
 );
+console.log("\n[release] 别忘了：更新端点必须是 https，配置见 Docs/auto-update.md。");
 
 /** 用 7-Zip（如果装了）或 PowerShell 的 Compress-Archive 打一个 zip。 */
 function makeZip(source, destination) {
