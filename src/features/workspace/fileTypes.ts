@@ -123,6 +123,118 @@ export interface FileViewSpec {
    * `textContent` —— 那个 id 定义在 `viewBridge.ts` 的 `VIEW_WORKER_ELEMENT_ID`。
    */
   worker?: string;
+  /**
+   * 预览区顶上那排控件的**声明**：宿主按它渲染，插件只负责响应命令。
+   *
+   * 为什么不让插件自己画工具栏：`sandbox="allow-scripts"` 的帧是一块**孤岛**，
+   * 只在预览区里，够不到应用窗口的排版（拖拽分栏、标题栏、后续要加的东西都跟它对齐不了），
+   * 而且它每次加载都要等插件那一大坨 js 解析完才出得来。
+   * 交给宿主渲染就与 Markdown 那排格式化按钮同一个位置、同一套样式，也立刻可点。
+   *
+   * 交互只有两条消息：宿主下发 `command`（带 `id`，输入控件还带 `value`），
+   * 视图回 `state`（`values` 覆盖显示文本、`pressed` 点亮开关）。
+   * 详见 `Docs/plugin-api.md` 的「视图工具栏」一节。
+   */
+  toolbar?: ViewToolbarItem[];
+}
+
+/**
+ * 视图工具栏里的一项。宿主渲染，插件只声明。
+ *
+ * `id` 是命令与状态的名字：宿主点一下发 `{ t: "command", id }`，视图回
+ * `state.values[id]` / `state.pressed` 时也用同一个 id。所以**同一份声明里不能重名**。
+ */
+export type ViewToolbarItem =
+  /** 按钮。`toggle` 只是「宿主会不会用 pressed 点亮它」的意思，状态仍由视图说了算。 */
+  | { kind: "button"; id: string; label: string; title?: string; toggle?: boolean }
+  /** 只读的小字（缩放比例、`3 / 14` 这种）。文本由视图通过 `state.values[id]` 给。 */
+  | { kind: "readout"; id: string; title?: string }
+  /** 输入框，回车提交（页码跳转这种）。 */
+  | { kind: "input"; id: string; title?: string; placeholder?: string; width?: number }
+  /** 竖线分隔。 */
+  | { kind: "separator" };
+
+/** 一份声明里最多几项 —— 工具栏是窄条，几十项也没地方放。 */
+const MAX_TOOLBAR_ITEMS = 16;
+/** `id` 只允许这些字符：它要落到 `key`、`data-*` 与消息里，别给自己找转义的麻烦。 */
+const TOOLBAR_ID_PATTERN = /^[A-Za-z0-9_.-]{1,48}$/;
+const MAX_LABEL = 24;
+const MAX_TITLE = 60;
+const MAX_PLACEHOLDER = 16;
+/** 输入框宽度（px）的上下限：太窄看不清，太宽会把整排顶开。 */
+const MIN_INPUT_WIDTH = 36;
+const MAX_INPUT_WIDTH = 160;
+
+function boundedText(value: unknown, max: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 && trimmed.length <= max ? trimmed : undefined;
+}
+
+/**
+ * 校验插件交上来的工具栏声明。
+ *
+ * 与 `parseViewMessage` 同一条原则：**认不出来的一律丢掉，不猜**。整份声明里只要有一项
+ * 形状不对就丢掉那一项（而不是整份作废）—— 少一个按钮总好过预览区整个打不开。
+ * 一个可渲染项都没有、或者只剩分隔线时返回 `undefined`（调用方据此不渲染那一排）。
+ */
+export function parseViewToolbar(raw: unknown): ViewToolbarItem[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+
+  const items: ViewToolbarItem[] = [];
+  const seen = new Set<string>();
+
+  for (const entry of raw.slice(0, MAX_TOOLBAR_ITEMS)) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) continue;
+    const record = entry as Record<string, unknown>;
+
+    if (record.kind === "separator") {
+      // 连着的分隔线没有意义，开头那条也没有。
+      const last = items[items.length - 1];
+      if (last && last.kind !== "separator") items.push({ kind: "separator" });
+      continue;
+    }
+
+    const id = typeof record.id === "string" && TOOLBAR_ID_PATTERN.test(record.id) ? record.id : null;
+    if (!id || seen.has(id)) continue;
+
+    const title = boundedText(record.title, MAX_TITLE);
+
+    if (record.kind === "button") {
+      const label = boundedText(record.label, MAX_LABEL);
+      if (!label) continue;
+      seen.add(id);
+      items.push({ kind: "button", id, label, ...(title ? { title } : {}), ...(record.toggle === true ? { toggle: true } : {}) });
+      continue;
+    }
+
+    if (record.kind === "readout") {
+      seen.add(id);
+      items.push({ kind: "readout", id, ...(title ? { title } : {}) });
+      continue;
+    }
+
+    if (record.kind === "input") {
+      seen.add(id);
+      const placeholder = boundedText(record.placeholder, MAX_PLACEHOLDER);
+      const width =
+        typeof record.width === "number" && Number.isFinite(record.width)
+          ? Math.round(Math.min(MAX_INPUT_WIDTH, Math.max(MIN_INPUT_WIDTH, record.width)))
+          : undefined;
+      items.push({
+        kind: "input",
+        id,
+        ...(title ? { title } : {}),
+        ...(placeholder ? { placeholder } : {}),
+        ...(width ? { width } : {}),
+      });
+    }
+  }
+
+  // 末尾那条分隔线没有下家，留着就是一条孤零零的竖线。
+  while (items.length > 0 && items[items.length - 1].kind === "separator") items.pop();
+
+  return items.length > 0 ? items : undefined;
 }
 
 /** 宿主内置：只认 Markdown。其余全部依赖插件。 */

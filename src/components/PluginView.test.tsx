@@ -13,9 +13,11 @@ function render() {
       name="a.pdf"
       path="C:\\a.pdf"
       theme="light"
+      tokens={{ "--color-paper": "#fbf9f4" }}
       loadBytes={async () => new ArrayBuffer(0)}
       loadAnnotations={async () => null}
       onSaveAnnotations={noop}
+      onState={noop}
       onToast={noop}
       onLog={noop}
     />,

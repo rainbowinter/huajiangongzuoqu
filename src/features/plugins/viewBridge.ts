@@ -16,19 +16,47 @@ export type ViewMessage =
   | { t: "requestDocument" }
   | { t: "saveAnnotations"; data: unknown }
   | { t: "log"; level: "info" | "warn" | "error"; message: string }
-  | { t: "toast"; message: string };
+  | { t: "toast"; message: string }
+  /**
+   * 工具栏要显示的东西。`values[id]` 覆盖那一项的显示文本（按钮也能覆盖，于是
+   * 「单页 / 连续」这种一个按钮两种状态不必拆成两个），`pressed` 是点亮的开关 id。
+   */
+  | { t: "state"; values: Record<string, string>; pressed: string[] };
 
 /** 宿主 → 视图。 */
 export type HostMessage =
-  | { t: "init"; name: string; path: string; theme: "light" | "dark" }
+  | {
+      t: "init";
+      name: string;
+      path: string;
+      theme: "light" | "dark";
+      /**
+       * 应用主题的调色板（`--color-*` 的**解析值**）。视图是独立文档，拿不到宿主的
+       * CSS 变量，用户改了主题/强调色它也看不见 —— 所以由宿主把值递进去。
+       */
+      tokens: Record<string, string>;
+    }
   | { t: "document"; bytes: ArrayBuffer }
   | { t: "annotations"; data: unknown }
-  | { t: "documentError"; message: string };
+  | { t: "documentError"; message: string }
+  /**
+   * 用户改了主题（深浅色 / 主题色 / 自定义颜色）。
+   *
+   * 与 `init` 分开的**一条独立消息**：`init` 在插件那边意味着「重新来一遍」
+   * （PDF 查看器收到就会重开文档、回到第一页），换主题时可不能这么干。
+   */
+  | { t: "theme"; theme: "light" | "dark"; tokens: Record<string, string> }
+  /** 工具栏被点了。`value` 只有输入框会用。 */
+  | { t: "command"; id: string; value?: string };
 
 /** 单条消息里文本字段的上限。视图是插件代码，不能让它一发就是几百 MB。 */
 const MAX_TEXT_LENGTH = 100_000;
 /** 批注一次最多交上来这么大（序列化后的字符数）。 */
 export const MAX_ANNOTATION_CHARS = 4 * 1024 * 1024;
+/** 一次 `state` 最多带几项、每项多长。工具栏本就十几个控件，多了就是有人在灌。 */
+const MAX_STATE_ENTRIES = 32;
+const MAX_STATE_KEY = 48;
+const MAX_STATE_VALUE = 200;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -75,6 +103,25 @@ export function parseViewMessage(raw: unknown): ViewMessage | null {
       return { t: "toast", message };
     }
 
+    case "state": {
+      // 两个字段都不是形状对的对象/数组，就是一条空消息 —— 丢掉。
+      if (!isRecord(raw.values) && !Array.isArray(raw.pressed)) return null;
+      const values: Record<string, string> = {};
+      if (isRecord(raw.values)) {
+        for (const [key, value] of Object.entries(raw.values).slice(0, MAX_STATE_ENTRIES)) {
+          if (key.length === 0 || key.length > MAX_STATE_KEY) continue;
+          if (typeof value !== "string") continue;
+          values[key] = value.slice(0, MAX_STATE_VALUE);
+        }
+      }
+      const pressed = Array.isArray(raw.pressed)
+        ? raw.pressed
+            .filter((id): id is string => typeof id === "string" && id.length > 0 && id.length <= MAX_STATE_KEY)
+            .slice(0, MAX_STATE_ENTRIES)
+        : [];
+      return { t: "state", values, pressed };
+    }
+
     default:
       return null;
   }
@@ -99,6 +146,7 @@ function escapeForStyle(source: string): string {
 const VIEW_PRELUDE = `
 const floralViewMessage = (payload) => parent.postMessage(payload, "*");
 const floralViewListeners = [];
+const floralCommandHandlers = [];
 window.floralView = {
   ready: () => floralViewMessage({ t: "ready" }),
   requestDocument: () => floralViewMessage({ t: "requestDocument" }),
@@ -106,10 +154,20 @@ window.floralView = {
   toast: (message) => floralViewMessage({ t: "toast", message }),
   log: (level, message) => floralViewMessage({ t: "log", level, message }),
   onMessage: (handler) => { floralViewListeners.push(handler); },
+  // 宿主那排工具栏：点是点在宿主上，命令从这儿进来。
+  onCommand: (handler) => { floralCommandHandlers.push(handler); },
+  // 工具栏要显示什么也由视图说：values 覆盖各项文本（按钮的也能盖），pressed 是点亮的开关。
+  setState: (values, pressed) => floralViewMessage({ t: "state", values: values || {}, pressed: pressed || [] }),
 };
 window.addEventListener("message", (event) => {
+  const data = event.data;
+  if (data && typeof data === "object" && data.t === "command") {
+    for (const handler of floralCommandHandlers) {
+      try { handler(data); } catch (error) { console.error("[view] 处理命令出错", error); }
+    }
+  }
   for (const handler of floralViewListeners) {
-    try { handler(event.data); } catch (error) { console.error("[view] 处理消息出错", error); }
+    try { handler(data); } catch (error) { console.error("[view] 处理消息出错", error); }
   }
 });
 `;

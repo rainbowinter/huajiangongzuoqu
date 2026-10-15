@@ -1,30 +1,31 @@
 /**
  * 查看器的样式。
  *
- * 用的是**自己的**一组变量，而不是宿主的 `--color-*`：视图是独立文档（沙箱帧），
- * 拿不到宿主那份主题；深浅色由宿主在 `init` 里告知，这里按 `data-theme` 各给一套。
+ * 配色**不写死**：宿主在 init（以及每次主题变化）里把应用调色板 `--color-*` 的
+ * **解析值**递进来，`viewer.js` 把它们接到下面这几个变量上。视图是独立文档，拿不到
+ * 宿主的 CSS 变量 —— 不递进来的话，用户在设置里换深浅色、换主题色，预览区纹丝不动。
+ *
+ * `:root` 与 `:root[data-theme="dark"]` 里那两套是**回退值**：宿主没给 token 时兜底，
+ * 免得颜色掉回浏览器默认（白底黑字在深色主题里格外刺眼）。token 是用行内 style 设上去的，
+ * 优先级高于这两条规则，所以正常情况下生效的是宿主的颜色。
  */
 :root {
-  --bg: #e9e7e2;
-  --bar: #fbf9f4;
+  --bg: #f5f1e8;
   --ink: #1a1a18;
   --ink-soft: #3d3d38;
   --ink-ghost: #8a8880;
-  --line: #d9d5cc;
-  --page-shadow: 0 6px 18px rgba(26, 26, 24, 0.12);
-  --hover: rgba(26, 26, 24, 0.08);
+  --line: #eae4d8;
+  --shadow: rgba(26, 26, 24, 0.12);
   color-scheme: light;
 }
 
 :root[data-theme="dark"] {
-  --bg: #17161a;
-  --bar: #222120;
+  --bg: #2c2a27;
   --ink: #e5e1da;
   --ink-soft: #b5b1a8;
   --ink-ghost: #8a8880;
   --line: #3c3935;
-  --page-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
-  --hover: rgba(229, 225, 218, 0.1);
+  --shadow: rgba(0, 0, 0, 0.5);
   color-scheme: dark;
 }
 
@@ -38,62 +39,8 @@ body {
   font: 12px/1.5 "HarmonyOS Sans SC", system-ui, sans-serif;
 }
 
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 6px 10px;
-  background: var(--bar);
-  border-bottom: 1px solid var(--line);
-}
-
-.toolbar .title {
-  font-size: 12px;
-  color: var(--ink-soft);
-  max-width: 45%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.toolbar .spacer {
-  flex: 1;
-}
-
-.toolbar button {
-  height: 24px;
-  min-width: 24px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--ink-ghost);
-  font: inherit;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.toolbar button:hover {
-  color: var(--ink-soft);
-  background: var(--hover);
-}
-
-.toolbar .readout {
-  color: var(--ink-ghost);
-  min-width: 32px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-
-.toolbar .sep {
-  width: 1px;
-  height: 14px;
-  margin: 0 6px;
-  background: var(--line);
-}
-
 .scroller {
-  height: calc(100% - 37px);
+  height: 100%;
   overflow: auto;
   padding: 16px;
   display: flex;
@@ -101,16 +48,33 @@ body {
   align-items: center;
   gap: 14px;
   box-sizing: border-box;
+  /* 滚动条长度靠它稳定：页面在滚动过程中不断被画出来，宽度变了会一跳一跳。 */
+  scrollbar-gutter: stable;
 }
 
 .page {
   position: relative;
   flex: 0 0 auto;
   background: #fff;
-  box-shadow: var(--page-shadow);
+  box-shadow: 0 6px 18px var(--shadow);
 }
 
 .page canvas {
+  display: block;
+}
+
+/* 单页模式：一次只留当前那一页。
+   靠 `display:none` 而不是把别的页删掉 —— 切回连续时光是重新显示就行，
+   不会丢掉已经画好的 canvas（重画一遍在大文件上要好几秒）。 */
+.scroller.single {
+  gap: 0;
+}
+
+.scroller.single .page {
+  display: none;
+}
+
+.scroller.single .page[data-current="true"] {
   display: block;
 }
 

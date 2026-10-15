@@ -17,6 +17,7 @@ import { TIMEOUTS, type MethodDescriptor, type PluginInfo } from "./protocol";
 import { PermissionError, checkPermission, type Permission } from "./permissions";
 import type { CodeThemePreference } from "../markdown/codeThemes";
 import type { FontFaceOverride } from "../fonts/fontFace";
+import { parseViewToolbar, type FileViewSpec } from "../workspace/fileTypes";
 
 export interface CommandContribution {
   id: string;
@@ -157,7 +158,7 @@ export interface FileTypeContribution {
    * 沙箱视图里，**能画 canvas、能跑自己的脚本**，比「只登记一条扩展名规则」能力更强，
    * 值得单独可撤销。沙箱边界见 `Docs/plugin-view-sandbox.md`。
    */
-  view?: { html: string; css?: string[]; js?: string[]; worker?: string };
+  view?: FileViewSpec;
 }
 
 /**
@@ -167,9 +168,7 @@ export interface FileTypeContribution {
  * 抽成独立函数是为了能单测：这里处理的是**不可信输入**，形状判断错一个就会出现
  * 「插件说它有视图、宿主却拼不出东西」这种难查的故障。
  */
-export function parseViewSpec(
-  raw: unknown,
-): { html: string; css?: string[]; js?: string[]; worker?: string } | undefined {
+export function parseViewSpec(raw: unknown): FileViewSpec | undefined {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined;
 
   const record = raw as Record<string, unknown>;
@@ -188,12 +187,15 @@ export function parseViewSpec(
   // worker 是**单个**路径（一份源码），不是列表。
   const worker =
     typeof record.worker === "string" && record.worker.length > 0 ? record.worker : undefined;
+  // 工具栏是**声明**不是路径：宿主按它渲染控件，所以这里要逐项校验（见 parseViewToolbar）。
+  const toolbar = parseViewToolbar(record.toolbar);
 
   return {
     html: record.html,
     ...(css ? { css } : {}),
     ...(js ? { js } : {}),
     ...(worker ? { worker } : {}),
+    ...(toolbar ? { toolbar } : {}),
   };
 }
 

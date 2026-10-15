@@ -6,6 +6,7 @@ import {
   isFilePreviewKind,
   listFileTypes,
   matchFileType,
+  parseViewToolbar,
   registerFileType,
   resetFileTypes,
   subscribeFileTypes,
@@ -198,5 +199,109 @@ describe("自定义渲染器", () => {
     resetFileTypes();
 
     expect(getFileRenderer("python")).toBeNull();
+  });
+});
+
+/**
+ * 工具栏声明是**插件交上来的不可信输入**（`view.toolbar`）。
+ *
+ * 与 `parseViewMessage` 同一条原则：认不出来的一律丢掉，不猜。区别是粒度 —— 一项坏了
+ * 只丢那一项，整份声明还留着：少一个按钮总好过预览区整个打不开。
+ */
+describe("校验插件声明的视图工具栏", () => {
+  it("照原样收下认得出的几种（只读小字会补上默认宽度的省略）", () => {
+    expect(
+      parseViewToolbar([
+        { kind: "button", id: "zoom-in", label: "+", title: "放大" },
+        { kind: "readout", id: "zoom" },
+        { kind: "input", id: "goto", placeholder: "跳转", width: 44 },
+        { kind: "separator" },
+        { kind: "button", id: "spread", label: "连续", toggle: true },
+      ]),
+    ).toEqual([
+      { kind: "button", id: "zoom-in", label: "+", title: "放大" },
+      { kind: "readout", id: "zoom" },
+      { kind: "input", id: "goto", placeholder: "跳转", width: 44 },
+      { kind: "separator" },
+      { kind: "button", id: "spread", label: "连续", toggle: true },
+    ]);
+  });
+
+  it("不是数组、空数组、只有分隔线 —— 都当没声明", () => {
+    expect(parseViewToolbar(undefined)).toBeUndefined();
+    expect(parseViewToolbar("button")).toBeUndefined();
+    expect(parseViewToolbar([])).toBeUndefined();
+    expect(parseViewToolbar([{ kind: "separator" }])).toBeUndefined();
+    expect(parseViewToolbar([{ kind: "separator" }, { kind: "separator" }])).toBeUndefined();
+  });
+
+  it("认不出的 kind 与缺 label 的按钮都丢掉，剩下的照收", () => {
+    const items = parseViewToolbar([
+      { kind: "让宿主画点东西", id: "x", label: "x" },
+      { kind: "button", id: "no-label" },
+      { kind: "button", id: "ok", label: "好" },
+    ]);
+
+    expect(items).toEqual([{ kind: "button", id: "ok", label: "好" }]);
+  });
+
+  it("id 不合规、或重名的丢掉 —— 它要当 key / 命令名 / 状态名用", () => {
+    const items = parseViewToolbar([
+      { kind: "button", id: "带空格 的", label: "a" },
+      { kind: "button", id: "", label: "b" },
+      { kind: "button", id: "fit", label: "适应" },
+      { kind: "button", id: "fit", label: "再来一个" },
+    ]);
+
+    expect(items).toEqual([{ kind: "button", id: "fit", label: "适应" }]);
+  });
+
+  it("按钮的文字有长度上限：空白的丢掉，超长的丢掉（不截断，免得出现半截词）", () => {
+    const items = parseViewToolbar([
+      { kind: "button", id: "a", label: "   " },
+      { kind: "button", id: "b", label: "字".repeat(40) },
+    ]);
+
+    expect(items).toBeUndefined();
+  });
+
+  it("输入框宽度被夹进 36–160", () => {
+    const items = parseViewToolbar([
+      { kind: "input", id: "a", width: 1 },
+      { kind: "input", id: "b", width: 9999 },
+      { kind: "input", id: "c", width: Number.NaN },
+    ]);
+
+    expect(items).toEqual([
+      { kind: "input", id: "a", width: 36 },
+      { kind: "input", id: "b", width: 160 },
+      { kind: "input", id: "c" },
+    ]);
+  });
+
+  it("连着的分隔线合成一条，末尾那条也不要", () => {
+    const items = parseViewToolbar([
+      { kind: "button", id: "a", label: "A" },
+      { kind: "separator" },
+      { kind: "separator" },
+      { kind: "button", id: "b", label: "B" },
+      { kind: "separator" },
+    ]);
+
+    expect(items).toEqual([
+      { kind: "button", id: "a", label: "A" },
+      { kind: "separator" },
+      { kind: "button", id: "b", label: "B" },
+    ]);
+  });
+
+  it("项数封顶，多的直接砍掉", () => {
+    const many = Array.from({ length: 40 }, (_, index) => ({
+      kind: "button",
+      id: `b${index}`,
+      label: "x",
+    }));
+
+    expect(parseViewToolbar(many)).toHaveLength(16);
   });
 });

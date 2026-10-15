@@ -20,6 +20,7 @@ import { clearPluginLogs } from "./logs";
 import type { EditorMirror, UnloadReason } from "./protocol";
 import { clearAllPlugins, registerLoadedPlugin, unregisterPlugin } from "./registry";
 import { resetPluginStores } from "./stores";
+import { clearViewDocumentCache } from "./viewAssets";
 import type { PluginManifest, PluginSyncReport, Selection } from "./types";
 
 interface RunningPlugin {
@@ -44,6 +45,10 @@ export async function reloadPlugins(): Promise<void> {
   clearAllPlugins();
   resetPluginStores();
   clearPluginLogs();
+  // 视图的 srcdoc 是按**类型 id** 缓存的（pdf.js 那种库读一次是兆级字符串，不能每次打开
+  // 都重来）。但重新加载插件正是为了让新代码生效 —— 不清这一份，市场里装了新版本、
+  // 界面还是老的，得重启应用才看得见。
+  clearViewDocumentCache();
   loaded = false;
   await doLoad();
 }

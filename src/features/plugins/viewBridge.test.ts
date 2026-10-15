@@ -156,3 +156,60 @@ describe("视图声明完整性", () => {
     expect(isCompleteViewSpec(undefined)).toBe(false);
   });
 });
+
+describe("工具栏的状态消息", () => {
+  test("values 覆盖显示文本、pressed 点亮开关", () => {
+    expect(parseViewMessage({ t: "state", values: { zoom: "120%" }, pressed: ["spread"] })).toEqual({
+      t: "state",
+      values: { zoom: "120%" },
+      pressed: ["spread"],
+    });
+  });
+
+  test("两个字段坏掉、又都不在，就是一条空消息 —— 丢掉", () => {
+    expect(parseViewMessage({ t: "state" })).toBeNull();
+    expect(parseViewMessage({ t: "state", values: "120%" })).toBeNull();
+    expect(parseViewMessage({ t: "state", pressed: "spread" })).toBeNull();
+    // 只有一个字段是好的也收下：视图只想改半边是正常的。
+    expect(parseViewMessage({ t: "state", values: { a: "1" } })).toEqual({
+      t: "state",
+      values: { a: "1" },
+      pressed: [],
+    });
+  });
+
+  test("values 的值不是字符串的项丢掉，别的留着", () => {
+    expect(
+      parseViewMessage({ t: "state", values: { ok: "1", bad: 2, worse: null } }),
+    ).toEqual({ t: "state", values: { ok: "1" }, pressed: [] });
+  });
+
+  test("项数封顶：工具栏本就十几个控件，发一百个就是有人在灌", () => {
+    const values: Record<string, string> = {};
+    for (let index = 0; index < 100; index += 1) values[`v${index}`] = "x";
+
+    const message = parseViewMessage({ t: "state", values });
+    if (!message || message.t !== "state") throw new Error("应当收下");
+
+    expect(Object.keys(message.values)).toHaveLength(32);
+  });
+
+  test("键长与值长也封顶", () => {
+    const message = parseViewMessage({
+      t: "state",
+      values: { ["k".repeat(200)]: "x", zoom: "字".repeat(500) },
+    });
+    if (!message || message.t !== "state") throw new Error("应当收下");
+
+    expect(Object.keys(message.values)).toEqual(["zoom"]);
+    expect(message.values.zoom).toHaveLength(200);
+  });
+
+  test("pressed 里不是字符串的丢掉", () => {
+    expect(parseViewMessage({ t: "state", pressed: ["a", 1, null, "b"] })).toEqual({
+      t: "state",
+      values: {},
+      pressed: ["a", "b"],
+    });
+  });
+});

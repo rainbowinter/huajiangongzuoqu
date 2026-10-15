@@ -532,15 +532,94 @@ await api.files.registerType({
 
 ```js
 floralView.onMessage((message) => {
-  if (message.t === "init") floralView.requestDocument(); // { name, path, theme }
+  if (message.t === "init") floralView.requestDocument(); // { name, path, theme, tokens }
   if (message.t === "document") render(new Uint8Array(message.bytes)); // ArrayBuffer
   if (message.t === "documentError") showError(message.message);
 });
 floralView.ready(); // 别忘了：宿主收到它才会发 init
 ```
 
-完整可运行的样例见 `example-plugins-v2/pdf-viewer/`（pdf.js 的 PDF 阅读器，含 worker）；
-它是怎么拿到 pdf.js、为什么要把那份文件改一处，见 [`Docs/pdf-viewer.md`](./pdf-viewer.md)。
+完整可运行的样例见 `example-plugins-v2/pdf-viewer/`（pdf.js 的 PDF 阅读器，含 worker 与
+工具栏）；它是怎么拿到 pdf.js、为什么要把那份文件改一处，见
+[`Docs/pdf-viewer.md`](./pdf-viewer.md)。
+
+#### 顶上那排控件交给宿主画：`view.toolbar`
+
+视图是沙箱里的一块**孤岛**：它跟应用窗口的排版对不齐，而且写再轻的工具栏也得等插件那坨 js
+解析完才出得来。所以工具栏由**宿主**渲染，插件只声明：
+
+```js
+view: {
+  html: "view/index.html",
+  // …
+  toolbar: [
+    { kind: "button", id: "zoom-out", label: "−", title: "缩小" },
+    { kind: "readout", id: "zoom", title: "缩放比例" },
+    { kind: "button", id: "zoom-in", label: "+", title: "放大" },
+    { kind: "button", id: "fit", label: "适应宽度", toggle: true },
+    { kind: "separator" },
+    { kind: "input", id: "goto", title: "跳转到页", placeholder: "页码", width: 46 },
+  ],
+}
+```
+
+四种控件：
+
+| `kind` | 长什么样 | `id` 有什么用 |
+|---|---|---|
+| `button` | 一排小按钮 | 点了发 `command`；带 `toggle: true` 时会被 `pressed` 点亮 |
+| `readout` | 只读小字（`3 / 14`） | 文本来自 `state.values[id]` |
+| `input` | 输入框，**回车**提交 | 提交时发 `command`，值在 `message.value` |
+| `separator` | 一条竖线 | 不需要 `id` |
+
+宿主不猜、也不记账：它只负责「把点击翻译成命令」与「照 `state` 显示」，**当前页码、缩放比例
+这些事实一律以视图报上来的为准**（否则两边一旦分歧，就是越点越离谱）。
+
+```js
+floralView.onCommand(({ id, value }) => {
+  if (id === "zoom-in") void zoomBy(1.2);
+  if (id === "goto") void goToPage(Number(value));
+});
+
+// 任何时刻都能报（打开文档、翻页、缩放、旋转之后），宿主按 id 对上号
+floralView.setState({ zoom: "120%", page: "3 / 14" }, ["fit"]);
+//                       ↑ values：覆盖那一项显示的文字            ↑ pressed：点亮的开关
+```
+
+`values` 也能覆盖**按钮**的文字，所以「单页 / 连续」这种一个按钮两种状态不必拆成两个
+（推一个 `values: { spread: "单页" }` 过去就行）。声明里的 `id` 要独一无二（它同时是命令名
+与状态名）；形状不对的项会被**单独丢掉** —— 少一个按钮，好过整份声明作废。
+
+当前页码、缩放比例这些状态**宿主不替你存**：插件被重新加载、文件被换掉，视图会重建，
+再报一遍即可。
+
+#### 主题：`theme` / `init.tokens`
+
+视图是独立文档，**拿不到宿主的 CSS 变量** —— 用户换了深浅色、换了主题色，它一点都不知道。
+所以宿主把调色板**解析后的值**递进来（`init` 里带一份，之后每次变化再发一条
+`{ t: "theme", theme, tokens }`）：
+
+```js
+floralView.onMessage((message) => {
+  if (message.t !== "init" && message.t !== "theme") return;
+  document.documentElement.dataset.theme = message.theme; // "light" | "dark"
+  root.style.setProperty("--bg", message.tokens["--color-paper-warm"]);
+  root.style.setProperty("--ink", message.tokens["--color-ink"]);
+});
+```
+
+给的是一小组固定名字（`VIEW_THEME_TOKENS`，见 `src/features/plugins/themeTokens.ts`）：
+`--color-paper` / `--color-paper-warm` / `--color-paper-deep` / `--color-cloud` /
+`--color-ink` / `--color-ink-soft` / `--color-ink-ghost` / `--color-bamboo` /
+`--color-bamboo-mist` / `--color-shadow-deep`。
+
+⚠️ **`--color-ink-faint` 不在里面，也别自己去找它**：这一版里它是荧光笔的黄（选区标记用的），
+不是「次级正文灰」。小字灰是 `--color-ink-ghost`。
+
+宿主没给某个 token（用户自定义样式把它删了）时那个键**不存在**，别把 `undefined` 塞进
+`style.setProperty` —— 那会让 `var(--bg)` 变成无效值，整条声明连同后面几组一起失效。
+`theme` 与 `init` 是**两条独立的消息**：`init` 在插件这边意味着「从头来一遍」，
+换主题时可不能重开文档。
 
 ### `api.fonts` — 自带字体
 
