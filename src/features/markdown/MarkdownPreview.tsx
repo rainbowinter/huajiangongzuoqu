@@ -1,4 +1,4 @@
-import { memo, useState, useCallback, useEffect, useMemo } from "react";
+import { memo, useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -14,9 +14,40 @@ import "katex/dist/katex.min.css";
 // 代码主题不再静态 import —— 那一份是写死的浅色，深色模式下代码块一直是浅的。
 // 现在由 `codeThemes.ts` 在运行时注入，跟随应用主题或当前文件类型的声明。
 import remarkAlerts from "./remarkAlerts";
+import { sliceBlockSource } from "./blockSource";
 import { highlightCode } from "./highlight";
 import { parseImageLayout } from "./imageLayout";
 import { resolveMarkdownImageSrc } from "./imageSrc";
+
+/**
+ * 块右上角的复制按钮。代码块与表格共用。
+ *
+ * 平时 `opacity-0`，**悬停所在的块**（外层那个 `group`）才显形 —— 每个块都常驻一个
+ * 按钮会把预览区的留白切得很碎。
+ */
+function CopyButton({ text }: { text: string }) {
+  const { t } = useTranslation();
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [text]);
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[10px] font-mono bg-paper-deep/30 text-ink-ghost opacity-0 group-hover:opacity-100 hover:bg-paper-deep/50 hover:text-ink-soft transition-all cursor-pointer"
+    >
+      {copied
+        ? t("markdown.copied", { defaultValue: "已复制" })
+        : t("markdown.copy", { defaultValue: "复制" })}
+    </button>
+  );
+}
 
 /**
  * hast 子树里有没有 `<img>`。
@@ -62,8 +93,6 @@ async function renderMermaid(code: string): Promise<string> {
 }
 
 function CodeBlock({ children, language }: { children: React.ReactNode; language?: string }) {
-  const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
   const [highlighted, setHighlighted] = useState<string | null>(null);
   const [mermaidSvg, setMermaidSvg] = useState<string | null>(null);
   const [mermaidFailed, setMermaidFailed] = useState(false);
@@ -103,25 +132,6 @@ function CodeBlock({ children, language }: { children: React.ReactNode; language
     };
   }, [rawCode, isMermaid]);
 
-  const handleCopy = useCallback(() => {
-    void navigator.clipboard.writeText(rawCode).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  }, [rawCode]);
-
-  const copyButton = (
-    <button
-      type="button"
-      onClick={handleCopy}
-      className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[10px] font-mono bg-paper-deep/30 text-ink-ghost opacity-0 group-hover:opacity-100 hover:bg-paper-deep/50 hover:text-ink-soft transition-all cursor-pointer"
-    >
-      {copied
-        ? t("markdown.copied", { defaultValue: "已复制" })
-        : t("markdown.copy", { defaultValue: "复制" })}
-    </button>
-  );
-
   // mermaid 渲染成功
   if (isMermaid && mermaidSvg) {
     return (
@@ -133,7 +143,7 @@ function CodeBlock({ children, language }: { children: React.ReactNode; language
         <span className="absolute top-2 left-3 text-[10px] font-mono text-ink-faint/70 uppercase tracking-wider select-none">
           mermaid
         </span>
-        {copyButton}
+        <CopyButton text={rawCode} />
       </div>
     );
   }
@@ -166,7 +176,7 @@ function CodeBlock({ children, language }: { children: React.ReactNode; language
           {language}
         </span>
       )}
-      {copyButton}
+      <CopyButton text={rawCode} />
     </div>
   );
 }
@@ -388,11 +398,8 @@ const staticComponents: Components = {
       {children}
     </a>
   ),
-  table: ({ children }) => (
-    <div className="my-3 overflow-x-auto">
-      <table className="w-full text-[0.93em] border-collapse border md-table">{children}</table>
-    </div>
-  ),
+  // ⚠️ 表格**不在这里**：它的复制按钮要回头去切编辑区原文，必须拿得到当前 `content`，
+  // 所以挪到下面 `components` 里按需构造。见那里的注释。
   th: ({ children }) => (
     <th className="text-left px-3 py-1.5 border md-table font-semibold text-ink text-[0.85em] bg-paper-warm/50">
       {children}
@@ -411,9 +418,37 @@ function MarkdownPreviewView({
   imageBaseDir,
 }: MarkdownPreviewProps) {
   const { t } = useTranslation();
+
+  /**
+   * 表格的复制按钮要复制**编辑区原文**，而渲染器手上只有渲染后的子节点 —— 靠 hast 节点的
+   * `position`（源码里的起止偏移）回头去切 `content` 才拿得准。
+   *
+   * ⚠️ 用 ref 而不是把 `content` 塞进 `useMemo` 的依赖：`components` 一旦换了对象，
+   * react-markdown 会把**所有**块当成新组件卸载重挂 —— 每个代码块都要重新高亮一遍，
+   * 复制按钮的「已复制」也会被打断。ref 让 `components` 保持稳定引用，同时又读得到最新
+   * 正文（effect 在提交后写入，用户点按钮时早就更新过了）。
+   */
+  const contentRef = useRef(content);
+  useEffect(() => {
+    contentRef.current = content;
+  }, [content]);
+
   const components = useMemo<Components>(
     () => ({
       ...staticComponents,
+      table: ({ children, node }) => {
+        const source = sliceBlockSource(contentRef.current, node?.position);
+        return (
+          <div className="my-3 relative group">
+            <div className="overflow-x-auto">
+              <table className="w-full text-[0.93em] border-collapse border md-table">
+                {children}
+              </table>
+            </div>
+            {source ? <CopyButton text={source} /> : null}
+          </div>
+        );
+      },
       // `node` 必须显式摘掉：react-markdown 会把它作为 prop 传进来，而 `...props`
       // 会把整个 hast 节点塞成 DOM 属性。
       img: ({ src, alt, title, node: _node, ...props }) => {
