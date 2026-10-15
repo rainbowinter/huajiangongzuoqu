@@ -16,6 +16,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { exportMarkdownNote, importMarkdownNote } from "../features/importExport/api";
 import { MarkdownPreview } from "../features/markdown/MarkdownPreview";
 import { applyAlign } from "../features/markdown/alignText";
+import { sidePanelModeOf, type SidePanelMode } from "../features/windows/sidePanelMode";
 import { renderMarkdownLines } from "../features/markdown/syntaxHighlight";
 import { showToast } from "./Toast";
 import { PluginCommandPanel } from "./PluginCommandPanel";
@@ -162,7 +163,7 @@ import {
 } from "../features/windows/controls";
 
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
-type SidePanelMode = "settings" | "plugins" | "about" | "standalone";
+/** 侧栏模式与「哪个 id 挂哪一层」的映射都在 features/windows/sidePanelMode.ts。 */
 
 /** 活动栏里「笔记」那一格的 id。工作文件夹的 id 直接用它自己的绝对路径。 */
 const EXPLORER_NOTES = "notes";
@@ -1822,11 +1823,7 @@ export function MainWindow({
   const activeStandalonePanelId = activePanelId?.startsWith("standalone:")
     ? activePanelId.slice("standalone:".length)
     : null;
-  const visibleSidePanel: SidePanelMode | null = activePanelId
-    ? activePanelId === "settings" || activePanelId === "plugins"
-      ? (activePanelId as SidePanelMode)
-      : "standalone"
-    : null;
+  const visibleSidePanel = sidePanelModeOf(activePanelId);
   const sidePanelExpanded = visibleSidePanel !== null;
   const togglePanel = useCallback((panelId: string) => {
     setActivePanelId((current) => (current === panelId ? null : panelId));
