@@ -13,6 +13,7 @@ function manifest(overrides: Partial<PluginManifest> = {}): PluginManifest {
     permissions: ["ui:panel", "editor:write"],
     grantedPermissions: ["ui:panel", "editor:write"],
     enabled: true,
+    autoUpdate: false,
     valid: true,
     warnings: [],
     dirPath: "C:\\Users\\me\\Documents\\花笺\\plugins\\math-symbols",

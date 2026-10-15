@@ -72,6 +72,7 @@ function manifest(overrides: Partial<PluginManifest> = {}): PluginManifest {
     permissions: [],
     grantedPermissions: [],
     enabled: true,
+    autoUpdate: false,
     valid: true,
     warnings: [],
     dirPath: "/plugins/demo",

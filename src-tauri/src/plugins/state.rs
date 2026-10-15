@@ -72,6 +72,15 @@ impl PluginOrigin {
 pub struct PluginStateEntry {
     #[serde(default = "default_enabled")]
     pub enabled: bool,
+    /// 市场里有新版本时**自动更新**这个插件。
+    ///
+    /// 默认关：自动更新会在用户看不见的时候把代码换掉，这份信任得由用户自己给。
+    /// 加这个字段**不需要**升 `STATE_VERSION` —— 缺省的 `bool` 是向后兼容的读写
+    /// （老文件读进来是 `false`，写下去也只多一个键），与 `installed_files` 同一个道理。
+    ///
+    /// ⚠️ 自动更新**不会**替用户批准新权限，见 `market::auto_update`。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto_update: bool,
     #[serde(default)]
     pub granted_permissions: Option<Vec<String>>,
     /// 随应用分发的插件文件 → 上次写下去时的 SHA-256。
@@ -94,6 +103,7 @@ impl Default for PluginStateEntry {
     fn default() -> Self {
         Self {
             enabled: default_enabled(),
+            auto_update: false,
             granted_permissions: None,
             installed_files: BTreeMap::new(),
             origin: PluginOrigin::Bundled,
@@ -241,6 +251,19 @@ pub fn set_enabled(
 
     let mut state = load(&paths.state_path, state_dir(paths)?);
     state.plugins.entry(name.to_string()).or_default().enabled = enabled;
+    save(&paths.state_path, &state)?;
+    Ok(state)
+}
+
+pub fn set_auto_update(
+    paths: &super::paths::PluginPaths,
+    name: &str,
+    auto_update: bool,
+) -> Result<PluginStateFile, AppError> {
+    ensure_known(paths, name)?;
+
+    let mut state = load(&paths.state_path, state_dir(paths)?);
+    state.plugins.entry(name.to_string()).or_default().auto_update = auto_update;
     save(&paths.state_path, &state)?;
     Ok(state)
 }
@@ -713,6 +736,39 @@ mod tests {
             Some(vec!["editor:read".to_string()])
         );
         assert_eq!(entry.installed_files.get("index.js"), Some(&"abc".to_string()));
+
+        fs::remove_dir_all(data_dir.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn auto_update_defaults_to_off_and_is_not_written() {
+        // 老状态文件里没有这个字段，读进来必须是「关」—— 自动更新会在用户看不见的时候
+        // 换掉代码，不能靠缺省值把它打开。
+        let (path, data_dir) = temp_state("auto-update");
+        fs::write(
+            &path,
+            format!(
+                r#"{{"version":{STATE_VERSION},"dataDir":"{}","plugins":{{"demo":{{"enabled":true}}}}}}"#,
+                data_dir.display().to_string().replace('\\', "\\\\")
+            ),
+        )
+        .unwrap();
+
+        let state = load(&path, &data_dir);
+        assert!(!state.entry("demo").auto_update);
+
+        // 关着的时候**不写**进文件（见字段上的 `skip_serializing_if`）：绝大多数插件都是
+        // 关的，写了只是把状态文件撑肿 —— 与 `origin` / `installedFiles` 同一条规矩。
+        let mut opened = state.clone();
+        opened.plugins.entry("demo".to_string()).or_default().auto_update = true;
+        save(&path, &opened).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("autoUpdate"), "打开之后要写下来");
+
+        opened.plugins.entry("demo".to_string()).or_default().auto_update = false;
+        save(&path, &opened).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("autoUpdate"), "关着时不写");
 
         fs::remove_dir_all(data_dir.parent().unwrap()).ok();
     }

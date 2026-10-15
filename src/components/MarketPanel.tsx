@@ -1,21 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getErrorMessage } from "../features/notes/api";
-import { installPlugin, uninstallPlugin } from "../features/market/api";
 import {
   blockedText,
   defaultRelease,
+  filterCatalogPlugins,
   findInstalled,
   formatSize,
   permissionsRequiringReview,
   releaseRelation,
+  sortCatalogPlugins,
   type MarketState,
 } from "../features/market/presentation";
 import type { MarketPlugin, MarketRelease } from "../features/market/types";
 import type { MarketController } from "../features/market/useMarket";
+import type { LocalConflict, PluginTransfer } from "../features/market/usePluginTransfer";
 import { describePermission, isPermission, unknownPermissions } from "../features/plugins/permissions";
 import type { PluginManifest } from "../features/plugins/types";
 import { PluginIcon } from "./PluginIcon";
-import { showToast } from "./Toast";
 
 /**
  * 插件市场。
@@ -34,41 +34,22 @@ import { showToast } from "./Toast";
 interface MarketPanelProps {
   /** 已装的插件（来自宿主的注册表）。用来显示「已装 1.1.0」与判断能不能更新。 */
   installed: readonly PluginManifest[];
-  /** 装完 / 卸完之后宿主该做的事：重载插件、刷新列表。 */
-  onChanged: () => Promise<void>;
   /**
    * 清单的取回状态。**由面板外面传进来**，不是这里自己 `useMarket()` —— 插件列表那边
    * 也要用它算「市场有新版本」，两个 hook 实例会各取一次清单。
    */
   market: MarketController;
+  /**
+   * 装 / 卸那件事的控制器。**同样由面板外面传进来**：插件列表展开之后的「重新安装 /
+   * 卸载」要走同一套确认框，两处各持一份状态就会出现两个确认框。
+   */
+  transfer: PluginTransfer;
   /** 从「去更新」跳过来时，把这一行高亮出来（免得用户在列表里找不到）。 */
   focusPlugin?: string | null;
 }
 
-/** 本地已有的同名插件（不是在市场装的）——替换它需要用户再点一次头。 */
-export interface LocalConflict {
-  version: string;
-  /** `bundled` = 随应用分发的，其余是用户自己放进去的。提示语气不一样。 */
-  origin: string | undefined;
-}
-
-/** 确认框里在等用户点头的那件事。 */
-type PendingAction =
-  | {
-      kind: "install";
-      plugin: MarketPlugin;
-      release: MarketRelease;
-      /** 已装的那份（更新/换版本时带上，用来算「这次新增了哪些权限」）。 */
-      installed?: { version: string; grantedPermissions: readonly string[] };
-      /** 正在替换一个本地同名插件。 */
-      conflict?: LocalConflict;
-    }
-  | { kind: "uninstall"; plugin: MarketPlugin; installedVersion: string };
-
-export function MarketPanel({ installed, onChanged, market, focusPlugin }: MarketPanelProps) {
+export function MarketPanel({ installed, market, transfer, focusPlugin }: MarketPanelProps) {
   const { state, refresh } = market;
-  const [busy, setBusy] = useState(false);
-  const [pending, setPending] = useState<PendingAction | null>(null);
   /** 用户手动选过的版本（按插件名记）。没选过就用清单给的默认版。 */
   const [chosenVersion, setChosenVersion] = useState<Record<string, string>>({});
 
@@ -76,121 +57,18 @@ export function MarketPanel({ installed, onChanged, market, focusPlugin }: Marke
     setChosenVersion((current) => ({ ...current, [name]: version }));
   }, []);
 
-  const runInstall = useCallback(
-    async (plugin: MarketPlugin, release: MarketRelease, conflict?: LocalConflict) => {
-      setBusy(true);
-      try {
-        const outcome = await installPlugin({
-          name: plugin.name,
-          version: release.version,
-          url: release.url,
-          sha256: release.sha256,
-          // 用户在这个确认框里看到的就是这些 —— 原样交给后端，插件多要的一个都不给。
-          approvedPermissions: release.permissions,
-          // 只有用户为「替换本地插件」单独点过头，才允许覆盖。
-          replaceLocal: Boolean(conflict),
-        });
-        await onChanged();
-
-        if (outcome.localBackupPath) {
-          showToast(`已替换本地版本：${plugin.name} ${outcome.replacedVersion ?? ""}`, "info");
-          showToast(`原版已备份到 ${outcome.localBackupPath}（卸载时会装回来）`, "info");
-        } else {
-          showToast(
-            `${outcome.replacedVersion ? "更新" : "安装"}成功：${plugin.name} ${outcome.version}`,
-            "info",
-          );
-        }
-        if (outcome.extraPermissions.length > 0) {
-          // 清单与插件对不上：多要的权限没生效，必须说出来，否则用户会以为功能坏了。
-          showToast(
-            `${plugin.name} 还声明了未确认的权限（${outcome.extraPermissions.join("、")}），未授权，相关功能可能不可用`,
-            "info",
-          );
-        }
-
-        setPending(null);
-        await refresh();
-      } catch (error) {
-        // 后端给的都是具体原因（清单过期、同名插件、下载失败……），原样显示，别吞掉。
-        showToast(`安装失败：${getErrorMessage(error)}`);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [onChanged, refresh],
-  );
-
-  const runUninstall = useCallback(
-    async (plugin: MarketPlugin, deleteData: boolean) => {
-      setBusy(true);
-      try {
-        const outcome = await uninstallPlugin(plugin.name, deleteData);
-        await onChanged();
-        const restored = outcome.restoredVersion
-          ? `，并装回了被它替换掉的本地版本 ${outcome.restoredVersion}`
-          : "";
-        showToast(
-          `已卸载：${plugin.name}${deleteData ? "（数据也删了）" : "（数据保留）"}${restored}`,
-          "info",
-        );
-        setPending(null);
-        await refresh();
-      } catch (error) {
-        showToast(`卸载失败：${getErrorMessage(error)}`);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [onChanged, refresh],
-  );
-
   return (
-    <>
-      <CatalogBody
-        state={state}
-        installed={installed}
-        focusPlugin={focusPlugin}
-        busy={busy}
-        chosenVersion={chosenVersion}
-        onChooseVersion={chooseVersion}
-        onRefresh={() => void refresh()}
-        onInstall={(plugin, release, options) =>
-          setPending({
-            kind: "install",
-            plugin,
-            release,
-            ...(options?.installed ? { installed: options.installed } : {}),
-            ...(options?.conflict ? { conflict: options.conflict } : {}),
-          })
-        }
-        onUninstall={(plugin, installedVersion) =>
-          setPending({ kind: "uninstall", plugin, installedVersion })
-        }
-      />
-
-      {pending?.kind === "install" ? (
-        <ConfirmInstall
-          plugin={pending.plugin}
-          release={pending.release}
-          {...(pending.installed ? { installed: pending.installed } : {})}
-          {...(pending.conflict ? { conflict: pending.conflict } : {})}
-          busy={busy}
-          onCancel={() => setPending(null)}
-          onConfirm={() => void runInstall(pending.plugin, pending.release, pending.conflict)}
-        />
-      ) : null}
-
-      {pending?.kind === "uninstall" ? (
-        <ConfirmUninstall
-          plugin={pending.plugin}
-          installedVersion={pending.installedVersion}
-          busy={busy}
-          onCancel={() => setPending(null)}
-          onConfirm={(deleteData) => void runUninstall(pending.plugin, deleteData)}
-        />
-      ) : null}
-    </>
+    <CatalogBody
+      state={state}
+      installed={installed}
+      focusPlugin={focusPlugin}
+      busy={transfer.busy}
+      chosenVersion={chosenVersion}
+      onChooseVersion={chooseVersion}
+      onRefresh={() => void refresh()}
+      onInstall={transfer.requestInstall}
+      onUninstall={transfer.requestUninstall}
+    />
   );
 }
 
@@ -222,6 +100,10 @@ function CatalogBody({
   ) => void;
   onUninstall: (plugin: MarketPlugin, version: string) => void;
 }) {
+  // ⚠️ hook 要在**所有提前 return 之前**：写在下面那几个分支之后，就是「有时调、有时不调」，
+  // React 会直接报错（而且这个文件的几个分支是常态，不是边角情况）。
+  const [query, setQuery] = useState("");
+
   if (state.stage === "loading" || state.stage === "unknown") {
     return <p className="text-[12px] text-ink-ghost text-center py-8">正在获取插件列表…</p>;
   }
@@ -253,9 +135,43 @@ function CatalogBody({
     return <p className="text-[12px] text-ink-ghost text-center py-8">市场里还没有插件</p>;
   }
 
+  // 先过滤再排序：排序只影响「谁在前面」，与搜索无关，两件事分开写才各自说得清。
+  const visible = sortCatalogPlugins(
+    filterCatalogPlugins(state.catalog.plugins, query),
+    installed,
+  );
+
   return (
     <div className="flex flex-col gap-1">
-      {state.catalog.plugins.map((plugin) => (
+      {/* 搜索框常驻在列表顶上：插件多起来之后，靠肉眼在几十行里找一个是找不动的。 */}
+      <div className="relative px-1 pb-1">
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="搜索插件（名字 / 说明 / 作者）"
+          className="w-full h-7 rounded-lg bg-paper-warm pl-7 pr-2 text-[11.5px] text-ink-soft placeholder:text-ink-ghost/70 focus:outline-none focus:ring-1 focus:ring-bamboo/40"
+        />
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          className="absolute left-3 top-[7px] w-3.5 h-3.5 text-ink-ghost/70 pointer-events-none"
+        >
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.5-3.5" />
+        </svg>
+      </div>
+
+      {visible.length === 0 ? (
+        <p className="text-[12px] text-ink-ghost text-center py-8">
+          {`没有匹配「${query.trim()}」的插件`}
+        </p>
+      ) : null}
+
+      {visible.map((plugin) => (
         <MarketRow
           key={`${plugin.name}-${plugin.newestVersion ?? ""}`}
           plugin={plugin}
@@ -348,6 +264,16 @@ function MarketRow({
   // 图标优先用清单里的（那是**将要装上的那一版**），其次用本地已装那份的，都没有就用默认。
   const icon = plugin.icon ?? installedManifest?.icon;
 
+  /**
+   * 装过的这一行**变灰**。
+   *
+   * 不是禁用 —— 底下的版本选择与「更新 / 卸载」照样能点，只是让眼睛先跳过它：
+   * 已经装好的插件在这张表里已经没有可看的东西了（`sortCatalogPlugins` 也把它们沉到
+   * 了后面）。被「去更新」跳过来的那一行**不灰**，否则用户盯着一个灰蒙蒙的行，
+   * 分不清是自己点错了还是界面在提示什么。
+   */
+  const dim = Boolean(installedVersion) && !focused;
+
   return (
     <div
       ref={rowRef}
@@ -358,10 +284,19 @@ function MarketRow({
       {/* 图标一列、正文一列：市场里插件多，**图标的辨识度比名字高**，
           所以它比正文大得多（32px）。 */}
       <div className="flex items-start gap-3">
-        <PluginIcon icon={icon} size={32} className="mt-0.5 text-ink-ghost/60" />
+        <PluginIcon
+          icon={icon}
+          size={32}
+          className={`mt-0.5 ${dim ? "text-ink-ghost/30" : "text-ink-ghost/60"}`}
+        />
         <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="text-[12.5px] text-ink-soft truncate flex-1" title={plugin.name}>
+          <span
+            className={`text-[12.5px] truncate flex-1 ${
+              dim ? "text-ink-ghost" : "text-ink-soft"
+            }`}
+            title={plugin.name}
+          >
             {plugin.name || "（无法识别的一条）"}
           </span>
           {release ? (
@@ -373,7 +308,7 @@ function MarketRow({
         </div>
 
         {installedVersion ? (
-          <p className="text-[10px] text-ink-ghost mt-0.5">
+          <p className={`text-[10px] mt-0.5 ${dim ? "text-ink-ghost/70" : "text-ink-ghost"}`}>
             已装 v{installedVersion}
             {relation === "newer" && release ? ` · 可更新到 v${release.version}` : ""}
             {relation === "older" ? " · 选中的是旧版本" : ""}
@@ -383,12 +318,18 @@ function MarketRow({
         ) : null}
 
         {plugin.description ? (
-          <p className="text-[11px] text-ink-ghost mt-1 leading-relaxed">{plugin.description}</p>
+          <p
+            className={`text-[11px] mt-1 leading-relaxed ${
+              dim ? "text-ink-ghost/70" : "text-ink-ghost"
+            }`}
+          >
+            {plugin.description}
+          </p>
         ) : null}
 
         <div className="flex items-center gap-1.5 mt-1">
           {plugin.author ? (
-            <span className="text-[10px] text-ink-ghost shrink-0">{plugin.author}</span>
+            <span className="text-[10px] text-ink-ghost/80 shrink-0">{plugin.author}</span>
           ) : null}
           {plugin.latest && plugin.newestVersion !== plugin.latest ? (
             <span className="text-[10px] px-1.5 py-0.5 rounded-md text-ink-ghost bg-paper-warm">

@@ -130,6 +130,19 @@ pub fn plugins_set_enabled(name: String, enabled: bool) -> Result<PluginManifest
     record_for(&paths, &name)
 }
 
+/// 开 / 关「市场有新版本时自动更新这个插件」。
+///
+/// 只写一个状态位 —— 真正去下载与安装的是前端（`features/market/autoUpdate.ts`），因为
+/// 那里才有清单、有确认框、有「新增权限要先问用户」这套判断。
+#[tauri::command]
+pub fn plugins_set_auto_update(name: String, auto_update: bool) -> Result<PluginManifest, AppError> {
+    let paths = PluginPaths::resolve()?;
+    let _guard = lock_state_file();
+
+    state::set_auto_update(&paths, &name, auto_update)?;
+    record_for(&paths, &name)
+}
+
 /// 更新已授予权限。`granted` 必须是清单声明权限的子集。
 #[tauri::command]
 pub fn plugins_set_permissions(

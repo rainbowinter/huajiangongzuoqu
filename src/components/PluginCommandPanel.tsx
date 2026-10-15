@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import {
   getPluginsDir,
   openPluginsDir,
+  readPluginAsset,
+  setPluginAutoUpdate,
   setPluginEnabled,
   setPluginPermissions,
 } from "../features/plugins/api";
@@ -28,9 +30,10 @@ import {
 } from "../features/plugins/registry";
 import { buildPluginDetails, type PluginContribution } from "../features/docs/pluginDetails";
 import type { PluginCommand, PluginRuntimeRecord, PluginStatus } from "../features/plugins/types";
-import { updateAvailable } from "../features/market/presentation";
+import { defaultRelease, updateAvailable } from "../features/market/presentation";
 import { useMarket, useMarketEnabled } from "../features/market/useMarket";
-import { MarketPanel } from "./MarketPanel";
+import { usePluginTransfer } from "../features/market/usePluginTransfer";
+import { ConfirmInstall, ConfirmUninstall, MarketPanel } from "./MarketPanel";
 import { PluginIcon } from "./PluginIcon";
 import { PluginParams, parseSettingFields } from "./PluginParams";
 import { Switch } from "./Switch";
@@ -78,6 +81,42 @@ function contributionsOf(name: string): PluginContribution[] {
   ];
 }
 
+/** 插件根目录下那份说明文件的名字。约定写死，见 `Docs/plugin-api.md` 的「发布到插件市场」。 */
+const README_FILE = "README.md";
+
+/**
+ * 「详细信息」要打开的那份文档。
+ *
+ * 优先用插件**自带**的 README.md —— 那是作者写给用户看的东西，比我们从清单里拼出来的
+ * 准得多、也全得多。读不到时才退回自动生成的那份，**并且不提示**：没带 README 是正常
+ * 情况（内置的那些示例就有没带的），不是错误。
+ *
+ * 生成的那份仍然有用：它列的是**当下真正注册出去的贡献点**，而 README 里写的可能是
+ * 作者的承诺。
+ */
+async function openPluginDoc(record: PluginRuntimeRecord): Promise<string> {
+  const { name } = record.manifest;
+  for (const candidate of [README_FILE, "readme.md"]) {
+    try {
+      const content = await readPluginAsset(name, candidate);
+      if (content.trim().length > 0) return content;
+    } catch {
+      // 这个大小写没有，试下一个；两个都没有就走下面那份生成的。
+    }
+  }
+
+  return buildPluginDetails({
+    record,
+    contributions: contributionsOf(name),
+    settings: parseSettingFields(record.manifest).map((field) => ({
+      key: field.key,
+      title: field.title,
+      type: field.type,
+      description: field.description,
+    })),
+  });
+}
+
 const STATUS_LABEL: Record<PluginStatus, string> = {
   loaded: "运行中",
   legacy: "运行中（未沙箱）",
@@ -119,6 +158,9 @@ function PluginRow({
   onToggleExpand,
   onGoToMarket,
   onOpenDoc,
+  onReinstall,
+  onUninstall,
+  onToggleAutoUpdate,
 }: {
   record: PluginRuntimeRecord;
   busy: boolean;
@@ -130,6 +172,11 @@ function PluginRow({
   onToggleExpand: (name: string) => void;
   onGoToMarket: (name: string) => void;
   onOpenDoc?: (title: string, content: string) => void;
+  /** 从市场再装一遍（修好装坏的那份）。`undefined` = 这个插件不该有这颗按钮。 */
+  onReinstall?: (record: PluginRuntimeRecord) => void;
+  /** 卸载。`undefined` = 这个插件不该有这颗按钮（不是市场装的）。 */
+  onUninstall?: (record: PluginRuntimeRecord) => void;
+  onToggleAutoUpdate: (record: PluginRuntimeRecord) => void;
 }) {
   const { manifest, status, error, sandboxed } = record;
   const unknown = useMemo(
@@ -138,8 +185,9 @@ function PluginRow({
   );
   const hasSettings = useMemo(() => parseSettingFields(manifest).length > 0, [manifest]);
   const hasPermissions = manifest.permissions.length > 0;
+  const manageable = Boolean(onReinstall) || Boolean(onUninstall);
   // 只有展开区里有东西的插件才给箭头：点开一个空无一物的行是坏的反馈。
-  const canExpand = hasPermissions || hasSettings;
+  const canExpand = hasPermissions || hasSettings || manageable;
 
   return (
     <div className="px-3 py-2 rounded-xl hover:bg-paper-warm transition-colors">
@@ -250,25 +298,14 @@ function PluginRow({
           <span className="text-[10px] text-ink-ghost truncate flex-1" title={manifest.dirPath}>
             {manifest.dirPath}
           </span>
-          {/* 「详细信息」：把清单里的东西摊开给人看。装了一堆插件之后，
-              「这个到底是干嘛的」不该靠来回开关去试。 */}
+          {/* 「详细信息」：优先打开插件**自带**的 README.md。
+              装了一堆插件之后，「这个到底是干嘛的」不该靠来回开关去试 —— 而这件事作者
+              写得比我们从清单里拼出来的清楚得多。没带 README 时才退回那份自动生成的。 */}
           {onOpenDoc ? (
             <button
               type="button"
               onClick={() =>
-                onOpenDoc(
-                  manifest.name,
-                  buildPluginDetails({
-                    record,
-                    contributions: contributionsOf(manifest.name),
-                    settings: parseSettingFields(manifest).map((field) => ({
-                      key: field.key,
-                      title: field.title,
-                      type: field.type,
-                      description: field.description,
-                    })),
-                  }),
-                )
+                void openPluginDoc(record).then((content) => onOpenDoc(manifest.name, content))
               }
               className="shrink-0 px-2 h-6 rounded-md text-[10px] text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50 transition-colors cursor-pointer"
               title="这个插件具体做了什么"
@@ -286,8 +323,60 @@ function PluginRow({
           挨着，滑一下鼠标就误触了。收进展开区之后，撤销权限至少需要「先点开」这个
           明确的动作。参数同理由此 —— 它是这个插件的属性，和插件放在一起才找得到，
           丢进设置面板里就成了一堆只有作者才认识的字段名。 */}
-      {expanded && (hasPermissions || hasSettings) ? (
+      {expanded && canExpand ? (
         <div className="mt-2 pt-2 border-t border-paper-deep/25 space-y-2.5">
+          {/* 装 / 卸 / 自动更新都收在展开区里。
+              卸载尤其不能常驻：它就在插件名下面，滑一下鼠标就点到了。 */}
+          {manageable ? (
+            <div>
+              <p className="text-[10px] text-ink-ghost mb-1">管理</p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {onReinstall ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onReinstall(record)}
+                    title="从市场把这个版本重新装一遍（用来修好装坏的那份）"
+                    className="px-2 h-6 rounded-md text-[10px] text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50 transition-colors cursor-pointer disabled:opacity-40"
+                  >
+                    重新安装
+                  </button>
+                ) : null}
+                {onUninstall ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onUninstall(record)}
+                    className="px-2 h-6 rounded-md text-[10px] text-ink-ghost hover:text-rust hover:bg-rust-mist/40 transition-colors cursor-pointer disabled:opacity-40"
+                  >
+                    卸载
+                  </button>
+                ) : null}
+                {/* 「自动更新」是一颗胶囊开关而不是复选框：它是个**长期生效**的开关，
+                    复选框看起来像「这次要不要」，而这件事管的是以后每一次。 */}
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={manifest.autoUpdate}
+                  disabled={busy}
+                  onClick={() => onToggleAutoUpdate(record)}
+                  title={
+                    manifest.autoUpdate
+                      ? "市场有新版本时自动装。要新权限的版本不会被自动装，会先问你。"
+                      : "关着：市场有新版本时只提示，不自动装"
+                  }
+                  className={`px-2.5 h-6 rounded-full text-[10px] transition-colors cursor-pointer disabled:opacity-40 ${
+                    manifest.autoUpdate
+                      ? "text-bamboo bg-bamboo-mist/60 ring-1 ring-bamboo/30"
+                      : "text-ink-ghost bg-paper-warm hover:bg-paper-deep/30"
+                  }`}
+                >
+                  自动更新{manifest.autoUpdate ? " 开" : " 关"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           {hasPermissions ? (
             <div>
               <p className="text-[10px] text-ink-ghost mb-1">权限</p>
@@ -474,6 +563,69 @@ export function PluginCommandPanel({ onClose, onOpenDoc }: PluginCommandPanelPro
     await reloadPlugins();
   }, []);
 
+  /**
+   * 装 / 卸那件事的控制器。**两个触发点共用它**：市场里那一行，和插件列表展开之后的
+   * 「重新安装 / 卸载」—— 各持一份状态的话，两个确认框能同时挂出来。
+   */
+  const transfer = usePluginTransfer({ market, onChanged: handleMarketChanged });
+
+  /** 卸载用的是市场那一套（它会问「数据要不要一起删」），所以要先凑出一个市场条目。 */
+  const handleUninstall = useCallback(
+    (record: PluginRuntimeRecord) => {
+      const entry = catalog?.plugins.find((item) => item.name === record.manifest.name) ?? {
+        name: record.manifest.name,
+        description: "",
+        releases: [],
+      };
+      transfer.requestUninstall(entry, record.manifest.version);
+    },
+    [catalog, transfer],
+  );
+
+  /**
+   * 重新安装 = 把**当前这个版本**从市场再装一遍（用来修好装坏的那份）。
+   *
+   * 故意装同一个版本而不是最新版：想升级的话那一行上本来就有「去更新」，
+   * 两个按钮做同一件事才是真的费解。清单里已经找不到这个版本时（发布者下架了旧版）
+   * 才退回默认的那一版，并如实说出来。
+   */
+  const handleReinstall = useCallback(
+    (record: PluginRuntimeRecord) => {
+      const entry = catalog?.plugins.find((item) => item.name === record.manifest.name);
+      const release = entry
+        ? (entry.releases.find((item) => item.version === record.manifest.version) ??
+          defaultRelease(entry))
+        : null;
+      if (!entry || !release) {
+        showToast(`${record.manifest.name} 在市场清单里没有可装的版本`);
+        return;
+      }
+      if (release.version !== record.manifest.version) {
+        showToast(`市场里已经没有 v${record.manifest.version} 了，将装 v${release.version}`, "info");
+      }
+      transfer.requestInstall(entry, release, {
+        installed: {
+          version: record.manifest.version,
+          grantedPermissions: record.manifest.grantedPermissions,
+        },
+      });
+    },
+    [catalog, transfer],
+  );
+
+  const handleToggleAutoUpdate = useCallback(async (record: PluginRuntimeRecord) => {
+    setBusy(true);
+    try {
+      await setPluginAutoUpdate(record.manifest.name, !record.manifest.autoUpdate);
+      // 与启停、改权限同一条路：写回状态文件之后重载一遍，界面上的那份才是新的。
+      await reloadPlugins();
+    } catch (error) {
+      showToast(`切换自动更新失败：${String(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
   /** 已装插件的清单，喂给插件市场判断「装过没有、能不能更新」。 */
   const installedManifests = useMemo(() => plugins.map((record) => record.manifest), [plugins]);
 
@@ -626,6 +778,23 @@ export function PluginCommandPanel({ onClose, onOpenDoc }: PluginCommandPanelPro
                     onRevoke={(item, permission) => void handleRevoke(item, permission)}
                     onToggleExpand={handleToggleExpand}
                     onOpenDoc={onOpenDoc}
+                    onToggleAutoUpdate={(item) => void handleToggleAutoUpdate(item)}
+                    // 市场那一套只管得了市场装的：随应用分发的那份不该在界面上留一颗
+                    // 点了就报错的按钮。
+                    //
+                    // 「重新安装」还要市场清单里确实有这个插件才给 —— 卸载不需要（它只认
+                    // 本地目录），而没配市场时清单是空的，留一个点了只会弹「没有可装版本」
+                    // 的按钮不如不给。
+                    {...(record.manifest.origin === "market"
+                      ? {
+                          onUninstall: handleUninstall,
+                          ...(catalog?.plugins.some(
+                            (item) => item.name === record.manifest.name,
+                          )
+                            ? { onReinstall: handleReinstall }
+                            : {}),
+                        }
+                      : {})}
                   />
                 ))}
               </div>
@@ -665,12 +834,36 @@ export function PluginCommandPanel({ onClose, onOpenDoc }: PluginCommandPanelPro
         {tab === "market" ? (
           <MarketPanel
             installed={installedManifests}
-            onChanged={handleMarketChanged}
             market={market}
+            transfer={transfer}
             focusPlugin={focusPlugin}
           />
         ) : null}
       </div>
+
+      {/* 确认框挂在面板这一层，而不是市场那一栏里：插件列表里的「重新安装 / 卸载」走的是
+          同一套确认流程，挂在市场那一栏的话，人在插件页签时它根本不在 DOM 里。 */}
+      {transfer.pending?.kind === "install" ? (
+        <ConfirmInstall
+          plugin={transfer.pending.plugin}
+          release={transfer.pending.release}
+          {...(transfer.pending.installed ? { installed: transfer.pending.installed } : {})}
+          {...(transfer.pending.conflict ? { conflict: transfer.pending.conflict } : {})}
+          busy={transfer.busy}
+          onCancel={transfer.dismiss}
+          onConfirm={transfer.confirmInstall}
+        />
+      ) : null}
+
+      {transfer.pending?.kind === "uninstall" ? (
+        <ConfirmUninstall
+          plugin={transfer.pending.plugin}
+          installedVersion={transfer.pending.installedVersion}
+          busy={transfer.busy}
+          onCancel={transfer.dismiss}
+          onConfirm={transfer.confirmUninstall}
+        />
+      ) : null}
 
       <div className="px-4 py-2.5 border-t border-paper-deep/30 flex items-center justify-between gap-2 shrink-0">
         <span className="text-[10px] text-ink-ghost truncate flex-1" title={pluginsDir}>

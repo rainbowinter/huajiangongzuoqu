@@ -29,6 +29,13 @@ export interface PluginManifest {
   contributes?: unknown;
   /** 用户是否启用了这个插件。 */
   enabled: boolean;
+  /**
+   * 市场里有新版本时自动更新。默认关 —— 这会在用户看不见的时候换掉代码，
+   * 那份信任得由用户自己给。
+   *
+   * ⚠️ 带**新权限**的版本不会被自动装上（见 `market/presentation.ts` 的 `planAutoUpdates`）。
+   */
+  autoUpdate: boolean;
   /** 清单是否可加载。`false` 时看 `invalidReason`。 */
   valid: boolean;
   invalidReason?: string;

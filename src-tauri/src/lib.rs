@@ -679,6 +679,7 @@ pub fn run() {
             plugins::commands::plugins_dir_path,
             plugins::commands::plugins_open_dir,
             plugins::commands::plugins_set_enabled,
+            plugins::commands::plugins_set_auto_update,
             plugins::commands::plugins_set_permissions,
             plugins::commands::plugins_storage_get,
             plugins::commands::plugins_storage_set,

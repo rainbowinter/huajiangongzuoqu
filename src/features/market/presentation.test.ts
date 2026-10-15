@@ -9,8 +9,14 @@ import {
   isInstallable,
   isMarketVisible,
   permissionsRequiringReview,
+  planAutoUpdates,
   releaseRelation,
+  reportText,
+  skipText,
+  sortCatalogPlugins,
+  filterCatalogPlugins,
   updateAvailable,
+  type AutoUpdateCandidate,
   type MarketState,
 } from "./presentation";
 import type { MarketCatalog, MarketPlugin, MarketRelease } from "./types";
@@ -247,5 +253,168 @@ describe("permissionsRequiringReview", () => {
 
   it("少了权限也算没有需要确认的（收紧不算风险）", () => {
     expect(permissionsRequiringReview(["editor:read", "storage"], ["editor:read"])).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------- 列表的呈现顺序
+
+describe("清单的排序与搜索", () => {
+  const list = [
+    { name: "alpha", description: "看图" },
+    { name: "beta", description: "", author: "张三" },
+    { name: "gamma", description: "PDF 阅读器" },
+  ];
+
+  it("装过的沉到后面，两半各自保持清单原来的顺序", () => {
+    const sorted = sortCatalogPlugins(list, [{ name: "beta" }]);
+
+    expect(sorted.map((item) => item.name)).toEqual(["alpha", "gamma", "beta"]);
+  });
+
+  it("一个都没装时顺序原样不动", () => {
+    expect(sortCatalogPlugins(list, []).map((item) => item.name)).toEqual([
+      "alpha",
+      "beta",
+      "gamma",
+    ]);
+  });
+
+  it("「装了」看的是名字，与已装列表里还有什么字段无关", () => {
+    const sorted = sortCatalogPlugins(list, [{ name: "alpha" }, { name: "gamma" }]);
+
+    expect(sorted.map((item) => item.name)).toEqual(["beta", "alpha", "gamma"]);
+  });
+
+  it("搜索匹配名字、说明、作者，都忽略大小写", () => {
+    expect(filterCatalogPlugins(list, "GAM").map((i) => i.name)).toEqual(["gamma"]);
+    expect(filterCatalogPlugins(list, "pdF").map((i) => i.name)).toEqual(["gamma"]);
+    expect(filterCatalogPlugins(list, "张三").map((i) => i.name)).toEqual(["beta"]);
+  });
+
+  it("空串或全是空白 → 原样返回（不是「一个都不匹配」）", () => {
+    expect(filterCatalogPlugins(list, "")).toHaveLength(3);
+    expect(filterCatalogPlugins(list, "   ")).toHaveLength(3);
+  });
+
+  it("搜不到就是空列表，调用方据此说「没有匹配的」", () => {
+    expect(filterCatalogPlugins(list, "没有这个东西")).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------- 自动更新
+
+function candidate(overrides: Partial<AutoUpdateCandidate> = {}): AutoUpdateCandidate {
+  return {
+    name: "demo",
+    version: "1.0.0",
+    enabled: true,
+    autoUpdate: true,
+    origin: "market",
+    grantedPermissions: ["workspace:read"],
+    ...overrides,
+  };
+}
+
+function catalog(overrides: Partial<MarketPlugin> = {}): MarketCatalog {
+  return {
+    schema: 1,
+    catalogVersion: 1,
+    plugins: [
+      {
+        name: "demo",
+        description: "",
+        latest: "2.0.0",
+        releases: [release({ version: "2.0.0", permissions: ["workspace:read"] })],
+        ...overrides,
+      },
+    ],
+  };
+}
+
+describe("自动更新的计划", () => {
+  it("开了自动更新、市场里有新版 → 装，授权集合就是那一版要的那些", () => {
+    const plan = planAutoUpdates([candidate()], catalog());
+
+    expect(plan).toHaveLength(1);
+    expect(plan[0]).toMatchObject({
+      name: "demo",
+      action: "update",
+      permissions: ["workspace:read"],
+    });
+  });
+
+  it("⚠️ 新版要多一个权限 → **不装**，只报「要重新确认」", () => {
+    // 这是这条路上最要紧的一条：静默把新权限装上，等于「第一次确认就永久放行」。
+    const plan = planAutoUpdates(
+      [candidate()],
+      catalog({
+        releases: [
+          release({ version: "2.0.0", permissions: ["workspace:read", "editor:write"] }),
+        ],
+      }),
+    );
+
+    expect(plan).toEqual([
+      { name: "demo", action: "skip", reason: "needs-review", version: "2.0.0" },
+    ]);
+  });
+
+  it("授权集合取交集：清单里多写的权限一个都不给出去", () => {
+    const plan = planAutoUpdates(
+      [candidate({ grantedPermissions: ["workspace:read", "ui:panel"] })],
+      catalog({
+        releases: [release({ version: "2.0.0", permissions: ["workspace:read"] })],
+      }),
+    );
+
+    expect(plan[0]).toMatchObject({ action: "update", permissions: ["workspace:read"] });
+  });
+
+  it("没开自动更新 / 不是市场装的 / 已停用的，一条都不进计划", () => {
+    expect(planAutoUpdates([candidate({ autoUpdate: false })], catalog())).toEqual([]);
+    expect(planAutoUpdates([candidate({ origin: "bundled" })], catalog())).toEqual([]);
+    expect(planAutoUpdates([candidate({ enabled: false })], catalog())).toEqual([]);
+  });
+
+  it("已经是最新、或市场里没有它 —— 都是正常状态，不汇报", () => {
+    expect(planAutoUpdates([candidate({ version: "2.0.0" })], catalog())).toEqual([]);
+    expect(planAutoUpdates([candidate()], { schema: 1, catalogVersion: 1, plugins: [] })).toEqual(
+      [],
+    );
+  });
+
+  it("这一版装不了 → skip 并说明是「装不了」而不是「要权限」", () => {
+    const plan = planAutoUpdates(
+      [candidate()],
+      catalog({ releases: [release({ version: "2.0.0", blocked: "apiVersionUnsupported:3" })] }),
+    );
+
+    expect(plan).toEqual([{ name: "demo", action: "skip", reason: "blocked", version: "2.0.0" }]);
+  });
+
+  it("版本号没法比较时不动手（与 releaseRelation 同一条判据）", () => {
+    expect(planAutoUpdates([candidate({ version: "看心情" })], catalog())).toEqual([]);
+  });
+});
+
+describe("自动更新的说法", () => {
+  it("跳过的那条要说清楚为什么", () => {
+    expect(skipText("needs-review", "2.0.0")).toContain("权限");
+    expect(skipText("blocked", "2.0.0")).toContain("装不了");
+  });
+
+  it("什么都没发生时不说话", () => {
+    expect(reportText(null)).toBeNull();
+    expect(reportText({ updated: [], skipped: [] })).toBeNull();
+  });
+
+  it("更新成功与跳过合成一句话", () => {
+    const text = reportText({
+      updated: ["demo → v2.0.0"],
+      skipped: [skipText("needs-review", "3.0.0")],
+    });
+
+    expect(text).toContain("已自动更新：demo → v2.0.0");
+    expect(text).toContain("权限");
   });
 });

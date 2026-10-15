@@ -185,6 +185,48 @@ export function findInstalled<T extends { name: string }>(
 }
 
 /**
+ * 清单的呈现顺序：**没装的在前，装过的沉到后面**。
+ *
+ * 装过的那几条已经没有可看的了（要更新有更新徽标、要卸载在插件列表里），把它们压在
+ * 前面只会把「还有哪些没装」挤到下面去。两半各自保持清单原来的顺序 —— 那是发布者
+ * 排过序的，不该被我们打乱。
+ *
+ * 判据只看「装没装」，**不看有没有更新**：真有新版的话插件列表那一栏会顶出「市场有新
+ * 版本」的徽标与「去更新」，市场这条路上不缺提示。
+ */
+export function sortCatalogPlugins<T extends { name: string }>(
+  plugins: readonly T[],
+  installed: readonly { name: string }[],
+): T[] {
+  const installedNames = new Set(installed.map((plugin) => plugin.name));
+  const pending: T[] = [];
+  const done: T[] = [];
+  for (const plugin of plugins) {
+    (installedNames.has(plugin.name) ? done : pending).push(plugin);
+  }
+  return [...pending, ...done];
+}
+
+/**
+ * 搜索框的过滤。
+ *
+ * 只匹配**名字、说明、作者**这三样：它们就在那一行上显示着，用户搜到什么就能指着什么。
+ * 空串（或全是空白）返回原样的列表。
+ */
+export function filterCatalogPlugins<
+  T extends { name: string; description?: string; author?: string },
+>(plugins: readonly T[], query: string): T[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return [...plugins];
+
+  return plugins.filter((plugin) =>
+    [plugin.name, plugin.description ?? "", plugin.author ?? ""].some((field) =>
+      field.toLowerCase().includes(needle),
+    ),
+  );
+}
+
+/**
  * 清单里有没有比已装版本更新的可装版本；有就返回那个版本号。
  *
  * 只认「更新」（market 的版本比已装的新）。清单里只有旧版本时返回 `null` —— 那不是
@@ -216,4 +258,122 @@ export function permissionsRequiringReview(
   needed: readonly string[],
 ): string[] {
   return needed.filter((permission) => !granted.includes(permission));
+}
+
+// ------------------------------------------------------------------ 自动更新
+
+/**
+ * 为什么这一版没自动装。攒着是为了给用户一句解释 —— 静默跳过等于没做。
+ */
+export type AutoUpdateSkipReason =
+  /** 这一版本身就不能装（宿主 API 版本对不上之类）。 */
+  | "blocked"
+  /** 要的权限比现在多，得用户重新确认。 */
+  | "needs-review";
+
+export type AutoUpdatePlan =
+  | {
+      name: string;
+      action: "update";
+      release: MarketRelease;
+      /** 交给后端的授权集合 = 「这一版要的」∩「已经授予的」。 */
+      permissions: string[];
+    }
+  | { name: string; action: "skip"; reason: AutoUpdateSkipReason; version: string };
+
+/** 跑完一轮自动更新的结果，交给界面说一句话。 */
+export interface AutoUpdateReport {
+  updated: string[];
+  skipped: string[];
+}
+
+/**
+ * 算出这次启动该自动做哪些事。
+ *
+ * **一条不能让步的规矩**：新版本要的权限超出已授予的集合时，**不装**。
+ * 自动更新是在用户看不见的时候换掉代码，如果新版本多要一个权限也照旧静默装上，
+ * 「安装前我确认过」就变成了「第一次确认就永久放行」—— 权限确认这件事会整个失效。
+ * 用户自己点一次「更新」，那份清单就摆到他眼前了。
+ *
+ * `permissions` 传的是**交集**而不是清单声明的那一份：即便上面这条判断将来被改坏，
+ * 这一层也不会多给一个权限出去。
+ *
+ * 只会出现在结果里的两种情况：够得着更新（`update`）、够得着但没自动装（`skip`）。
+ * 「没开自动更新」「已经是最新」「市场里没有这个插件」都是**正常状态**，不是要汇报的事，
+ * 一条都不返回 —— 否则每次启动都要弹一串「什么都没发生」。
+ */
+export function planAutoUpdates(
+  installed: readonly AutoUpdateCandidate[],
+  catalog: MarketCatalog,
+): AutoUpdatePlan[] {
+  const plan: AutoUpdatePlan[] = [];
+
+  for (const plugin of installed) {
+    // 只有从市场装的才谈得上「从市场更新」：随应用分发的那份跟着应用走，用户自己放进
+    // 目录的更不许我们动（后端也会拒，这里先挡住，省一次请求）。
+    if (!plugin.autoUpdate || plugin.origin !== "market" || !plugin.enabled) continue;
+
+    const entry = catalog.plugins.find((item) => item.name === plugin.name);
+    if (!entry?.latest) continue;
+    if (releaseRelation(plugin.version, entry.latest) !== "newer") continue;
+
+    const release = entry.releases.find((item) => item.version === entry.latest);
+    if (!release) continue;
+
+    const version = release.version;
+    if (entry.blocked ?? release.blocked) {
+      plan.push({ name: plugin.name, action: "skip", reason: "blocked", version });
+      continue;
+    }
+
+    if (permissionsRequiringReview(plugin.grantedPermissions, release.permissions).length > 0) {
+      plan.push({ name: plugin.name, action: "skip", reason: "needs-review", version });
+      continue;
+    }
+
+    plan.push({
+      name: plugin.name,
+      action: "update",
+      release,
+      permissions: release.permissions.filter((permission) =>
+        plugin.grantedPermissions.includes(permission),
+      ),
+    });
+  }
+
+  return plan;
+}
+
+/**
+ * `planAutoUpdates` 要的那几项。
+ *
+ * 写成结构类型而不是直接吃 `PluginManifest`：这个模块的原则是「不拖任何依赖」，
+ * 而 `PluginManifest` 在插件那边还挂着一堆运行状态。真实调用方传的是它，形状对得上。
+ */
+export interface AutoUpdateCandidate {
+  name: string;
+  version: string;
+  enabled: boolean;
+  autoUpdate: boolean;
+  origin?: string;
+  grantedPermissions: readonly string[];
+}
+
+/** 跳过的那一条该怎么说给用户听。 */
+export function skipText(reason: AutoUpdateSkipReason, version: string): string {
+  switch (reason) {
+    case "blocked":
+      return `新版本 v${version} 这个宿主装不了，没有自动更新`;
+    case "needs-review":
+      return `新版本 v${version} 要的权限比现在多，没有自动更新 —— 请自己点一次「更新」确认`;
+  }
+}
+
+/** 给界面用的一句话总结；没有任何事发生时返回 `null`（不打扰用户）。 */
+export function reportText(report: AutoUpdateReport | null): string | null {
+  if (!report || (report.updated.length === 0 && report.skipped.length === 0)) return null;
+  const parts: string[] = [];
+  if (report.updated.length > 0) parts.push(`已自动更新：${report.updated.join("、")}`);
+  parts.push(...report.skipped);
+  return parts.join("；");
 }

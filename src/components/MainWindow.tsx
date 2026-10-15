@@ -38,6 +38,7 @@ import {
   updatePluginEditorMirror,
 } from "../features/plugins/loader";
 import { pluginOwningPath } from "../features/plugins/pluginPaths";
+import { runStartupAutoUpdatesQuietly } from "../features/market/autoUpdate";
 import type { EditorFileInfo } from "../features/plugins/protocol";
 import {
   listEditorGutters,
@@ -899,7 +900,16 @@ export function MainWindow({
   }, []);
 
   useEffect(() => {
-    void loadPlugins();
+    void loadPlugins().then(() => {
+      /**
+       * 插件加载完了再看一眼市场：开了「自动更新」的那几个插件如果有新版，顺手装上。
+       *
+       * 只挂在**主窗口**上：快速便签窗口也走同一个 `loadPlugins()`，两个窗口同时去装
+       * 同一个插件会互相踩。这个函数自己会判断「有没有开了自动更新的插件」，没有的话
+       * 一个网络请求都不发。
+       */
+      void runStartupAutoUpdatesQuietly();
+    });
   }, []);
 
   useEffect(() => {

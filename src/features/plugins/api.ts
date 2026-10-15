@@ -51,6 +51,11 @@ export function setPluginEnabled(name: string, enabled: boolean): Promise<Plugin
   return invoke("plugins_set_enabled", { name, enabled });
 }
 
+/** 开 / 关「市场有新版本时自动更新这个插件」。 */
+export function setPluginAutoUpdate(name: string, autoUpdate: boolean): Promise<PluginManifest> {
+  return invoke("plugins_set_auto_update", { name, autoUpdate });
+}
+
 export function setPluginPermissions(name: string, granted: string[]): Promise<PluginManifest> {
   return invoke("plugins_set_permissions", { name, granted });
 }

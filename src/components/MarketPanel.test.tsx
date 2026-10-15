@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ConfirmInstall, ConfirmUninstall } from "./MarketPanel";
+import { ConfirmInstall, ConfirmUninstall, MarketPanel } from "./MarketPanel";
+import type { PluginManifest } from "../features/plugins/types";
 import type { MarketPlugin, MarketRelease } from "../features/market/types";
 
 // `MarketPanel` 会把 Toast 一起拖进来，而那个模块在挂载时会碰 window。
@@ -213,5 +214,78 @@ describe("卸载确认框问清数据怎么办", () => {
     );
 
     expect(markup).toContain("装回");
+  });
+});
+
+/**
+ * 市场那张表的呈现：**装过的沉到后面并变灰**、顶上有个搜索框。
+ *
+ * 这两条是用户直接提的，所以按「看得见的结果」断言 —— 顺序用 `indexOf` 比，
+ * 变灰比的是名字那一行拿到的颜色类（默认是 `text-ink-soft`，灰是 `text-ink-ghost`，
+ * 反过来的话这条测试会红）。
+ */
+describe("市场列表的顺序与搜索", () => {
+  function manifest(name: string): PluginManifest {
+    return {
+      name,
+      version: "1.0.0",
+      main: "index.js",
+      description: "",
+      apiVersion: 2,
+      permissions: [],
+      grantedPermissions: [],
+      enabled: true,
+      autoUpdate: false,
+      origin: "market",
+      valid: true,
+      warnings: [],
+      dirPath: `/plugins/${name}`,
+    };
+  }
+
+  function render(installedNames: string[]): string {
+    const catalogPlugins = ["alpha", "beta", "gamma"].map((name) => ({
+      name,
+      description: `${name} 的说明`,
+      releases: [release()],
+      latest: "1.0.0",
+    }));
+
+    return renderToStaticMarkup(
+      <MarketPanel
+        installed={installedNames.map(manifest)}
+        market={{
+          state: { stage: "ready", catalog: { schema: 1, catalogVersion: 1, plugins: catalogPlugins } },
+          enabled: true,
+          refresh: async () => undefined,
+        }}
+        transfer={{
+          busy: false,
+          pending: null,
+          requestInstall: noop,
+          requestUninstall: noop,
+          dismiss: noop,
+          confirmInstall: noop,
+          confirmUninstall: noop,
+        }}
+      />,
+    );
+  }
+
+  test("装过的排到后面", () => {
+    const markup = render(["alpha"]);
+
+    expect(markup.indexOf("beta 的说明")).toBeLessThan(markup.indexOf("alpha 的说明"));
+  });
+
+  test("装过的那一行名字变灰，没装的还是正常正文色", () => {
+    const markup = render(["alpha"]);
+
+    expect(markup).toMatch(/text-ink-ghost[^>]*title="alpha"/);
+    expect(markup).toMatch(/text-ink-soft[^>]*title="beta"/);
+  });
+
+  test("顶上有个搜索框", () => {
+    expect(render([])).toContain("搜索插件（名字 / 说明 / 作者）");
   });
 });

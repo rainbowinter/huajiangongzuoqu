@@ -70,6 +70,8 @@ pub struct PluginManifest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contributes: Option<serde_json::Value>,
     pub enabled: bool,
+    /// 市场有新版本时自动更新（见 `state::PluginStateEntry::auto_update`）。
+    pub auto_update: bool,
     /// 能否被加载。`false` 时前端应在「损坏的插件」区展示 `invalid_reason`。
     pub valid: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -216,6 +218,7 @@ pub fn to_dto(
     dir_path: &Path,
     manifest: &PluginManifestFile,
     enabled: bool,
+    auto_update: bool,
     granted_permissions: Vec<String>,
     origin: PluginOrigin,
 ) -> PluginManifest {
@@ -234,6 +237,7 @@ pub fn to_dto(
         granted_permissions,
         contributes: manifest.contributes.clone(),
         enabled,
+        auto_update,
         valid,
         invalid_reason,
         warnings,
@@ -352,6 +356,7 @@ mod tests {
             &PathBuf::from("X:/plugins/dir-name"),
             &manifest,
             true,
+            false,
             vec!["editor:read".to_string()],
             PluginOrigin::Market,
         );
@@ -376,6 +381,7 @@ mod tests {
             &PathBuf::from("X:/plugins/demo"),
             &manifest,
             true,
+            false,
             vec![],
             PluginOrigin::Bundled,
         );
@@ -463,11 +469,11 @@ mod tests {
 
         let mut manifest = manifest_with(2, "index.js");
         manifest.icon = Some("icon.svg".to_string());
-        let dto = to_dto("demo", &dir, &manifest, true, vec![], PluginOrigin::Bundled);
+        let dto = to_dto("demo", &dir, &manifest, true, false, vec![], PluginOrigin::Bundled);
         assert!(dto.icon.unwrap().starts_with("data:image/svg+xml;base64,"));
 
         manifest.icon = None;
-        let dto = to_dto("demo", &dir, &manifest, true, vec![], PluginOrigin::Bundled);
+        let dto = to_dto("demo", &dir, &manifest, true, false, vec![], PluginOrigin::Bundled);
         assert!(dto.icon.is_none());
 
         fs::remove_dir_all(&dir).ok();

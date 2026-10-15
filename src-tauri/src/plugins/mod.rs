@@ -82,6 +82,8 @@ fn invalid_record(
         granted_permissions: Vec::new(),
         contributes: None,
         enabled: false,
+        // 清单都读不出来，更谈不上自动更新。
+        auto_update: false,
         valid: false,
         invalid_reason: Some(reason.into()),
         warnings,
@@ -105,7 +107,15 @@ fn build_record(dir: &Path, dir_name: &str, state: &state::PluginStateFile) -> P
     let entry = state.entry(dir_name);
     let granted = entry.effective_permissions(&manifest.permissions);
 
-    to_dto(dir_name, dir, &manifest, entry.enabled, granted, entry.origin)
+    to_dto(
+        dir_name,
+        dir,
+        &manifest,
+        entry.enabled,
+        entry.auto_update,
+        granted,
+        entry.origin,
+    )
 }
 
 #[cfg(test)]
