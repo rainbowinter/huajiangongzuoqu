@@ -176,19 +176,36 @@ console.log(`[release] url 写的是：${assetUrl}`);
 
 // ---------------------------------------------------------------- 6. 上传
 
-const token = (
-  process.env.FLORAL_RELEASE_TOKEN ??
-  process.env.GITHUB_TOKEN ??
-  process.env.GH_TOKEN ??
-  ""
-).trim();
+/**
+ * token 从哪来：环境变量优先，其次读 `~/.tauri/github-token.txt`。
+ *
+ * 留一个文件兜底是因为「设了环境变量但当前进程读不到」很常见（Windows 的 `setx` 只对
+ * **之后新起**的进程生效，而外层应用早就启动了）。文件放在 `~/.tauri/` —— 和签名私钥
+ * 同一个地方，**在仓库之外**，不会被提交进去。
+ */
+const token = (() => {
+  const fromEnv =
+    process.env.FLORAL_RELEASE_TOKEN ?? process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? "";
+  if (fromEnv.trim()) return fromEnv.trim();
+
+  const tokenFile = process.env.FLORAL_RELEASE_TOKEN_FILE ?? join(homedir(), ".tauri", "github-token.txt");
+  if (existsSync(tokenFile)) {
+    try {
+      return readFileSync(tokenFile, "utf8").trim();
+    } catch {
+      return "";
+    }
+  }
+  return "";
+})();
 
 if (args.includes("--upload")) {
   if (!token) {
     console.error(
-      "\n[release] --upload 需要一个 GitHub token，但环境里没有。\n" +
-        "[release] 建一个 fine-grained token（只勾这个仓库的 Contents: Read and write），放进\n" +
-        "[release]   FLORAL_RELEASE_TOKEN  或  GITHUB_TOKEN  （**别写进仓库**）",
+      "\n[release] --upload 需要一个 GitHub token，但没找到。两种给法：\n" +
+        "[release]   1) 环境变量 FLORAL_RELEASE_TOKEN（或 GITHUB_TOKEN）\n" +
+        `[release]   2) 写进文件 ${join(homedir(), ".tauri", "github-token.txt")}（推荐，重启应用也还在）\n` +
+        "[release] token 用 fine-grained，只勾这个仓库的 Contents: Read and write。**别写进仓库。**",
     );
     process.exit(1);
   }
