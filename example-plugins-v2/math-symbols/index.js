@@ -454,8 +454,17 @@ floral.register({
     /**
      * 统一的插入路径。符号与结构模板都走这里。
      *
-     * `caretInLatex` 是光标要落在**插入文本内部**的偏移：符号给末尾（连着点几个都还在
-     * 数学环境里），模板给第一个占位符之后（`rac{|}{}` 这样接着打分子）。
+     * `caretInLatex` 有两种含义：
+     *
+     * * **数字** —— 光标落在插入文本内部的这个偏移上。模板用它停在第一个占位符里
+     *   （`\frac{|}{}` 这样接着打分子）。
+     * * **`null`** —— 光标停在**整段插入之后**。符号用它：光标被送出公式，
+     *   接着随手打字就是普通文本。
+     *
+     * ⚠️ 符号以前是「停在收尾的 `$` 之前」，为的是「连着点几个符号都还在数学环境里」。
+     * 那个便利换来的是一个很难查的 bug：插完 `\alpha` 顺手打个 `m`，正文就成了
+     * `$\alpham$` —— KaTeX 不认这个命令，预览里**直接变成一块红色报错**。
+     * 现在改成送出公式，那个便利改由 `merging` 那条分支保住（见下）。
      *
      * `allowWrap = false` 用于自带 `$$` 的行间公式 —— 那类骨架不能再套一层 `$`。
      */
@@ -465,8 +474,23 @@ floral.register({
       const start = selection ? selection.start : content.length;
       const end = selection ? selection.end : content.length;
 
+      // 三种落点，决定要不要补 `$`、以及往哪儿插：
+      //  1. 光标已经在数学环境里 → 就地插（不补）
+      //  2. 光标紧跟在某个行内公式的收尾 `$` 后面 → 插进**那个公式里**（不补）
+      //  3. 其它 → 补一层 `$…$`
+      //
+      // 第 2 条就是「连着点几个符号」原来的体验：点完 `\alpha` 再点 `\beta`，
+      // 得到的是 `$\alpha\beta$` 而不是 `$\alpha$$\beta$`。
+      const insideMath = mathContextAt(content, start) !== null;
+      const merging =
+        !insideMath &&
+        start === end &&
+        start > 0 &&
+        content[start - 1] === "$" &&
+        content[start - 2] !== "$";
+
       let wrap = false;
-      if (allowWrap && mathContextAt(content, start) === null) {
+      if (allowWrap && !insideMath && !merging) {
         try {
           const values = await api.settings.get();
           // 设置是用户随手改的，只认真正的 false；其它一律按默认（开）处理。
@@ -477,12 +501,17 @@ floral.register({
         }
       }
 
+      // 合并进已有公式时插在收尾 `$` **之前**，也就是插进公式内部。
+      const insertAt = merging ? start - 1 : start;
       const text = wrap ? `$${latex}$` : latex;
-      await api.editor.replaceRange(start, end, text);
+      await api.editor.replaceRange(insertAt, merging ? start - 1 : end, text);
 
-      // 光标停在**收尾的 `$` 之前**：连着点几个符号都还在数学环境里，
-      // 不会第二次又补一层 `$`。
-      const caret = start + caretInLatex + (wrap ? 1 : 0);
+      const caret =
+        caretInLatex === null
+          ? // 送出公式：补了 `$` 就停在收尾的 `$` 之后，没补就停在命令末尾。
+            insertAt + latex.length + (wrap ? 2 : 0)
+          : // 停在插入文本内部（模板的占位符），补了 `$` 就多让开开头那一个。
+            insertAt + caretInLatex + (wrap ? 1 : 0);
       await api.editor.setSelection(caret, caret);
     };
 
@@ -528,8 +557,9 @@ floral.register({
         const latex = cell.attrs && cell.attrs["data-value"];
         if (!latex) return;
 
-        // 光标落在符号末尾。
-        void insertLatex(latex, latex.length);
+        // `null` = 光标送出公式。以前是停在收尾的 `$` 之前，结果插完符号顺手打个字母
+        // 就合成 `$\alpham$`，预览里变成一块红色报错（见 `insertLatex` 的说明）。
+        void insertLatex(latex, null);
       },
     });
   },

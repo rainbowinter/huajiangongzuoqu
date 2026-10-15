@@ -272,15 +272,47 @@ describe("是否已经在数学环境里", () => {
 // ------------------------------------------------------------------ 插入细节
 
 describe("插入", () => {
-  test("环境外自动补 $…$，光标停在收尾的 $ 之前", async () => {
+  test("环境外自动补 $…$，光标被送出公式", async () => {
     const { writes, carets, click } = loadPlugin({ content: "ab", start: 2 });
 
     await click("\\alpha");
 
     expect(writes).toEqual([{ start: 2, end: 2, text: "$\\alpha$" }]);
-    // 插入的是 `$\alpha$`（8 个字符，落在 2..9），收尾的 $ 在下标 9；
-    // 光标停在它之前 —— 连着点第二个符号时才不会又补一层 $。
-    expect(carets).toEqual([{ start: 9, end: 9 }]);
+    // 插入的是 `$\alpha$`（落在 2..9），光标停在**整个公式之后**（下标 10）。
+    //
+    // ⚠️ 这条以前断言的是「停在收尾的 $ 之前」（下标 9）。那个位置的代价是：
+    // 插完符号顺手打个 `m`，正文就成了 `$\alpham$`，KaTeX 不认这个命令，
+    // 预览里直接变成一块红色报错 —— 用户报上来的「打 m 会显示成红的」就是这个。
+    // 「连着点几个符号」的便利改由下面那条「合并进已有公式」的测试保证。
+    expect(carets).toEqual([{ start: 10, end: 10 }]);
+  });
+
+  test("插完符号接着打字母不会污染公式", async () => {
+    const { carets, click } = loadPlugin({ content: "", start: 0 });
+
+    await click("\\alpha");
+    const after = "$\\alpha$";
+    const caret = carets[0].start;
+
+    // 光标必须落在收尾 `$` 之后，才会是「公式后面接着打字」而不是「往公式里塞字母」。
+    expect(after[caret - 1]).toBe("$");
+    expect(after.slice(0, caret) + "m" + after.slice(caret)).toBe("$\\alpha$m");
+  });
+
+  test("连着点两个符号：合并进同一个公式，而不是各套一层 $", async () => {
+    const first = loadPlugin({ content: "x", start: 1 });
+    await first.click("\\alpha");
+
+    const after = "x$\\alpha$";
+    expect(first.writes).toEqual([{ start: 1, end: 1, text: "$\\alpha$" }]);
+
+    // 宿主此时把正文改成了 `x$\alpha$`，光标停在末尾（收尾 $ 之后）。
+    const second = loadPlugin({ content: after, start: after.length });
+    await second.click("\\beta");
+
+    // 插在收尾 `$` **之前** —— 也就是插进那个公式里，而不是再补一层。
+    expect(second.writes).toEqual([{ start: 8, end: 8, text: "\\beta" }]);
+    expect(after.slice(0, 8) + "\\beta" + after.slice(8)).toBe("x$\\alpha\\beta$");
   });
 
   test("环境内只插命令", async () => {
@@ -307,22 +339,6 @@ describe("插入", () => {
     await click("\\beta");
 
     expect(writes).toEqual([{ start: 1, end: 3, text: "$\\beta$" }]);
-  });
-
-  test("连点两个符号：第二个不再补 $", async () => {
-    const content = "x";
-    const { writes, click } = loadPlugin({ content, start: 1 });
-
-    await click("\\alpha");
-    // 宿主此时把正文改成了 `x$\alpha$`，光标停在收尾的 $ 之前。
-    const next = "x$\\alpha$";
-    expect(next.slice(0, 8)).toBe("x$\\alpha");
-
-    const second = loadPlugin({ content: next, start: 8 });
-    await second.click("\\beta");
-
-    expect(second.writes).toEqual([{ start: 8, end: 8, text: "\\beta" }]);
-    expect(writes).toHaveLength(1);
   });
 
   test("点到的不是格子时什么都不做", async () => {
