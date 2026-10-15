@@ -18,21 +18,23 @@ function DefaultPluginIcon({ size }: { size: number }) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.5"
+      // 描边按**大尺寸**调的：图标是列表里区分插件的主要视觉，28–32px 下 1.5 会显得发虚。
+      strokeWidth="1.8"
       aria-hidden="true"
       focusable="false"
     >
-      <circle cx="12" cy="7.6" r="3.9" />
-      <circle cx="12" cy="16.4" r="3.9" />
-      <circle cx="7.6" cy="12" r="3.9" />
-      <circle cx="16.4" cy="12" r="3.9" />
+      <circle cx="12" cy="7.6" r="3.6" />
+      <circle cx="12" cy="16.4" r="3.6" />
+      <circle cx="7.6" cy="12" r="3.6" />
+      <circle cx="16.4" cy="12" r="3.6" />
     </svg>
   );
 }
 
 export function PluginIcon({
   icon,
-  size = 16,
+  // 默认就是**列表里的主视觉尺寸**（插件面板那一行用的）。市场那边给得更大一点。
+  size = 28,
   className = "",
 }: {
   /** data URL；缺省、空串、`undefined` 都用默认图标。 */

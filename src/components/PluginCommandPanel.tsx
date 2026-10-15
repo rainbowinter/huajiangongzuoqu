@@ -143,134 +143,142 @@ function PluginRow({
 
   return (
     <div className="px-3 py-2 rounded-xl hover:bg-paper-warm transition-colors">
-      <div className="flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={canExpand ? () => onToggleExpand(manifest.name) : undefined}
-          aria-expanded={canExpand ? expanded : undefined}
-          className={`flex items-center gap-1.5 min-w-0 flex-1 text-left rounded ${
-            canExpand ? "cursor-pointer" : "cursor-default"
-          }`}
-          title={manifest.name}
-        >
-          {canExpand ? (
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className={`shrink-0 text-ink-ghost transition-transform duration-200 ${
-                expanded ? "rotate-90" : ""
-              }`}
-            >
-              <path d="m9 18 6-6-6-6" />
-            </svg>
-          ) : (
-            <span className="w-[10px] shrink-0" />
-          )}
-          <PluginIcon icon={manifest.icon} size={15} className="text-ink-ghost/70" />
-          <span className="text-[12.5px] text-ink-soft truncate">{manifest.name}</span>
-        </button>
-        <span className="text-[10px] text-ink-ghost shrink-0">v{manifest.version || "?"}</span>
-
-        {/* 启用 / 停用。用开关而不是「停用」这种文字按钮：文字按钮读不出当前状态，
-            得先解析「停用」到底是「现在是启用的」还是「点它就会停用」。 */}
-        <button
-          type="button"
-          role="switch"
-          aria-checked={manifest.enabled}
-          aria-label={`${manifest.enabled ? "停用" : "启用"} ${manifest.name}`}
-          disabled={busy || !manifest.valid}
-          onClick={() => onToggle(record)}
-          className="shrink-0 disabled:opacity-40 disabled:cursor-default cursor-pointer"
-        >
-          <Switch checked={manifest.enabled} />
-        </button>
-      </div>
-
-      <div className="flex items-center gap-1.5 mt-1">
-        <span
-          className={`text-[10px] px-1.5 py-0.5 rounded-md ${STATUS_TONE[status]}`}
-          title={error ?? undefined}
-        >
-          {STATUS_LABEL[status]}
-        </span>
-        {manifest.apiVersion >= 2 && sandboxed ? (
-          <span className="text-[10px] px-1.5 py-0.5 rounded-md text-bamboo bg-bamboo-mist/40">
-            沙箱
-          </span>
-        ) : null}
-        {!manifest.valid ? (
-          <span className="text-[10px] text-rust truncate" title={manifest.invalidReason}>
-            {manifest.invalidReason}
-          </span>
-        ) : null}
-      </div>
-
-      {/* 市场里有新版：在这里就要能看见，否则用户得自己去市场那个页签里一行行找。
-          点它跳到市场并高亮那一行 —— 安装（含权限重新确认）仍然只在市场那一条路上走。 */}
-      {updateTo && updateTo !== manifest.version ? (
-        <div className="flex items-center gap-1.5 mt-1">
-          <span className="text-[10px] px-1.5 py-0.5 rounded-md text-bamboo bg-bamboo-mist/40">
-            市场有新版本 v{updateTo}
-          </span>
+      {/* 图标单独一列、且比正文大得多：**它才是列表里区分插件的主要视觉**。
+          两列布局（图标 | 正文）比「图标挤在名字前面」能给出立体感，名字也不会被图标推得
+          缩进不齐。 */}
+      <div className="flex items-start gap-2.5">
+        <PluginIcon icon={manifest.icon} size={28} className="mt-0.5 text-ink-ghost/60" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
           <button
             type="button"
-            disabled={busy}
-            onClick={() => onGoToMarket(manifest.name)}
-            className="text-[10px] px-1.5 py-0.5 rounded-md text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50 transition-colors cursor-pointer disabled:opacity-40"
+            onClick={canExpand ? () => onToggleExpand(manifest.name) : undefined}
+            aria-expanded={canExpand ? expanded : undefined}
+            className={`flex items-center gap-1.5 min-w-0 flex-1 text-left rounded ${
+              canExpand ? "cursor-pointer" : "cursor-default"
+            }`}
+            title={manifest.name}
           >
-            去更新
+            {canExpand ? (
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className={`shrink-0 text-ink-ghost transition-transform duration-200 ${
+                  expanded ? "rotate-90" : ""
+                }`}
+              >
+                <path d="m9 18 6-6-6-6" />
+              </svg>
+            ) : (
+              <span className="w-[10px] shrink-0" />
+            )}
+            <span className="text-[12.5px] text-ink-soft truncate">{manifest.name}</span>
+          </button>
+          <span className="text-[10px] text-ink-ghost shrink-0">v{manifest.version || "?"}</span>
+
+          {/* 启用 / 停用。用开关而不是「停用」这种文字按钮：文字按钮读不出当前状态，
+              得先解析「停用」到底是「现在是启用的」还是「点它就会停用」。 */}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={manifest.enabled}
+            aria-label={`${manifest.enabled ? "停用" : "启用"} ${manifest.name}`}
+            disabled={busy || !manifest.valid}
+            onClick={() => onToggle(record)}
+            className="shrink-0 disabled:opacity-40 disabled:cursor-default cursor-pointer"
+          >
+            <Switch checked={manifest.enabled} />
           </button>
         </div>
-      ) : null}
 
-      {manifest.description ? (
-        <p className="text-[11px] text-ink-ghost mt-1">{manifest.description}</p>
-      ) : null}
-
-      {error ? <p className="text-[11px] text-rust mt-1 break-words">{error}</p> : null}
-
-      {manifest.apiVersion < 2 ? (
-        <p className="text-[10.5px] text-ink-ghost mt-1 leading-relaxed">
-          v1 插件运行在主线程，没有沙箱隔离与权限限制。建议作者迁移到 v2。
-        </p>
-      ) : null}
-
-      <div className="flex items-center gap-2 mt-2">
-        <span className="text-[10px] text-ink-ghost truncate flex-1" title={manifest.dirPath}>
-          {manifest.dirPath}
-        </span>
-        {/* 「详细信息」：把清单里的东西摊开给人看。装了一堆插件之后，
-            「这个到底是干嘛的」不该靠来回开关去试。 */}
-        {onOpenDoc ? (
-          <button
-            type="button"
-            onClick={() =>
-              onOpenDoc(
-                manifest.name,
-                buildPluginDetails({
-                  record,
-                  contributions: contributionsOf(manifest.name),
-                  settings: parseSettingFields(manifest).map((field) => ({
-                    key: field.key,
-                    title: field.title,
-                    type: field.type,
-                    description: field.description,
-                  })),
-                }),
-              )
-            }
-            className="shrink-0 px-2 h-6 rounded-md text-[10px] text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50 transition-colors cursor-pointer"
-            title="这个插件具体做了什么"
+        <div className="flex items-center gap-1.5 mt-1">
+          <span
+            className={`text-[10px] px-1.5 py-0.5 rounded-md ${STATUS_TONE[status]}`}
+            title={error ?? undefined}
           >
-            详细信息
-          </button>
+            {STATUS_LABEL[status]}
+          </span>
+          {manifest.apiVersion >= 2 && sandboxed ? (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-md text-bamboo bg-bamboo-mist/40">
+              沙箱
+            </span>
+          ) : null}
+          {!manifest.valid ? (
+            <span className="text-[10px] text-rust truncate" title={manifest.invalidReason}>
+              {manifest.invalidReason}
+            </span>
+          ) : null}
+        </div>
+
+        {/* 市场里有新版：在这里就要能看见，否则用户得自己去市场那个页签里一行行找。
+            点它跳到市场并高亮那一行 —— 安装（含权限重新确认）仍然只在市场那一条路上走。 */}
+        {updateTo && updateTo !== manifest.version ? (
+          <div className="flex items-center gap-1.5 mt-1">
+            <span className="text-[10px] px-1.5 py-0.5 rounded-md text-bamboo bg-bamboo-mist/40">
+              市场有新版本 v{updateTo}
+            </span>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onGoToMarket(manifest.name)}
+              className="text-[10px] px-1.5 py-0.5 rounded-md text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50 transition-colors cursor-pointer disabled:opacity-40"
+            >
+              去更新
+            </button>
+          </div>
         ) : null}
+
+        {manifest.description ? (
+          <p className="text-[11px] text-ink-ghost mt-1">{manifest.description}</p>
+        ) : null}
+
+        {error ? <p className="text-[11px] text-rust mt-1 break-words">{error}</p> : null}
+
+        {manifest.apiVersion < 2 ? (
+          <p className="text-[10.5px] text-ink-ghost mt-1 leading-relaxed">
+            v1 插件运行在主线程，没有沙箱隔离与权限限制。建议作者迁移到 v2。
+          </p>
+        ) : null}
+
+        <div className="flex items-center gap-2 mt-2">
+          <span className="text-[10px] text-ink-ghost truncate flex-1" title={manifest.dirPath}>
+            {manifest.dirPath}
+          </span>
+          {/* 「详细信息」：把清单里的东西摊开给人看。装了一堆插件之后，
+              「这个到底是干嘛的」不该靠来回开关去试。 */}
+          {onOpenDoc ? (
+            <button
+              type="button"
+              onClick={() =>
+                onOpenDoc(
+                  manifest.name,
+                  buildPluginDetails({
+                    record,
+                    contributions: contributionsOf(manifest.name),
+                    settings: parseSettingFields(manifest).map((field) => ({
+                      key: field.key,
+                      title: field.title,
+                      type: field.type,
+                      description: field.description,
+                    })),
+                  }),
+                )
+              }
+              className="shrink-0 px-2 h-6 rounded-md text-[10px] text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50 transition-colors cursor-pointer"
+              title="这个插件具体做了什么"
+            >
+              详细信息
+            </button>
+          ) : null}
+        </div>
+
+        </div>
       </div>
 
       {/* 展开区。权限和参数都放这儿，而不是常驻在行上。

@@ -355,119 +355,125 @@ function MarketRow({
         focused ? "bg-bamboo-mist/25 ring-1 ring-bamboo/30" : "hover:bg-paper-warm"
       }`}
     >
-      <div className="flex items-center gap-2">
-        <PluginIcon icon={icon} size={16} className="text-ink-ghost/70" />
-        <span className="text-[12.5px] text-ink-soft truncate flex-1" title={plugin.name}>
-          {plugin.name || "（无法识别的一条）"}
-        </span>
-        {release ? (
-          <span className="text-[10px] text-ink-ghost shrink-0">
-            v{release.version}
-            {formatSize(release.size) ? ` · ${formatSize(release.size)}` : ""}
+      {/* 图标一列、正文一列：市场里插件多，**图标的辨识度比名字高**，
+          所以它比正文大得多（32px）。 */}
+      <div className="flex items-start gap-3">
+        <PluginIcon icon={icon} size={32} className="mt-0.5 text-ink-ghost/60" />
+        <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-[12.5px] text-ink-soft truncate flex-1" title={plugin.name}>
+            {plugin.name || "（无法识别的一条）"}
           </span>
+          {release ? (
+            <span className="text-[10px] text-ink-ghost shrink-0">
+              v{release.version}
+              {formatSize(release.size) ? ` · ${formatSize(release.size)}` : ""}
+            </span>
+          ) : null}
+        </div>
+
+        {installedVersion ? (
+          <p className="text-[10px] text-ink-ghost mt-0.5">
+            已装 v{installedVersion}
+            {relation === "newer" && release ? ` · 可更新到 v${release.version}` : ""}
+            {relation === "older" ? " · 选中的是旧版本" : ""}
+            {relation === "unknown" ? " · 版本号没法比较" : ""}
+            {!fromMarket ? " · 不是在市场装的" : ""}
+          </p>
         ) : null}
-      </div>
 
-      {installedVersion ? (
-        <p className="text-[10px] text-ink-ghost mt-0.5">
-          已装 v{installedVersion}
-          {relation === "newer" && release ? ` · 可更新到 v${release.version}` : ""}
-          {relation === "older" ? " · 选中的是旧版本" : ""}
-          {relation === "unknown" ? " · 版本号没法比较" : ""}
-          {!fromMarket ? " · 不是在市场装的" : ""}
-        </p>
-      ) : null}
-
-      {plugin.description ? (
-        <p className="text-[11px] text-ink-ghost mt-1 leading-relaxed">{plugin.description}</p>
-      ) : null}
-
-      <div className="flex items-center gap-1.5 mt-1">
-        {plugin.author ? (
-          <span className="text-[10px] text-ink-ghost shrink-0">{plugin.author}</span>
+        {plugin.description ? (
+          <p className="text-[11px] text-ink-ghost mt-1 leading-relaxed">{plugin.description}</p>
         ) : null}
-        {plugin.latest && plugin.newestVersion !== plugin.latest ? (
-          <span className="text-[10px] px-1.5 py-0.5 rounded-md text-ink-ghost bg-paper-warm">
-            最新版装不了
-          </span>
+
+        <div className="flex items-center gap-1.5 mt-1">
+          {plugin.author ? (
+            <span className="text-[10px] text-ink-ghost shrink-0">{plugin.author}</span>
+          ) : null}
+          {plugin.latest && plugin.newestVersion !== plugin.latest ? (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-md text-ink-ghost bg-paper-warm">
+              最新版装不了
+            </span>
+          ) : null}
+        </div>
+
+        {blocked ? (
+          <p className="text-[10.5px] text-rust mt-1 leading-relaxed">{blocked}</p>
         ) : null}
-      </div>
+        {releaseBlocked ? (
+          <p className="text-[10.5px] text-rust mt-1 leading-relaxed">
+            这一版装不了：{releaseBlocked}
+          </p>
+        ) : null}
+        {conflict ? (
+          <p className="text-[10.5px] text-amber mt-1 leading-relaxed">
+            本地已经有一个同名插件，它不是在市场装的。点「替换安装」可以用市场版替掉它 ——
+            原版会被备份下来，卸载时自动装回。
+          </p>
+        ) : null}
+        {release?.notes ? (
+          <p className="text-[10.5px] text-ink-ghost mt-1 leading-relaxed">{release.notes}</p>
+        ) : null}
 
-      {blocked ? (
-        <p className="text-[10.5px] text-rust mt-1 leading-relaxed">{blocked}</p>
-      ) : null}
-      {releaseBlocked ? (
-        <p className="text-[10.5px] text-rust mt-1 leading-relaxed">
-          这一版装不了：{releaseBlocked}
-        </p>
-      ) : null}
-      {conflict ? (
-        <p className="text-[10.5px] text-amber mt-1 leading-relaxed">
-          本地已经有一个同名插件，它不是在市场装的。点「替换安装」可以用市场版替掉它 ——
-          原版会被备份下来，卸载时自动装回。
-        </p>
-      ) : null}
-      {release?.notes ? (
-        <p className="text-[10.5px] text-ink-ghost mt-1 leading-relaxed">{release.notes}</p>
-      ) : null}
+        <div className="flex items-center gap-2 mt-2">
+          {plugin.releases.length > 1 && release ? (
+            <select
+              value={release.version}
+              disabled={busy}
+              onChange={(event) => onChooseVersion(plugin.name, event.target.value)}
+              title="装哪一个版本"
+              className="text-[10px] px-1.5 h-6 rounded-md bg-paper-warm text-ink-soft border border-paper-deep/40 cursor-pointer disabled:opacity-40"
+            >
+              {plugin.releases.map((item) => (
+                <option key={item.version} value={item.version} disabled={Boolean(item.blocked)}>
+                  v{item.version}
+                  {item.blocked ? "（不可用）" : ""}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="flex-1" />
+          )}
 
-      <div className="flex items-center gap-2 mt-2">
-        {plugin.releases.length > 1 && release ? (
-          <select
-            value={release.version}
-            disabled={busy}
-            onChange={(event) => onChooseVersion(plugin.name, event.target.value)}
-            title="装哪一个版本"
-            className="text-[10px] px-1.5 h-6 rounded-md bg-paper-warm text-ink-soft border border-paper-deep/40 cursor-pointer disabled:opacity-40"
-          >
-            {plugin.releases.map((item) => (
-              <option key={item.version} value={item.version} disabled={Boolean(item.blocked)}>
-                v{item.version}
-                {item.blocked ? "（不可用）" : ""}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <span className="flex-1" />
-        )}
+          {fromMarket ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onUninstall(plugin, installedVersion ?? "")}
+              className="shrink-0 px-2 h-6 rounded-md text-[10px] text-ink-ghost hover:text-rust hover:bg-rust-mist/40 transition-colors cursor-pointer disabled:opacity-40"
+            >
+              卸载
+            </button>
+          ) : null}
 
-        {fromMarket ? (
           <button
             type="button"
-            disabled={busy}
-            onClick={() => onUninstall(plugin, installedVersion ?? "")}
-            className="shrink-0 px-2 h-6 rounded-md text-[10px] text-ink-ghost hover:text-rust hover:bg-rust-mist/40 transition-colors cursor-pointer disabled:opacity-40"
+            disabled={disabled}
+            onClick={() =>
+              release &&
+              onInstall(plugin, release, {
+                // 已经是市场装的才算「更新」：确认框要靠这份算新增权限。
+                ...(fromMarket && installedManifest
+                  ? {
+                      installed: {
+                        version: installedManifest.version,
+                        grantedPermissions: installedManifest.grantedPermissions,
+                      },
+                    }
+                  : {}),
+                ...(localConflict ? { conflict: localConflict } : {}),
+              })
+            }
+            className={`shrink-0 px-2.5 h-6 rounded-md text-[10.5px] transition-colors ${
+              disabled
+                ? "text-ink-ghost bg-paper-warm cursor-default"
+                : "text-bamboo bg-bamboo-mist/50 hover:bg-bamboo-mist cursor-pointer"
+            }`}
           >
-            卸载
+            {label}
           </button>
-        ) : null}
-
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() =>
-            release &&
-            onInstall(plugin, release, {
-              // 已经是市场装的才算「更新」：确认框要靠这份算新增权限。
-              ...(fromMarket && installedManifest
-                ? {
-                    installed: {
-                      version: installedManifest.version,
-                      grantedPermissions: installedManifest.grantedPermissions,
-                    },
-                  }
-                : {}),
-              ...(localConflict ? { conflict: localConflict } : {}),
-            })
-          }
-          className={`shrink-0 px-2.5 h-6 rounded-md text-[10.5px] transition-colors ${
-            disabled
-              ? "text-ink-ghost bg-paper-warm cursor-default"
-              : "text-bamboo bg-bamboo-mist/50 hover:bg-bamboo-mist cursor-pointer"
-          }`}
-        >
-          {label}
-        </button>
+        </div>
+        </div>
       </div>
     </div>
   );
