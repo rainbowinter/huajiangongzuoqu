@@ -72,6 +72,10 @@ pub async fn plugins_market_catalog(app: AppHandle) -> Result<PluginCatalog, App
 /// `approved_permissions` 是**用户在确认框里看到并同意**的那一份（来自清单）。后端把它
 /// 原样记进状态，既不补也不减 —— 这就是「装之前列清楚、我确认」在代码里的落点。
 ///
+/// `replace_local` 表示用户已经同意**替换**本地已有的同名插件（不是市场装的）。被顶掉的
+/// 那份会备份到 `plugin-data/<名字>/.replaced/`，卸载时装回去。默认 `false`：
+/// 参数传错不该毁掉用户自己写的东西。
+///
 /// 装完前端要自己做两件事：`reloadPlugins()` 让新插件跑起来、刷新插件列表。
 #[tauri::command]
 pub async fn plugins_market_install(
@@ -80,6 +84,7 @@ pub async fn plugins_market_install(
     url: String,
     sha256: String,
     approved_permissions: Vec<String>,
+    replace_local: bool,
 ) -> Result<InstallOutcome, AppError> {
     let paths = PluginPaths::resolve()?;
     let request = install::InstallRequest {
@@ -88,6 +93,7 @@ pub async fn plugins_market_install(
         url,
         sha256,
         approved_permissions,
+        replace_local,
     };
 
     // 下载是阻塞 IO，必须离异步运行时的线程远点。

@@ -139,6 +139,49 @@ describe("安装确认框把权限列清楚", () => {
   });
 });
 
+/**
+ * 「替换本地插件」这条路要**说得明明白白**：用户的东西去哪了、怎么拿回来。
+ * 说不清楚的话，那个「替换安装」按钮和「删掉你的插件」在用户眼里没有区别。
+ */
+describe("替换本地同名插件的确认框", () => {
+  function render(origin: string): string {
+    return renderToStaticMarkup(
+      <ConfirmInstall
+        plugin={plugin()}
+        release={release({ version: "2.0.0" })}
+        conflict={{ version: "1.0.0", origin }}
+        busy={false}
+        onCancel={noop}
+        onConfirm={noop}
+      />,
+    );
+  }
+
+  test("标题与按钮都写「替换」，并带上新旧两个版本号", () => {
+    const markup = render("bundled");
+
+    expect(markup).toContain("替换");
+    expect(markup).toContain("1.0.0");
+    expect(markup).toContain("2.0.0");
+    // 按钮不能还写着「安装」——用户得知道自己在覆盖一个已经存在的东西。
+    expect(markup).toContain("替换安装");
+  });
+
+  test("说清楚原版是**搬走**不是删掉，以及去哪儿找", () => {
+    const markup = render("bundled");
+
+    expect(markup).toContain("备份");
+    expect(markup).toContain("不是删掉");
+    expect(markup).toContain(".replaced");
+    expect(markup).toContain("装回来");
+  });
+
+  test("区分「随应用一起装的」与「你自己放的」", () => {
+    expect(render("bundled")).toContain("随花笺一起装");
+    expect(render("local")).toContain("你自己放进插件目录");
+  });
+});
+
 describe("卸载确认框问清数据怎么办", () => {
   test("两个选项都在，且说清后果", () => {
     const markup = renderToStaticMarkup(
@@ -156,5 +199,19 @@ describe("卸载确认框问清数据怎么办", () => {
     // 默认那一边要说明「重装能恢复」，删那一边要说明「不可恢复」。
     expect(markup).toContain("还在");
     expect(markup).toContain("不可恢复");
+  });
+
+  test("提前说明「当初替换掉的那个会装回来」，免得用户以为卸载没干净", () => {
+    const markup = renderToStaticMarkup(
+      <ConfirmUninstall
+        plugin={plugin()}
+        installedVersion="2.0.0"
+        busy={false}
+        onCancel={noop}
+        onConfirm={noop}
+      />,
+    );
+
+    expect(markup).toContain("装回");
   });
 });

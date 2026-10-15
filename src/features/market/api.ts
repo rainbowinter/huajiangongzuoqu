@@ -28,7 +28,10 @@ export interface InstallOutcome {
   name: string;
   version: string;
   extraPermissions: string[];
+  /** 被这次安装替掉的版本号（替换本地插件时，这里是**本地那个**版本）。 */
   replacedVersion?: string;
+  /** 被替换掉的本地插件备份在哪儿。非空说明这次是「替换安装」。 */
+  localBackupPath?: string;
 }
 
 /**
@@ -36,6 +39,9 @@ export interface InstallOutcome {
  *
  * `approvedPermissions` **必须**是用户在那个确认框里看到并同意的那一份 —— 后端把它原样
  * 记下来，插件清单里多出来的权限一个都不会生效。所以**不要**在没有确认的情况下调用它。
+ *
+ * `replaceLocal` 表示用户已经同意**替换**本地已有的同名插件。默认 `false`，后端会直接
+ * 拒绝覆盖 —— 参数传错不该毁掉用户自己写的东西。
  *
  * 装完由调用方负责 `reloadPlugins()`：后端只落盘，加载是前端的事。
  */
@@ -45,13 +51,16 @@ export function installPlugin(options: {
   url: string;
   sha256: string;
   approvedPermissions: string[];
+  replaceLocal?: boolean;
 }): Promise<InstallOutcome> {
-  return invoke("plugins_market_install", options);
+  return invoke("plugins_market_install", { replaceLocal: false, ...options });
 }
 
 export interface UninstallOutcome {
   name: string;
   dataRemoved: boolean;
+  /** 卸载时装回来的本地版本（这个插件当初替换掉过同名的本地插件）。 */
+  restoredVersion?: string;
 }
 
 /**

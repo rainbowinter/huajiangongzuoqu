@@ -57,6 +57,9 @@ const MAX_PERMISSION_CHARS: usize = 64;
 /// 出身证明的文件名。放在插件目录里，跟着目录走。
 pub const MARKER_FILE: &str = ".market.json";
 
+/// 被替换掉的本地插件存在 `plugin-data/<名字>/` 下的哪个子目录里。
+const REPLACED_DIR: &str = ".replaced";
+
 /// 安装/卸载的进程内串行锁。见模块注释最后一段。
 static INSTALL_LOCK: Mutex<()> = Mutex::new(());
 
@@ -87,6 +90,11 @@ pub struct InstallRequest {
     pub sha256: String,
     /// **用户在确认框里看到并同意的**那一份（来自清单）。
     pub approved_permissions: Vec<String>,
+    /// 本地已有同名插件（且不是市场装的）时，是否允许**替换**它。
+    ///
+    /// 缺省 `false`：调用方必须显式说要替换 —— 参数传错不该毁掉用户自己写的东西。
+    /// 允许替换时，被顶掉的那份会**搬到备份目录**（不是删掉），卸载时会装回去。
+    pub replace_local: bool,
 }
 
 /// 装完之后要告诉用户的事。
@@ -97,9 +105,14 @@ pub struct InstallOutcome {
     pub version: String,
     /// zip 里声明、但这次**没有授权**的权限。非空说明清单与插件对不上，要显式提示。
     pub extra_permissions: Vec<String>,
-    /// 被这次安装替掉的旧版本（首次安装为 `None`）。
+    /// 被这次安装替掉的旧版本（首次安装为 `None`）。替换本地插件时，这里是**本地那个**版本号。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replaced_version: Option<String>,
+    /// 替换掉的那份本地插件备份在哪儿（只有替换本地插件时才非空）。
+    ///
+    /// 给界面显示用：用户得知道东西没丢，以及去哪儿找。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_backup_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -108,6 +121,9 @@ pub struct UninstallOutcome {
     pub name: String,
     /// 连插件数据一起删了没有。
     pub data_removed: bool,
+    /// 卸载时**装回来**的那个本地版本（这个插件当初替换掉过同名的本地插件）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restored_version: Option<String>,
 }
 
 /// 插件目录里的出身证明。
@@ -175,14 +191,20 @@ pub fn install(paths: &PluginPaths, request: &InstallRequest) -> Result<InstallO
         version: request.version.clone(),
         extra_permissions: staged.extra_permissions,
         replaced_version: prepared.replaced_version,
+        local_backup_path: staged
+            .local_backup
+            .map(|path| path.display().to_string()),
     })
 }
 
-/// 下载之前能做的全部检查，外加一件要**在替换前**记下来的事：被顶掉的是哪一版。
+/// 下载之前能做的全部检查，外加两件要**在替换前**定下来的事：被顶掉的是哪一版、
+/// 以及它该不该被备份下来。
 struct Prepared {
     target: PathBuf,
     replaced_version: Option<String>,
     expected_hash: String,
+    /// 要不要把被顶掉的那份本地插件**留起来**（而不是当垃圾清掉）。
+    back_up_local: bool,
 }
 
 fn precheck(paths: &PluginPaths, request: &InstallRequest) -> Result<Prepared, AppError> {
@@ -206,20 +228,33 @@ fn precheck(paths: &PluginPaths, request: &InstallRequest) -> Result<Prepared, A
     paths.ensure_dirs()?;
     let target = paths.root.join(&request.name);
 
-    // 规矩 2：不覆盖本地已有的同名插件。市场版把内置/手写版顶掉之后，卸载就再也回不来了
-    // （内置校正只更新已装的，从不播种）。
-    if target.exists() && !installed_from_market(paths, &request.name, &target) {
-        return Err(with_detail(
-            app_error(
-                "marketPluginShadowsLocal",
-                format!(
-                    "本地已经有一个叫 {} 的插件，它不是在市场装的 —— 请先手动删掉 plugins/{} 再装",
-                    request.name, request.name
+    // 规矩 2：不**悄悄**覆盖本地已有的同名插件。
+    //
+    // 两种情况：
+    // * 那个也是市场装的 → 更新/降级，正常覆盖，旧的那份当垃圾清掉；
+    // * 那个是随应用分发的、或者用户自己写的 → 只有调用方**显式**说了要替换才动，
+    //   而且被顶掉的那份要**备份下来**（见 `swap_into_place`）。没有这道确认，
+    //   一次误发的安装就能端掉用户自己写的东西。
+    let mut back_up_local = false;
+    if target.exists() {
+        if installed_from_market(paths, &request.name, &target) {
+            // 市场版之间的替换，不需要额外确认。
+        } else if request.replace_local {
+            back_up_local = true;
+        } else {
+            return Err(with_detail(
+                app_error(
+                    "marketPluginShadowsLocal",
+                    format!(
+                        "本地已经有一个叫 {} 的插件，它不是在市场装的。\
+                         要替换它需要在界面上显式确认（会把原版备份下来）。",
+                        request.name
+                    ),
                 ),
-            ),
-            "name",
-            request.name.clone(),
-        ));
+                "name",
+                request.name.clone(),
+            ));
+        }
     }
 
     let replaced_version = read_manifest_file(&target)
@@ -231,6 +266,7 @@ fn precheck(paths: &PluginPaths, request: &InstallRequest) -> Result<Prepared, A
         target,
         replaced_version,
         expected_hash,
+        back_up_local,
     })
 }
 
@@ -255,6 +291,8 @@ fn installed_from_market(paths: &PluginPaths, name: &str, dir: &Path) -> bool {
 
 struct StagedOutcome {
     extra_permissions: Vec<String>,
+    /// 被替换掉的本地插件备份到了哪儿（只有替换本地插件时才非空）。
+    local_backup: Option<PathBuf>,
 }
 
 /// 包已经下好之后的全部工作：解压 → 复核 → 换目录。
@@ -335,10 +373,17 @@ fn finish_staging(
         .collect();
 
     write_marker(work, request, &prepared.expected_hash)?;
-    swap_into_place(paths, &request.name, work, &prepared.target)?;
+    let local_backup = swap_into_place(
+        paths,
+        &request.name,
+        work,
+        &prepared.target,
+        prepared.back_up_local,
+    )?;
 
     Ok(StagedOutcome {
         extra_permissions,
+        local_backup,
     })
 }
 
@@ -355,23 +400,38 @@ fn write_marker(work: &Path, request: &InstallRequest, sha256: &str) -> Result<(
     Ok(())
 }
 
-/// 把工作目录换成正式的插件目录。
+/// 把工作目录换成正式的插件目录，返回被替换掉的**本地**插件的备份路径。
 ///
 /// Windows 上 `rename` 到**已存在**的目标会失败，所以顺序只能是「旧的先搬走，新的再搬进
 /// 来」。中间那一步失败就把旧目录搬回去 —— 宁可保持原样，也不能让用户既没旧的也没新的。
+///
+/// 旧的那份搬去两个地方之一，取决于 `back_up_local`：
+///
+/// * `false`（市场版之间的替换）→ 工作区里的 `trash/`，下次安装时一起清掉；
+/// * `true`（顶掉了本地/内置插件）→ `plugin-data/<名字>/.replaced/<时间戳>/`，**留着**，
+///   卸载时会装回去。放数据目录而不是工作区：工作区每次安装都会被清空，
+///   那等于把用户原来那份插件删了。
 fn swap_into_place(
     paths: &PluginPaths,
     name: &str,
     work: &Path,
     target: &Path,
-) -> Result<(), AppError> {
-    let trash = paths.trash_dir();
-    fs::create_dir_all(&trash)?;
+    back_up_local: bool,
+) -> Result<Option<PathBuf>, AppError> {
+    let stamp = || Utc::now().format("%Y%m%d%H%M%S%.3f").to_string();
 
     let mut displaced: Option<PathBuf> = None;
     if target.exists() {
-        let stamp = Utc::now().format("%Y%m%d%H%M%S%.3f");
-        let parked = trash.join(format!("{name}-{stamp}"));
+        let parked = if back_up_local {
+            let dir = replaced_root(paths, name);
+            fs::create_dir_all(&dir)?;
+            dir.join(stamp())
+        } else {
+            let trash = paths.trash_dir();
+            fs::create_dir_all(&trash)?;
+            trash.join(format!("{name}-{}", stamp()))
+        };
+
         fs::rename(target, &parked).map_err(|error| {
             with_detail(
                 app_error(
@@ -409,14 +469,29 @@ fn swap_into_place(
         ));
     }
 
-    // 旧版本已经用不上了。删不掉不是错误：留在 trash 里，下次安装时一起清。
-    if let Some(parked) = displaced {
-        if fs::remove_dir_all(&parked).is_err() {
-            market_log!("旧版本残留在 {:?}，下次安装时清理", parked);
+    match displaced {
+        // 备份下来的那份**留着**，卸载时要装回去。
+        Some(parked) if back_up_local => {
+            market_log!("原版本已备份到 {:?}", parked);
+            Ok(Some(parked))
         }
+        // 市场版之间的替换：旧的那份已经用不上了。删不掉不是错误，下次安装时一起清。
+        Some(parked) => {
+            if fs::remove_dir_all(&parked).is_err() {
+                market_log!("旧版本残留在 {:?}，下次安装时清理", parked);
+            }
+            Ok(None)
+        }
+        None => Ok(None),
     }
+}
 
-    Ok(())
+/// 被替换掉的本地插件存哪儿：`plugin-data/<名字>/.replaced/`。
+///
+/// 放在**插件数据目录**而不是插件代码目录，理由与 `sync` 的备份一致：它不会出现在插件的
+/// 资源清单里，也不会被人当成插件目录扫到。
+fn replaced_root(paths: &PluginPaths, name: &str) -> PathBuf {
+    paths.data_root.join(name).join(REPLACED_DIR)
 }
 
 /// 清空工作区与 trash。**调用方必须持有安装锁**：并发时后一个会把前一个正在解压的目录删掉。
@@ -585,6 +660,9 @@ fn check_approved_permissions(approved: &[String]) -> Result<(), AppError> {
 /// * **只卸市场装的**：不看清楚就删，一条误发的命令就能端掉用户手写或随应用分发的插件。
 /// * `delete_data` 由用户决定（界面上会问）。代码与数据本来就是分开的，默认留着，
 ///   重装能恢复设置；要删也走现成的 `store::remove_plugin_data`。
+/// * 这个插件当初**替换掉过**本地的同名插件时，卸载会把它**装回去**（那是安装时备份下来的，
+///   见 `swap_into_place`）。这是「替换」这个动作的反向操作 —— 没有它，被顶掉的内置插件就
+///   再也回不来了（内置校正只更新已装的，从不播种）。
 pub fn uninstall(
     paths: &PluginPaths,
     name: &str,
@@ -619,6 +697,10 @@ pub fn uninstall(
         }
     }
 
+    // 还原**必须排在删数据之前**：备份就住在 `plugin-data/<名字>/` 下面，
+    // 而 `delete_data` 会把那个目录整个删掉。
+    let restored_version = restore_replaced(paths, name)?;
+
     // 条目整个删掉，别留一份授权给下次安装白白沿用。
     state::record_uninstall(paths, name)?;
 
@@ -631,7 +713,54 @@ pub fn uninstall(
     Ok(UninstallOutcome {
         name: name.to_string(),
         data_removed,
+        restored_version,
     })
+}
+
+/// 把当初被市场版替换掉的本地插件装回 `plugins/<名字>`，返回它的版本号。
+///
+/// 备份目录名是时间戳，所以**字典序就是时间序**，取最后一个即最新那份。
+///
+/// 三种情况下什么都不做（都返回 `Ok(None)`）：没有备份、目标目录竟然还在（不该发生，
+/// 宁可不动也不能盖东西）、备份目录读不了。
+fn restore_replaced(paths: &PluginPaths, name: &str) -> Result<Option<String>, AppError> {
+    let backup_root = replaced_root(paths, name);
+    if !backup_root.is_dir() {
+        return Ok(None);
+    }
+
+    let mut backups: Vec<PathBuf> = fs::read_dir(&backup_root)?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect();
+    backups.sort();
+
+    let Some(latest) = backups.pop() else {
+        return Ok(None);
+    };
+
+    let target = paths.root.join(name);
+    if target.exists() {
+        market_log!("{name} 的目标目录还在，跳过还原（备份留在 {:?}）", latest);
+        return Ok(None);
+    }
+
+    let version = read_manifest_file(&latest)
+        .ok()
+        .map(|manifest| manifest.version)
+        .filter(|version| !version.is_empty());
+
+    fs::rename(&latest, &target)?;
+    market_log!("已把 {name} 的本地版本还原到 {:?}", target);
+
+    // 备份用掉了，把这个目录清掉。剩下的要么是空壳、要么是被更晚一次替换顶掉的旧备份
+    // （正常流程下不会出现）。删不掉不是错误：留着也不影响什么。
+    if let Err(error) = fs::remove_dir_all(&backup_root) {
+        market_log!("清理备份目录 {:?} 失败：{}", backup_root, error);
+    }
+
+    Ok(version)
 }
 
 #[cfg(test)]
@@ -705,6 +834,7 @@ mod tests {
             version: request.version.clone(),
             extra_permissions: staged.extra_permissions,
             replaced_version: prepared.replaced_version,
+            local_backup_path: staged.local_backup.map(|path| path.display().to_string()),
         })
     }
 
@@ -715,6 +845,9 @@ mod tests {
             url: "https://example.com/a.zip".to_string(),
             sha256: sha256_of(bytes),
             approved_permissions: approved.iter().map(|item| item.to_string()).collect(),
+            // 默认**不**替换本地同名插件：绝大多数用例该走那条安全路径，
+            // 要替换的用例自己把它改成 true。
+            replace_local: false,
         }
     }
 
@@ -815,6 +948,8 @@ mod tests {
                 url: "http://127.0.0.1:1/should-not-be-requested.zip".to_string(),
                 sha256: "a".repeat(64),
                 approved_permissions: vec![],
+                // 没有显式同意替换 —— 这正是要被拦下的那一种。
+                replace_local: false,
             },
         )
         .unwrap_err();
@@ -921,6 +1056,132 @@ mod tests {
             "// v1 好用的",
             "失败之后旧的必须还在"
         );
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn replacing_a_local_plugin_backs_it_up_and_uninstall_puts_it_back() {
+        let (paths, root) = temp_paths("replace-local");
+
+        // 用户自己写的一个 demo（状态里从来没有它 → origin 是缺省的 Bundled）。
+        let local = paths.root.join("demo");
+        fs::create_dir_all(&local).unwrap();
+        fs::write(
+            local.join("plugin.json"),
+            r#"{ "name": "demo", "version": "9.0.0", "main": "index.js", "apiVersion": 2 }"#,
+        )
+        .unwrap();
+        fs::write(local.join("index.js"), "// 我自己的版本").unwrap();
+
+        // 用户在确认框里点了「替换安装」。
+        let bytes = plugin_zip("demo", MANIFEST, &[("index.js", "// 市场版")]);
+        let mut req = request("demo", "1.0.0", &bytes, &[]);
+        req.replace_local = true;
+
+        let outcome = install_from_bytes(&paths, &req, &bytes).expect("显式同意之后应当装成");
+
+        assert_eq!(
+            outcome.replaced_version.as_deref(),
+            Some("9.0.0"),
+            "要告诉用户被顶掉的是哪一版"
+        );
+        let backup = outcome.local_backup_path.expect("原版应当被备份下来");
+        assert!(
+            Path::new(&backup).join("index.js").is_file(),
+            "备份里要有原版的代码：{backup}"
+        );
+        assert_eq!(
+            fs::read_to_string(Path::new(&backup).join("index.js")).unwrap(),
+            "// 我自己的版本",
+            "备份是**原样搬走**，不是删掉"
+        );
+        assert_eq!(
+            fs::read_to_string(paths.root.join("demo").join("index.js")).unwrap(),
+            "// 市场版"
+        );
+        assert_eq!(
+            state::load(&paths.state_path, &paths.data_dir)
+                .entry("demo")
+                .origin,
+            PluginOrigin::Market
+        );
+
+        // 卸载 → 原来那份装回来。
+        let removed = uninstall(&paths, "demo", false).unwrap();
+        assert_eq!(removed.restored_version.as_deref(), Some("9.0.0"));
+        assert_eq!(
+            fs::read_to_string(paths.root.join("demo").join("index.js")).unwrap(),
+            "// 我自己的版本",
+            "卸载是「替换」的反向操作 —— 没有它，被顶掉的内置插件就再也回不来了"
+        );
+        assert_eq!(
+            state::load(&paths.state_path, &paths.data_dir)
+                .entry("demo")
+                .origin,
+            PluginOrigin::Bundled,
+            "装回来的那份重新归内置校正管"
+        );
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn a_failed_replace_leaves_the_local_plugin_untouched() {
+        let (paths, root) = temp_paths("replace-fail");
+
+        let local = paths.root.join("demo");
+        fs::create_dir_all(&local).unwrap();
+        fs::write(
+            local.join("plugin.json"),
+            r#"{ "name": "demo", "version": "9.0.0", "main": "index.js", "apiVersion": 2 }"#,
+        )
+        .unwrap();
+        fs::write(local.join("index.js"), "// 我自己的版本").unwrap();
+
+        // 包里写着 main=index.js，却没有这个文件 → 在**换目录之前**就失败。
+        let bad = plugin_zip(
+            "demo",
+            r#"{ "name": "demo", "version": "1.0.0", "main": "index.js", "apiVersion": 2 }"#,
+            &[("other.js", "// 市场版")],
+        );
+        let mut req = request("demo", "1.0.0", &bad, &[]);
+        req.replace_local = true;
+
+        assert!(install_from_bytes(&paths, &req, &bad).is_err());
+
+        assert_eq!(
+            fs::read_to_string(local.join("index.js")).unwrap(),
+            "// 我自己的版本",
+            "失败之后用户的东西一个字都不能动"
+        );
+        assert!(
+            !replaced_root(&paths, "demo").exists(),
+            "没走到替换那一步就不该留下备份目录"
+        );
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn restore_never_clobbers_whatever_is_already_there() {
+        let (paths, root) = temp_paths("restore-guard");
+
+        // 造一份备份，同时目标目录**还在**（不该发生的组合，但必须不闯祸）。
+        let backup = replaced_root(&paths, "demo").join("20260101000000.000");
+        fs::create_dir_all(&backup).unwrap();
+        fs::write(backup.join("index.js"), "// 备份里的").unwrap();
+
+        let target = paths.root.join("demo");
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("index.js"), "// 现在装着的").unwrap();
+
+        assert_eq!(restore_replaced(&paths, "demo").unwrap(), None);
+        assert_eq!(
+            fs::read_to_string(target.join("index.js")).unwrap(),
+            "// 现在装着的",
+            "宁可什么都不做，也不能盖掉现有的东西"
+        );
+
         fs::remove_dir_all(root).ok();
     }
 
@@ -1040,6 +1301,7 @@ mod tests {
                 url: format!("{}/demo-1.0.0.zip", server.base),
                 sha256: sha256_of(&bytes),
                 approved_permissions: vec!["editor:read".to_string()],
+                replace_local: false,
             },
         )
         .expect("应当装成功");
@@ -1084,6 +1346,7 @@ mod tests {
                 // 清单里写的是另一份内容的哈希。
                 sha256: sha256_of(b"not the served content at all"),
                 approved_permissions: vec![],
+                replace_local: false,
             },
         )
         .unwrap_err();

@@ -37,6 +37,13 @@ interface MarketPanelProps {
   onChanged: () => Promise<void>;
 }
 
+/** 本地已有的同名插件（不是在市场装的）——替换它需要用户再点一次头。 */
+export interface LocalConflict {
+  version: string;
+  /** `bundled` = 随应用分发的，其余是用户自己放进去的。提示语气不一样。 */
+  origin: string | undefined;
+}
+
 /** 确认框里在等用户点头的那件事。 */
 type PendingAction =
   | {
@@ -45,6 +52,8 @@ type PendingAction =
       release: MarketRelease;
       /** 已装的那份（更新/换版本时带上，用来算「这次新增了哪些权限」）。 */
       installed?: { version: string; grantedPermissions: readonly string[] };
+      /** 正在替换一个本地同名插件。 */
+      conflict?: LocalConflict;
     }
   | { kind: "uninstall"; plugin: MarketPlugin; installedVersion: string };
 
@@ -60,7 +69,7 @@ export function MarketPanel({ installed, onChanged }: MarketPanelProps) {
   }, []);
 
   const runInstall = useCallback(
-    async (plugin: MarketPlugin, release: MarketRelease) => {
+    async (plugin: MarketPlugin, release: MarketRelease, conflict?: LocalConflict) => {
       setBusy(true);
       try {
         const outcome = await installPlugin({
@@ -70,11 +79,20 @@ export function MarketPanel({ installed, onChanged }: MarketPanelProps) {
           sha256: release.sha256,
           // 用户在这个确认框里看到的就是这些 —— 原样交给后端，插件多要的一个都不给。
           approvedPermissions: release.permissions,
+          // 只有用户为「替换本地插件」单独点过头，才允许覆盖。
+          replaceLocal: Boolean(conflict),
         });
         await onChanged();
 
-        const action = outcome.replacedVersion ? "更新" : "安装";
-        showToast(`${action}成功：${plugin.name} ${outcome.version}`, "info");
+        if (outcome.localBackupPath) {
+          showToast(`已替换本地版本：${plugin.name} ${outcome.replacedVersion ?? ""}`, "info");
+          showToast(`原版已备份到 ${outcome.localBackupPath}（卸载时会装回来）`, "info");
+        } else {
+          showToast(
+            `${outcome.replacedVersion ? "更新" : "安装"}成功：${plugin.name} ${outcome.version}`,
+            "info",
+          );
+        }
         if (outcome.extraPermissions.length > 0) {
           // 清单与插件对不上：多要的权限没生效，必须说出来，否则用户会以为功能坏了。
           showToast(
@@ -99,10 +117,13 @@ export function MarketPanel({ installed, onChanged }: MarketPanelProps) {
     async (plugin: MarketPlugin, deleteData: boolean) => {
       setBusy(true);
       try {
-        await uninstallPlugin(plugin.name, deleteData);
+        const outcome = await uninstallPlugin(plugin.name, deleteData);
         await onChanged();
+        const restored = outcome.restoredVersion
+          ? `，并装回了被它替换掉的本地版本 ${outcome.restoredVersion}`
+          : "";
         showToast(
-          `已卸载：${plugin.name}${deleteData ? "（数据也删了）" : "（数据保留）"}`,
+          `已卸载：${plugin.name}${deleteData ? "（数据也删了）" : "（数据保留）"}${restored}`,
           "info",
         );
         setPending(null);
@@ -125,8 +146,14 @@ export function MarketPanel({ installed, onChanged }: MarketPanelProps) {
         chosenVersion={chosenVersion}
         onChooseVersion={chooseVersion}
         onRefresh={() => void refresh()}
-        onInstall={(plugin, release, installed) =>
-          setPending({ kind: "install", plugin, release, ...(installed ? { installed } : {}) })
+        onInstall={(plugin, release, options) =>
+          setPending({
+            kind: "install",
+            plugin,
+            release,
+            ...(options?.installed ? { installed: options.installed } : {}),
+            ...(options?.conflict ? { conflict: options.conflict } : {}),
+          })
         }
         onUninstall={(plugin, installedVersion) =>
           setPending({ kind: "uninstall", plugin, installedVersion })
@@ -138,9 +165,10 @@ export function MarketPanel({ installed, onChanged }: MarketPanelProps) {
           plugin={pending.plugin}
           release={pending.release}
           {...(pending.installed ? { installed: pending.installed } : {})}
+          {...(pending.conflict ? { conflict: pending.conflict } : {})}
           busy={busy}
           onCancel={() => setPending(null)}
-          onConfirm={() => void runInstall(pending.plugin, pending.release)}
+          onConfirm={() => void runInstall(pending.plugin, pending.release, pending.conflict)}
         />
       ) : null}
 
@@ -176,7 +204,10 @@ function CatalogBody({
   onInstall: (
     plugin: MarketPlugin,
     release: MarketRelease,
-    installed?: { version: string; grantedPermissions: readonly string[] },
+    options?: {
+      installed?: { version: string; grantedPermissions: readonly string[] };
+      conflict?: LocalConflict;
+    },
   ) => void;
   onUninstall: (plugin: MarketPlugin, version: string) => void;
 }) {
@@ -246,7 +277,10 @@ function MarketRow({
   onInstall: (
     plugin: MarketPlugin,
     release: MarketRelease,
-    installed?: { version: string; grantedPermissions: readonly string[] },
+    options?: {
+      installed?: { version: string; grantedPermissions: readonly string[] };
+      conflict?: LocalConflict;
+    },
   ) => void;
   onUninstall: (plugin: MarketPlugin, version: string) => void;
 }) {
@@ -259,17 +293,23 @@ function MarketRow({
   }, [plugin, chosenVersion]);
 
   const installedVersion = installedManifest?.version;
-  // 只有**市场装的**才能从这里更新/卸载。本地手写或随应用分发的同名插件，
-  // 后端会拒绝覆盖（那会让内置版再也回不来），所以这里先禁掉并说清楚。
+  // 本地已有的同名插件不是在市场装的 → 装市场版会把它**替换**掉。
+  // 这件事由后端把关（不带 `replaceLocal` 直接拒），界面上再问一次用户，
+  // 并说明原版会备份下来、卸载时装回来 —— 不然就是一条死胡同（让人自己去删目录）。
   const fromMarket = installedManifest?.origin === "market";
   const conflict = Boolean(installedManifest) && !fromMarket;
+  const localConflict: LocalConflict | undefined =
+    conflict && installedManifest
+      ? { version: installedManifest.version, origin: installedManifest.origin }
+      : undefined;
 
   const blocked = plugin.blocked ? blockedText(plugin.blocked) : null;
   const releaseBlocked = release ? blockedText(release.blocked) : null;
-  const disabled = busy || Boolean(blocked) || Boolean(releaseBlocked) || conflict || !release;
+  const disabled = busy || Boolean(blocked) || Boolean(releaseBlocked) || !release;
 
   const label = useMemo(() => {
     if (!release) return "无可装版本";
+    if (conflict) return "替换安装";
     switch (releaseRelation(installedVersion, release.version)) {
       case "install":
         return "安装";
@@ -280,7 +320,7 @@ function MarketRow({
       default:
         return "重新安装";
     }
-  }, [installedVersion, release]);
+  }, [conflict, installedVersion, release]);
 
   const relation = release ? releaseRelation(installedVersion, release.version) : "install";
 
@@ -333,8 +373,8 @@ function MarketRow({
       ) : null}
       {conflict ? (
         <p className="text-[10.5px] text-amber mt-1 leading-relaxed">
-          本地已经有一个同名插件，它不是在市场装的。市场不会覆盖它 ——
-          想换成市场版的话，请先手动删掉 {installedManifest?.dirPath || plugin.name}。
+          本地已经有一个同名插件，它不是在市场装的。点「替换安装」可以用市场版替掉它 ——
+          原版会被备份下来，卸载时自动装回。
         </p>
       ) : null}
       {release?.notes ? (
@@ -377,17 +417,18 @@ function MarketRow({
           disabled={disabled}
           onClick={() =>
             release &&
-            onInstall(
-              plugin,
-              release,
+            onInstall(plugin, release, {
               // 已经是市场装的才算「更新」：确认框要靠这份算新增权限。
-              fromMarket && installedManifest
+              ...(fromMarket && installedManifest
                 ? {
-                    version: installedManifest.version,
-                    grantedPermissions: installedManifest.grantedPermissions,
+                    installed: {
+                      version: installedManifest.version,
+                      grantedPermissions: installedManifest.grantedPermissions,
+                    },
                   }
-                : undefined,
-            )
+                : {}),
+              ...(localConflict ? { conflict: localConflict } : {}),
+            })
           }
           className={`shrink-0 px-2.5 h-6 rounded-md text-[10.5px] transition-colors ${
             disabled
@@ -412,6 +453,7 @@ export function ConfirmInstall({
   plugin,
   release,
   installed,
+  conflict,
   busy,
   onCancel,
   onConfirm,
@@ -423,6 +465,8 @@ export function ConfirmInstall({
    * 那一步是更新流程里最要紧的：新版本多要一个权限，必须让用户再看一眼。
    */
   installed?: { version: string; grantedPermissions: readonly string[] };
+  /** 本地已有的同名插件（不是在市场装的）——这次会把它替掉。 */
+  conflict?: LocalConflict;
   busy: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -432,13 +476,30 @@ export function ConfirmInstall({
   const added = installed
     ? permissionsRequiringReview(installed.grantedPermissions, release.permissions)
     : [];
-  const title = isUpdate
-    ? `更新 ${plugin.name} ${installed?.version} → ${release.version}`
-    : `安装 ${plugin.name} ${release.version}`;
+  const title = conflict
+    ? `替换 ${plugin.name} ${conflict.version} → ${release.version}`
+    : isUpdate
+      ? `更新 ${plugin.name} ${installed?.version} → ${release.version}`
+      : `安装 ${plugin.name} ${release.version}`;
 
   return (
     <Modal onCancel={onCancel} title={title}>
       <div className="space-y-3">
+        {/* 替换本地插件：先把「你的东西会怎样」说清楚 —— 只会被搬走，不会被删掉。 */}
+        {conflict ? (
+          <div className="rounded-lg bg-rust-mist/30 px-2.5 py-2">
+            <p className="text-[11px] text-ink-soft leading-relaxed">
+              本地已经有一个「{plugin.name} {conflict.version}」，它
+              {conflict.origin === "bundled" ? "是随花笺一起装的" : "是你自己放进插件目录的"}。
+            </p>
+            <p className="text-[10.5px] text-ink-ghost leading-relaxed mt-1">
+              装市场版会把它<strong className="font-medium text-ink-soft">搬去备份</strong>
+              （不是删掉），放在插件数据目录的 <code className="font-mono">plugin-data/{plugin.name}/.replaced/</code> 下。
+              以后在插件面板点「卸载」，它会自动装回来。
+            </p>
+          </div>
+        ) : null}
+
         {/* 更新时先摆「这次多了什么权限」：用户上次确认的是旧那份，多出来的必须重看。 */}
         {isUpdate ? (
           added.length > 0 ? (
@@ -503,7 +564,7 @@ export function ConfirmInstall({
       <ModalActions
         busy={busy}
         onCancel={onCancel}
-        confirmLabel={isUpdate ? "更新" : "安装"}
+        confirmLabel={conflict ? "替换安装" : isUpdate ? "更新" : "安装"}
         onConfirm={onConfirm}
       />
     </Modal>
@@ -537,6 +598,11 @@ export function ConfirmUninstall({
           <span className="text-rust">一起删</span>：不可恢复。
         </li>
       </ul>
+      {/* 当初是用「替换安装」装上来的话，卸载会把原版放回去 —— 先说清楚，免得用户
+          以为卸载没干净。后端就是这么做的（见 install.rs 的 restore_replaced）。 */}
+      <p className="text-[10.5px] text-ink-ghost leading-relaxed mb-2">
+        如果这个插件当初替换掉了本地的一个同名插件，卸载时会把它<strong className="font-medium text-ink-soft">装回</strong>来。
+      </p>
 
       <div className="flex items-center justify-end gap-2 mt-4">
         <button
