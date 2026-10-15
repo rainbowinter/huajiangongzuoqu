@@ -27,7 +27,15 @@
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -197,6 +205,22 @@ for (const { plugin, release } of releases) {
 
 // ---------------------------------------------------------------- 4. 配置覆盖
 
+// ---------------------------------------------------------------- 5. 造一个「本地已有的同名插件」
+
+// 好让「替换安装」那条路也点得到：把列表里第一个插件**原样**拷进隔离实例的插件目录。
+// 它没有市场出身证明，所以那一行会显示「本地已经有一个同名插件」，点「替换安装」就走那条路。
+//
+// ⚠️ 只在目标不存在时做 —— 别覆盖用户自己放进隔离数据目录的东西。隔离实例的数据目录由
+// `FLORAL_NOTEPAPER_DATA_DIR` 指定，那个环境变量优先于配置里写的 `dataDir`。
+const isolatedPluginsDir = join(root, ".devdata", "notes", "plugins");
+const seededName = releases[0].plugin.name;
+const seededDir = join(isolatedPluginsDir, seededName);
+const seeded = !existsSync(seededDir);
+if (seeded) {
+  mkdirSync(isolatedPluginsDir, { recursive: true });
+  cpSync(join(pluginsRoot, seededName), seededDir, { recursive: true });
+}
+
 const overridePath = join(root, ".devdata", "market-override.json");
 mkdirSync(dirname(overridePath), { recursive: true });
 writeFileSync(
@@ -227,6 +251,16 @@ console.log(
     "\n\n[sandbox] 然后：右侧栏 → 插件 → 市场（没配市场时这个页签根本不出现）。",
 );
 console.log("[sandbox] 这里会实时打出应用发过来的每个请求。Ctrl+C 结束。\n");
+
+if (seeded) {
+  console.log(
+    `[sandbox] 我顺手把 ${seededName} 的**本地副本**放进了隔离实例的插件目录：` +
+      `\n           .devdata/notes/plugins/${seededName}/` +
+      `\n[sandbox] 它在市场里那一行会显示「本地已经有一个同名插件」—— 点「替换安装」` +
+      "就是那条路（原版会被备份下来，卸载时自动装回）。",
+  );
+  console.log("[sandbox] 想回到干净状态，删掉 .devdata/ 即可。\n");
+}
 
 /** `E:\a\b` → `/e/a/b`，只是为了把能在 Git Bash 里粘贴的路径打出来。 */
 function toPosixPath(path) {
