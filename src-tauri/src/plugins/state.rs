@@ -44,6 +44,20 @@ fn default_enabled() -> bool {
     true
 }
 
+fn default_true() -> bool {
+    // 「缺省即开」的字段用它（现在只有 `auto_update`）。
+    true
+}
+
+/// 与 `default_true` 配套的 `skip_serializing_if`：**等于缺省值时不写进文件**。
+///
+/// 绝大多数插件都是缺省那一档，写了只是把状态文件撑肿 —— 与 `origin` / `installed_files`
+/// 同一条规矩。注意方向：缺省是「开」，所以**关掉**的才落盘（`is_true` 返回 true 时跳过，
+/// 也就是值为 true 时不写）。
+fn is_true(value: &bool) -> bool {
+    *value
+}
+
 /// 插件是打哪来的。
 ///
 /// **存在的唯一理由是划清管辖范围**：内置版本校正（`sync`）负责把随应用分发的那几个
@@ -74,12 +88,15 @@ pub struct PluginStateEntry {
     pub enabled: bool,
     /// 市场里有新版本时**自动更新**这个插件。
     ///
-    /// 默认关：自动更新会在用户看不见的时候把代码换掉，这份信任得由用户自己给。
-    /// 加这个字段**不需要**升 `STATE_VERSION` —— 缺省的 `bool` 是向后兼容的读写
-    /// （老文件读进来是 `false`，写下去也只多一个键），与 `installed_files` 同一个道理。
+    /// **缺省开**（用户的决定：装好的插件本来就该自己保持最新）。不想要的话在插件列表
+    /// 里把它关掉 —— 关掉的状态才会写进文件。
     ///
-    /// ⚠️ 自动更新**不会**替用户批准新权限，见 `market::auto_update`。
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    /// 加这个字段**不需要**升 `STATE_VERSION`：缺省的 `bool` 是向后兼容的读写
+    /// （老文件读进来就是缺省值），与 `installed_files` 同一个道理。
+    ///
+    /// ⚠️ 自动更新**不会**替用户批准新权限，见 `market/presentation.rs` 的
+    /// `plan_auto_updates`（前端同名纯函数）。
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
     pub auto_update: bool,
     #[serde(default)]
     pub granted_permissions: Option<Vec<String>>,
@@ -103,7 +120,7 @@ impl Default for PluginStateEntry {
     fn default() -> Self {
         Self {
             enabled: default_enabled(),
-            auto_update: false,
+            auto_update: default_true(),
             granted_permissions: None,
             installed_files: BTreeMap::new(),
             origin: PluginOrigin::Bundled,
@@ -741,9 +758,9 @@ mod tests {
     }
 
     #[test]
-    fn auto_update_defaults_to_off_and_is_not_written() {
-        // 老状态文件里没有这个字段，读进来必须是「关」—— 自动更新会在用户看不见的时候
-        // 换掉代码，不能靠缺省值把它打开。
+    fn auto_update_defaults_to_on_and_only_the_off_switch_is_written() {
+        // 老状态文件里没有这个字段，读进来必须是**开** —— 用户定的：装好的插件本来就该
+        // 自己保持最新，不想要的人自己去关。
         let (path, data_dir) = temp_state("auto-update");
         fs::write(
             &path,
@@ -755,20 +772,25 @@ mod tests {
         .unwrap();
 
         let state = load(&path, &data_dir);
-        assert!(!state.entry("demo").auto_update);
+        assert!(state.entry("demo").auto_update);
 
-        // 关着的时候**不写**进文件（见字段上的 `skip_serializing_if`）：绝大多数插件都是
-        // 关的，写了只是把状态文件撑肿 —— 与 `origin` / `installedFiles` 同一条规矩。
-        let mut opened = state.clone();
-        opened.plugins.entry("demo".to_string()).or_default().auto_update = true;
-        save(&path, &opened).unwrap();
+        // 缺省那一档（开）**不写**进文件（见字段上的 `skip_serializing_if`）：绝大多数
+        // 插件都是这一档，写了只是把状态文件撑肿 —— 与 `origin` / `installedFiles` 同一条
+        // 规矩。⚠️ 方向与从前相反：现在是**关掉**才落盘。
+        let mut off = state.clone();
+        off.plugins.entry("demo".to_string()).or_default().auto_update = false;
+        save(&path, &off).unwrap();
         let text = fs::read_to_string(&path).unwrap();
-        assert!(text.contains("autoUpdate"), "打开之后要写下来");
+        assert!(text.contains("autoUpdate"), "关掉之后要写下来");
 
-        opened.plugins.entry("demo".to_string()).or_default().auto_update = false;
-        save(&path, &opened).unwrap();
+        let reloaded = load(&path, &data_dir);
+        assert!(!reloaded.entry("demo").auto_update, "关掉的状态要读得回来");
+
+        let mut on = reloaded;
+        on.plugins.entry("demo".to_string()).or_default().auto_update = true;
+        save(&path, &on).unwrap();
         let text = fs::read_to_string(&path).unwrap();
-        assert!(!text.contains("autoUpdate"), "关着时不写");
+        assert!(!text.contains("autoUpdate"), "回到缺省（开）就不再写");
 
         fs::remove_dir_all(data_dir.parent().unwrap()).ok();
     }

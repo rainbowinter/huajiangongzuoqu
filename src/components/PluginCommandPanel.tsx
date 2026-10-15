@@ -322,9 +322,14 @@ function PluginRow({
           **权限尤其不能常驻**：那排小胶囊点一下就撤权并重载全部插件，而它就和插件名
           挨着，滑一下鼠标就误触了。收进展开区之后，撤销权限至少需要「先点开」这个
           明确的动作。参数同理由此 —— 它是这个插件的属性，和插件放在一起才找得到，
-          丢进设置面板里就成了一堆只有作者才认识的字段名。 */}
+          丢进设置面板里就成了一堆只有作者才认识的字段名。
+
+          ⚠️ 里面那层 `pl-[38px]` 是**对齐用**的：上面每一行正文都从图标右边起（28px 图标
+          + 10px 间距），展开区要是从卡片边缘起，两段的左边界就差着一整个图标的宽度，
+          看起来像两段各说各的。分隔线仍然通栏 —— 那是「下面属于上面这一条」的意思。 */}
       {expanded && canExpand ? (
-        <div className="mt-2 pt-2 border-t border-paper-deep/25 space-y-2.5">
+        <div className="mt-2 pt-2 border-t border-paper-deep/25">
+          <div className="space-y-2.5 pl-[38px]">
           {/* 装 / 卸 / 自动更新都收在展开区里。
               卸载尤其不能常驻：它就在插件名下面，滑一下鼠标就点到了。 */}
           {manageable ? (
@@ -353,7 +358,9 @@ function PluginRow({
                   </button>
                 ) : null}
                 {/* 「自动更新」是一颗胶囊开关而不是复选框：它是个**长期生效**的开关，
-                    复选框看起来像「这次要不要」，而这件事管的是以后每一次。 */}
+                    复选框看起来像「这次要不要」，而这件事管的是以后每一次。
+                    **按钮上不写「开 / 关」**：亮着就是开、暗着就是关，再写两个字反而
+                    让这颗胶囊的宽窄随状态跳来跳去。无障碍那边由 `aria-checked` 交代。 */}
                 <button
                   type="button"
                   role="switch"
@@ -362,8 +369,8 @@ function PluginRow({
                   onClick={() => onToggleAutoUpdate(record)}
                   title={
                     manifest.autoUpdate
-                      ? "市场有新版本时自动装。要新权限的版本不会被自动装，会先问你。"
-                      : "关着：市场有新版本时只提示，不自动装"
+                      ? "市场有新版本时自动装（要新权限的版本不会被自动装，会先问你）。点一下关掉。"
+                      : "市场有新版本时只提示，不自动装。点一下打开。"
                   }
                   className={`px-2.5 h-6 rounded-full text-[10px] transition-colors cursor-pointer disabled:opacity-40 ${
                     manifest.autoUpdate
@@ -371,7 +378,7 @@ function PluginRow({
                       : "text-ink-ghost bg-paper-warm hover:bg-paper-deep/30"
                   }`}
                 >
-                  自动更新{manifest.autoUpdate ? " 开" : " 关"}
+                  自动更新
                 </button>
               </div>
             </div>
@@ -414,6 +421,7 @@ function PluginRow({
           ) : null}
 
           <PluginParams manifest={manifest} />
+          </div>
         </div>
       ) : null}
     </div>
@@ -837,6 +845,8 @@ export function PluginCommandPanel({ onClose, onOpenDoc }: PluginCommandPanelPro
             market={market}
             transfer={transfer}
             focusPlugin={focusPlugin}
+            // 没装之前也能看说明：那份 README 是发布时内联进清单的（见 market/types.ts）。
+            {...(onOpenDoc ? { onOpenDoc } : {})}
           />
         ) : null}
       </div>

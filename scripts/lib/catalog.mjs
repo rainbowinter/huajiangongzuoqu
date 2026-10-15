@@ -94,6 +94,47 @@ export function readIconDataUrl(pluginDir, relativePath) {
   return `data:${mime};base64,${bytes.toString("base64")}`;
 }
 
+/**
+ * 说明文字的上限。与宿主 `catalog.rs` 的 `MAX_README_CHARS` 一致 —— 那边超了是整条丢掉，
+ * 所以这里**先**提醒作者，免得「本地看着好好的、装到应用里说明不见了」。
+ */
+export const MAX_README_CHARS = 64 * 1024;
+
+/** 说明书的名字。约定写死，见 `Docs/plugin-api.md` 的「发布到插件市场」。 */
+const README_FILES = ["README.md", "readme.md"];
+
+/**
+ * 把插件目录里的 README 读成**纯文本**，内联进清单。
+ *
+ * 为什么内联：用户在**装上之前**也该能点开看「这个插件到底是干嘛的」。让应用按 URL 去取
+ * 等于又开一条通道（还得再想清楚它怎么验、取不到怎么办），而 README 是纯文本、几 KB，
+ * 与图标走的是同一条路（见 `readIconDataUrl`）。
+ *
+ * 没有、空文件、或者太大 → 返回 `null`，**不报错**：带不带说明书是作者的选择。
+ * 太大的那一种由调用方提醒一句 —— 那种情况下应用里会看不到说明，是能修的问题。
+ */
+export function readReadme(pluginDir) {
+  for (const name of README_FILES) {
+    let text;
+    try {
+      text = readFileSync(join(pluginDir, name), "utf8");
+    } catch {
+      continue;
+    }
+    const trimmed = text.trim();
+    if (!trimmed) continue;
+    if (trimmed.length > MAX_README_CHARS) {
+      console.warn(
+        `[catalog] ${name} 有 ${trimmed.length} 字符，超过 ${MAX_README_CHARS} 上限，` +
+          "这次不内联（应用里就看不到这份说明了）",
+      );
+      return null;
+    }
+    return trimmed;
+  }
+  return null;
+}
+
 /** 解析一份已有清单；格式不认识就抛错（别硬着头皮往上写）。 */
 export function readCatalog(raw) {
   const catalog = JSON.parse(raw);
@@ -150,6 +191,9 @@ export function upsertPlugin(catalog, meta) {
   // 图标**完全跟着 plugin.json**：这一版把 icon 去掉了，清单里那条也要跟着没
   // （`undefined` 在序列化时会被丢掉）。不然用户会看到一个已经不存在的旧图标。
   entry.icon = meta.icon ?? undefined;
+  // 说明同理：把 README 删了、或者改小之前太大，清单里那份也要跟着没 ——
+  // 留着的话市场里会显示一份已经被删掉的说明。
+  entry.readme = meta.readme ?? undefined;
 
   return entry;
 }

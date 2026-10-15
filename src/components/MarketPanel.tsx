@@ -46,9 +46,20 @@ interface MarketPanelProps {
   transfer: PluginTransfer;
   /** 从「去更新」跳过来时，把这一行高亮出来（免得用户在列表里找不到）。 */
   focusPlugin?: string | null;
+  /**
+   * 打开一篇只读说明文档（「详细信息」）。快速便签窗口没有能放文档的地方，那边不传，
+   * 按钮就不出现。
+   */
+  onOpenDoc?: (title: string, content: string) => void;
 }
 
-export function MarketPanel({ installed, market, transfer, focusPlugin }: MarketPanelProps) {
+export function MarketPanel({
+  installed,
+  market,
+  transfer,
+  focusPlugin,
+  onOpenDoc,
+}: MarketPanelProps) {
   const { state, refresh } = market;
   /** 用户手动选过的版本（按插件名记）。没选过就用清单给的默认版。 */
   const [chosenVersion, setChosenVersion] = useState<Record<string, string>>({});
@@ -68,6 +79,7 @@ export function MarketPanel({ installed, market, transfer, focusPlugin }: Market
       onRefresh={() => void refresh()}
       onInstall={transfer.requestInstall}
       onUninstall={transfer.requestUninstall}
+      {...(onOpenDoc ? { onOpenDoc } : {})}
     />
   );
 }
@@ -82,6 +94,7 @@ function CatalogBody({
   onRefresh,
   onInstall,
   onUninstall,
+  onOpenDoc,
 }: {
   state: MarketState;
   installed: readonly PluginManifest[];
@@ -99,6 +112,7 @@ function CatalogBody({
     },
   ) => void;
   onUninstall: (plugin: MarketPlugin, version: string) => void;
+  onOpenDoc?: (title: string, content: string) => void;
 }) {
   // ⚠️ hook 要在**所有提前 return 之前**：写在下面那几个分支之后，就是「有时调、有时不调」，
   // React 会直接报错（而且这个文件的几个分支是常态，不是边角情况）。
@@ -182,6 +196,7 @@ function CatalogBody({
           onChooseVersion={onChooseVersion}
           onInstall={onInstall}
           onUninstall={onUninstall}
+          {...(onOpenDoc ? { onOpenDoc } : {})}
         />
       ))}
     </div>
@@ -197,6 +212,7 @@ function MarketRow({
   onChooseVersion,
   onInstall,
   onUninstall,
+  onOpenDoc,
 }: {
   plugin: MarketPlugin;
   installedManifest: PluginManifest | undefined;
@@ -214,6 +230,7 @@ function MarketRow({
     },
   ) => void;
   onUninstall: (plugin: MarketPlugin, version: string) => void;
+  onOpenDoc?: (title: string, content: string) => void;
 }) {
   const release = useMemo(() => {
     if (chosenVersion) {
@@ -375,6 +392,20 @@ function MarketRow({
           ) : (
             <span className="flex-1" />
           )}
+
+          {/* 「详细信息」：**装之前**也能看这个插件是干嘛的 —— 打开的是发布时内联进清单的
+              那份 README（`plugin.readme`）。装完之后看的是磁盘上那份（可能被作者改过），
+              两条路径各自取最新的一份。没带说明就不给这颗按钮。 */}
+          {onOpenDoc && plugin.readme ? (
+            <button
+              type="button"
+              onClick={() => onOpenDoc(plugin.name, plugin.readme ?? "")}
+              className="shrink-0 px-2 h-6 rounded-md text-[10px] text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50 transition-colors cursor-pointer"
+              title="这个插件是干嘛的（作者写的说明）"
+            >
+              详细信息
+            </button>
+          ) : null}
 
           {fromMarket ? (
             <button

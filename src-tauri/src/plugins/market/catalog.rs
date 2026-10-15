@@ -103,6 +103,13 @@ pub struct CatalogPlugin {
     /// 图标不该让人装不了插件。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    /// 插件自带的说明（`README.md` 的全文），由发布脚本内联进清单。
+    ///
+    /// 为什么内联：**没装之前**也该能点开看「这个插件到底是干嘛的」。从网上另取一份
+    /// 等于又开一条通道（还得再想清楚它怎么验），而 README 是纯文本、几 KB。
+    /// 与图标同一条理由、同一个做法（见 `Docs/plugin-market.md` 的「图标为什么要内联」）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub readme: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub author: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -168,6 +175,7 @@ struct RawPlugin {
     author: Option<String>,
     homepage: Option<String>,
     icon: Option<String>,
+    readme: Option<String>,
     /// 同上，逐条解析。
     releases: Option<Vec<serde_json::Value>>,
 }
@@ -289,6 +297,7 @@ fn build_plugin(
         author: non_empty(raw.author),
         homepage: non_empty(raw.homepage),
         icon: normalize_icon(raw.icon),
+        readme: normalize_readme(raw.readme),
         latest,
         releases,
         blocked,
@@ -318,6 +327,19 @@ fn normalize_icon(icon: Option<String>) -> Option<String> {
 /// 清单里图标的长度上限。图标源文件那边卡 32KB（`manifest::MAX_ICON_BYTES`），
 /// base64 之后大约 44KB，这里给一点余量。
 const MAX_ICON_CHARS: usize = 48 * 1024;
+
+/// 说明文字的上限。README 是给人看的散文，64KB 已经非常宽裕；超过就整条丢掉 ——
+/// 截一半的说明比没有更糟（用户读到一半发现断了）。发布脚本那边会提示。
+const MAX_README_CHARS: usize = 64 * 1024;
+
+fn normalize_readme(readme: Option<String>) -> Option<String> {
+    let readme = readme?;
+    let trimmed = readme.trim();
+    if trimmed.is_empty() || trimmed.len() > MAX_README_CHARS {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
 
 fn build_release(raw: RawRelease, host: &HostEnv, name_usable: bool) -> CatalogRelease {
     let version = raw.version.unwrap_or_default();
@@ -387,6 +409,7 @@ fn malformed_plugin() -> CatalogPlugin {
         author: None,
         homepage: None,
         icon: None,
+        readme: None,
         releases: Vec::new(),
         blocked: Some("marketPluginMalformed".to_string()),
         latest: None,
@@ -958,6 +981,41 @@ mod tests {
         ));
 
         assert!(plugin.icon.is_none(), "超长的图标会把整份清单撑大，必须丢掉");
+    }
+
+    #[test]
+    fn keeps_a_usable_readme_and_drops_an_empty_or_oversized_one() {
+        let with_readme = one_release(
+            r#"{ "name": "demo", "readme": "  # 演示\n\n这是说明。  ", "releases": [{
+                 "version": "1.0.0", "apiVersion": 2, "url": "https://e.com/a.zip",
+                 "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }] }"#,
+        );
+        assert_eq!(
+            with_readme.readme.as_deref(),
+            Some("# 演示\n\n这是说明。"),
+            "两头的空白要剪掉"
+        );
+
+        // 空说明等于没有（全是空白也一样）；太长的**整条丢掉**而不是截一半 —— 用户读到
+        // 半截断了的说明，比看不到更让人怀疑是不是坏了。
+        for bogus in ["", "   "] {
+            let plugin = one_release(&format!(
+                r#"{{ "name": "demo", "readme": "{bogus}", "releases": [{{
+                     "version": "1.0.0", "apiVersion": 2, "url": "https://e.com/a.zip",
+                     "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }}] }}"#
+            ));
+            assert!(plugin.readme.is_none(), "空说明应当被丢掉");
+        }
+
+        let huge = "字".repeat(MAX_README_CHARS + 1);
+        let plugin = one_release(&format!(
+            r#"{{ "name": "demo", "readme": "{huge}", "releases": [{{
+                 "version": "1.0.0", "apiVersion": 2, "url": "https://e.com/a.zip",
+                 "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }}] }}"#
+        ));
+        assert!(plugin.readme.is_none());
+        assert_eq!(plugin.blocked, None, "说明写歪了不影响这个插件本身能不能装");
+        assert_eq!(plugin.latest.as_deref(), Some("1.0.0"));
     }
 
     #[test]

@@ -11,8 +11,10 @@ import {
   compareVersions,
   comparableVersion,
   emptyCatalog,
+  MAX_README_CHARS,
   readCatalog,
   readIconDataUrl,
+  readReadme,
   serializeCatalog,
   upsertPlugin,
 } from "./catalog.mjs";
@@ -177,5 +179,46 @@ describe("catalogVersion", () => {
     expect(() => readCatalog('{ "schema": 99, "catalogVersion": 1, "plugins": [] }')).toThrow(
       /schema/,
     );
+  });
+});
+
+describe("说明书：读成纯文本内联进清单", () => {
+  const dir = mkdtempSync(join(tmpdir(), "floral-readme-"));
+  writeFileSync(join(dir, "README.md"), "\n# 演示\n\n这是说明。\n");
+  writeFileSync(join(dir, "empty", ), "");
+  const emptyDir = mkdtempSync(join(tmpdir(), "floral-readme-empty-"));
+  writeFileSync(join(emptyDir, "README.md"), "   \n");
+  const bigDir = mkdtempSync(join(tmpdir(), "floral-readme-big-"));
+  writeFileSync(join(bigDir, "README.md"), "x".repeat(MAX_README_CHARS + 1));
+
+  it("读出来并剪掉两头的空白", () => {
+    expect(readReadme(dir)).toBe("# 演示\n\n这是说明。");
+  });
+
+  it("没有 / 空文件 / 太大 —— 一律 null（不拦发布，应用里就是看不到说明）", () => {
+    expect(readReadme(emptyDir)).toBeNull();
+    expect(readReadme(bigDir)).toBeNull();
+    expect(readReadme(join(dir, "nope"))).toBeNull();
+  });
+
+  it("小写的 readme.md 也认", () => {
+    const lower = mkdtempSync(join(tmpdir(), "floral-readme-lower-"));
+    writeFileSync(join(lower, "readme.md"), "# 小写");
+    expect(readReadme(lower)).toBe("# 小写");
+  });
+
+  it("写进条目里；README 没了，清单里那条也跟着没", () => {
+    const catalog = emptyCatalog();
+    const first = upsertPlugin(catalog, {
+      name: "demo",
+      description: "",
+      readme: "# 演示",
+    });
+    expect(first.readme).toBe("# 演示");
+    expect(serializeCatalog(catalog)).toContain("演示");
+
+    upsertPlugin(catalog, { name: "demo", description: "" });
+    expect(first.readme).toBeUndefined();
+    expect(serializeCatalog(catalog)).not.toContain("readme");
   });
 });
