@@ -14,6 +14,7 @@ import "katex/dist/katex.min.css";
 // 代码主题不再静态 import —— 那一份是写死的浅色，深色模式下代码块一直是浅的。
 // 现在由 `codeThemes.ts` 在运行时注入，跟随应用主题或当前文件类型的声明。
 import remarkAlerts from "./remarkAlerts";
+import remarkAlign from "./remarkAlign";
 import { sliceBlockSource } from "./blockSource";
 import { highlightCode } from "./highlight";
 import { parseImageLayout } from "./imageLayout";
@@ -199,7 +200,7 @@ interface MarkdownPreviewProps {
   imageBaseDir?: string;
 }
 
-const remarkPlugins = [remarkGfm, remarkMath, remarkAlerts];
+const remarkPlugins = [remarkGfm, remarkMath, remarkAlerts, remarkAlign];
 const sanitizeSchema = {
   ...defaultSchema,
   tagNames: [...(defaultSchema.tagNames ?? []), "mark", "center", "font", "u", "abbr"],

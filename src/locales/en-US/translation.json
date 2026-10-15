@@ -137,6 +137,9 @@
       }
     },
     "toolbar": {
+      "alignCenter": "Align center",
+      "alignLeft": "Align left",
+      "alignRight": "Align right",
       "blockMath": "Block math",
       "bold": "Bold",
       "code": "Code",

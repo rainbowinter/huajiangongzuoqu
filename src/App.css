@@ -476,6 +476,22 @@ textarea::-webkit-scrollbar {
   color: var(--md-caption-color, var(--color-ink-ghost));
 }
 
+/* 段落对齐（笔记里写 `::: center` 那套，见 features/markdown/remarkAlign.ts）。
+   渲染出来就是这个类名，`text-align` 会继承下去，所以容器里的每个段落一起生效。
+   表格这类整宽的块不受影响，图片是行内元素、会跟着居中，都是想要的效果。 */
+.md-align {
+  display: block;
+}
+.md-align-left {
+  text-align: left;
+}
+.md-align-center {
+  text-align: center;
+}
+.md-align-right {
+  text-align: right;
+}
+
 /* Noise texture overlay for paper feel */
 .noise-bg {
   position: relative;

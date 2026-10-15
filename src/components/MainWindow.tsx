@@ -15,6 +15,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { exportMarkdownNote, importMarkdownNote } from "../features/importExport/api";
 import { MarkdownPreview } from "../features/markdown/MarkdownPreview";
+import { applyAlign } from "../features/markdown/alignText";
 import { renderMarkdownLines } from "../features/markdown/syntaxHighlight";
 import { showToast } from "./Toast";
 import { PluginCommandPanel } from "./PluginCommandPanel";
@@ -246,7 +247,10 @@ type FormatAction =
   | "code"
   | "quote"
   | "inlineMath"
-  | "blockMath";
+  | "blockMath"
+  | "alignLeft"
+  | "alignCenter"
+  | "alignRight";
 
 function applyFormat(
   textarea: HTMLTextAreaElement,
@@ -393,6 +397,20 @@ function applyFormat(
       result = before + wrapped + after;
       cursorStart = start + 1;
       cursorEnd = cursorStart + (selected || "E=mc^2").length;
+      break;
+    }
+    // 段落对齐。换行、选区、撤销都交给 `applyAlign` 算好，这里只做搬运 ——
+    // 它返回的 [start, end) 就是那段正文在新文本里的位置，所以连着点几下能一路切换。
+    case "alignLeft":
+    case "alignCenter":
+    case "alignRight": {
+      const kind =
+        action === "alignLeft" ? "left" : action === "alignRight" ? "right" : ("center" as const);
+      const edit = applyAlign(value, start, end, kind);
+
+      result = edit.text;
+      cursorStart = edit.start;
+      cursorEnd = edit.end;
       break;
     }
     case "blockMath": {
@@ -1741,6 +1759,26 @@ export function MainWindow({
         title: t("main.toolbar.blockMath", { defaultValue: "块级公式" }),
         style: "font-mono text-[11px]",
         action: "blockMath",
+      },
+      // 段落对齐。写进正文的是 `::: center` 这种纯文本容器，**不是 HTML 标签** ——
+      // 渲染见 features/markdown/remarkAlign.ts，正文侧的换算见 alignText.ts。
+      {
+        label: "⇤",
+        title: t("main.toolbar.alignLeft", { defaultValue: "居左" }),
+        style: "",
+        action: "alignLeft",
+      },
+      {
+        label: "⇔",
+        title: t("main.toolbar.alignCenter", { defaultValue: "居中" }),
+        style: "",
+        action: "alignCenter",
+      },
+      {
+        label: "⇥",
+        title: t("main.toolbar.alignRight", { defaultValue: "居右" }),
+        style: "",
+        action: "alignRight",
       },
     ],
     [t],

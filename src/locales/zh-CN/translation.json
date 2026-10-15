@@ -139,6 +139,9 @@
       }
     },
     "toolbar": {
+      "alignCenter": "居中",
+      "alignLeft": "居左",
+      "alignRight": "居右",
       "blockMath": "块级公式",
       "bold": "粗体",
       "code": "代码",

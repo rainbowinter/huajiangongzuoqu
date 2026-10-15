@@ -137,6 +137,9 @@
       }
     },
     "toolbar": {
+      "alignCenter": "置中",
+      "alignLeft": "靠左",
+      "alignRight": "靠右",
       "blockMath": "區塊公式",
       "bold": "粗體",
       "code": "程式碼",

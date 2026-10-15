@@ -4,6 +4,7 @@ import {
   blockOffsetsFromLayer,
   measureBlockOffsets,
   parseBlocks,
+  stripMarkdownInline,
   tagPreviewBlocks,
 } from "./scrollSync";
 
@@ -423,5 +424,35 @@ describe("scroll sync helpers", () => {
       fakeDocument.createdElements.filter((element) => element.tagName === "textarea"),
     ).toHaveLength(0);
     expect(FakeHTMLElement.scrollHeightReads).toBe(0);
+  });
+});
+
+/**
+ * 段落对齐全靠「源码里多两行、预览里一个字都没有」的标记行。滚动同步是拿
+ * 「渲染后纯文本」跟源码对位的，标记行不排除掉就会各占一行，两边越滚越偏 ——
+ * 而且是滚到后面才发现差了几行的那种偏。
+ */
+describe("段落对齐的标记行不参与对位", () => {
+  test("容器标记不产生任何文字", () => {
+    const { plain } = stripMarkdownInline("::: center\n居中\n:::");
+
+    expect(plain.trim()).toBe("居中");
+  });
+
+  test("容器里的正文照常对得上", () => {
+    const { plain, positions } = stripMarkdownInline("前言\n\n::: right\n靠右\n:::\n\n后记");
+
+    expect(plain.trim()).toBe("前言 靠右 后记");
+    // 每个字符都还能指回源码，位置没有被错位。
+    for (const position of positions) {
+      expect(position).toBeGreaterThanOrEqual(0);
+      expect(position).toBeLessThan(40);
+    }
+  });
+
+  test("三点冒号后面有别的字样就不算标记，照常参与", () => {
+    const { plain } = stripMarkdownInline("::: middle\n正文");
+
+    expect(plain).toContain("middle");
   });
 });

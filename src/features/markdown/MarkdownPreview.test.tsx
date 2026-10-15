@@ -51,6 +51,39 @@ describe("MarkdownPreview", () => {
 const WITH_TABLE = ["前言", "", "| 表头 | 头2 |", "| --- | --- |", "| 1 | 2 |", ""].join("\n");
 const WITHOUT_TABLE = ["前言", "", "一段普通文字。", ""].join("\n");
 
+/**
+ * 段落对齐（`::: center`）。渲染侧的核心风险是**消毒**：容器渲染成一个 `<div>`，
+ * 只要标签或 class 不在白名单里，rehype-sanitize 就会把它扒掉 —— 而且不会报错，
+ * 只是「怎么没居中」。所以开着 `renderHtml` 的那条管线必须单独验一遍。
+ */
+describe("段落对齐", () => {
+  for (const kind of ["left", "center", "right"]) {
+    test(`::: ${kind} 渲染成带 md-align-${kind} 的块`, () => {
+      const markup = renderToStaticMarkup(<MarkdownPreview content={`::: ${kind}\n居中\n:::`} />);
+
+      expect(markup).toContain(`md-align-${kind}`);
+      expect(markup).toContain("居中");
+      // 标记行本身不该漏到预览里。
+      expect(markup).not.toContain("::: ");
+    });
+  }
+
+  test("开着 HTML 渲染（多走消毒）时容器还在", () => {
+    const markup = renderToStaticMarkup(
+      <MarkdownPreview content={"::: center\n居中\n:::"} renderHtml />,
+    );
+
+    expect(markup).toContain("md-align-center");
+  });
+
+  test("写了一半的容器原样显示，不吞正文", () => {
+    const markup = renderToStaticMarkup(<MarkdownPreview content={"::: center\n还没收尾"} />);
+
+    expect(markup).toContain("还没收尾");
+    expect(markup).not.toContain("md-align");
+  });
+});
+
 describe("表格的复制按钮", () => {
   test("有表格就有按钮", () => {
     const markup = renderToStaticMarkup(<MarkdownPreview content={WITH_TABLE} />);

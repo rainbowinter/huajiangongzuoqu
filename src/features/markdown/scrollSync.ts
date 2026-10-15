@@ -1,3 +1,5 @@
+import { isAlignClose, parseAlignMarker } from "./alignText";
+
 export interface ParsedBlock {
   text: string;
   startLine: number; // inclusive
@@ -363,6 +365,14 @@ export function stripMarkdownInline(text: string): StrippedText {
         }
         append("\n", endNewline);
       }
+      continue;
+    }
+
+    // 段落对齐的容器标记：`::: center` 与收尾的 `:::` 在预览里**不产生任何文字**，
+    // 直接跳过。不跳的话这两行会在「渲染后纯文本」里各占一行，两边越滚越偏 ——
+    // 而且是那种「滚到后面才发现差了几行」的偏。容器里的正文照常参与匹配。
+    if (parseAlignMarker(line) !== null || isAlignClose(line)) {
+      i++;
       continue;
     }
 

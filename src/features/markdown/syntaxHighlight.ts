@@ -1,3 +1,5 @@
+import { isAlignClose, parseAlignMarker } from "./alignText";
+
 type TokenColor = string;
 
 const TOKEN_COLORS: Record<string, TokenColor> = {
@@ -14,6 +16,7 @@ const TOKEN_COLORS: Record<string, TokenColor> = {
   image: "#f472b6",
   hr: "#9ca3af",
   task: "#22d3ee",
+  align: "#c084fc",
 };
 
 function escapeHtml(text: string): string {
@@ -137,6 +140,12 @@ function renderLine(line: string): string {
   // 代码块围栏
   if (/^\s*(```|~~~)/.test(line)) {
     return span(line, "codeblock");
+  }
+
+  // 段落对齐的容器标记（`::: center` 与收尾的 `:::`）。上色是为了让人一眼看出
+  // 「这行是排版指令、不是正文」—— 它渲染出来不占任何位置，无色时会显得莫名其妙。
+  if (parseAlignMarker(line) !== null || isAlignClose(line)) {
+    return span(line, "align");
   }
 
   // 标题
