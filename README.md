@@ -1,3 +1,6 @@
+> 本仓库是花笺的改造版，支持用插件扩展功能。
+> 上游项目：[Achilng/floral-notepaper](https://github.com/Achilng/floral-notepaper)（MIT）。
+
 **简体中文** | [繁體中文](README_zh-HK.md) | [English](README_en-US.md)
 
 <!-- markdownlint-disable -->
