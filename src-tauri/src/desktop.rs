@@ -11,6 +11,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Mutex,
     },
+    time::{Duration, Instant},
 };
 
 #[cfg(target_os = "windows")]
@@ -429,6 +430,15 @@ const TRAY_QUIT_ID: &str = "quit";
 static FULLSCREEN_HIDING: AtomicBool = AtomicBool::new(false);
 const NOTEPAD_POOL_CAPACITY: usize = 2;
 
+/// 所有窗口都藏起来多久之后，把预热好的记事本窗口**真正销毁**。
+///
+/// 预热的代价是一个窗口一整个 WebView 渲染进程（实测约 100MB）。放着不用的时间里
+/// 这笔钱不该一直付，所以挂后台满这么久就回收；用户一回来立刻按原样补上。
+const IDLE_RECLAIM_AFTER: Duration = Duration::from_secs(5 * 60);
+
+/// 闲置检查的间隔。取值不用很小：回收本来就是个「过一会儿」的动作。
+const IDLE_CHECK_INTERVAL: Duration = Duration::from_secs(30);
+
 /// Stores the file path passed as a command-line argument on cold start.
 /// The frontend retrieves and clears this value after initialization via
 /// the `take_startup_file` command, avoiding a race condition with the
@@ -547,6 +557,11 @@ struct RuntimeState {
     is_exiting: AtomicBool,
     windows_hidden: AtomicBool,
     hidden_window_labels: Mutex<Vec<String>>,
+    /// 「所有窗口都不见了」是从什么时候开始的。`None` = 此刻有窗口可见。
+    idle_since: Mutex<Option<Instant>>,
+    /// 已经因为闲置把预热窗口销毁掉了。用户一回来要记得重新预热 ——
+    /// 见 `idle_pool_action`。
+    prewarm_suppressed: AtomicBool,
     #[cfg(desktop)]
     shortcut_bindings: Mutex<ShortcutBindings>,
 }
@@ -590,6 +605,19 @@ impl NotepadPool {
             .lock()
             .map(|a| a.len() < NOTEPAD_POOL_CAPACITY)
             .unwrap_or(false)
+    }
+
+    /// 池子里现在有几个可用的。
+    fn len(&self) -> usize {
+        self.available.lock().map(|a| a.len()).unwrap_or(0)
+    }
+
+    /// 清空池子并交出所有标签 —— 闲置回收时用来把预热窗口真正销毁。
+    fn drain(&self) -> Vec<String> {
+        self.available
+            .lock()
+            .map(|mut a| a.drain(..).collect())
+            .unwrap_or_default()
     }
 }
 
@@ -1141,6 +1169,7 @@ pub fn setup_desktop(app: &mut App) -> Result<(), Box<dyn Error>> {
     setup_app_menu(app)?;
     setup_tray(app)?;
     schedule_notepad_prewarm(app.handle());
+    watch_idle_and_reclaim(app.handle());
 
     if !std::env::args().any(|a| a == "--silent") {
         if let Err(error) = show_main_window(app.handle()) {
@@ -1540,6 +1569,142 @@ fn schedule_notepad_prewarm(app: &AppHandle) {
     }
 }
 
+/// 闲置回收要做什么。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IdlePoolAction {
+    /// 不用管。
+    Keep,
+    /// 把池子里预热好的窗口销毁掉，把内存还回去。
+    Drain,
+    /// 用户回来了，预热补上。
+    Rewarm,
+}
+
+/// 纯判定。抽出来是为了能直接测 —— 真正的窗口操作没法在单测里跑。
+///
+/// `suppressed` 是「已经因为闲置销毁过一轮了」。只有它为 true 时才需要在用户回来时
+/// 补预热：否则每次有窗口可见都会白白重排一次预热，而池子本来就是满的。
+fn idle_pool_action(
+    any_window_visible: bool,
+    idle_for: Option<Duration>,
+    threshold: Duration,
+    pooled_windows: usize,
+    suppressed: bool,
+) -> IdlePoolAction {
+    if any_window_visible {
+        return if suppressed {
+            IdlePoolAction::Rewarm
+        } else {
+            IdlePoolAction::Keep
+        };
+    }
+
+    // 已经没窗口可见了。`idle_for` 为 `None` 表示**刚刚**进入闲置，这一刻什么都不做：
+    // 用户可能只是切了个窗口，转眼就回来。要销毁得「一直没人用」满 threshold 才行。
+    match idle_for {
+        Some(elapsed) if elapsed >= threshold && pooled_windows > 0 && !suppressed => {
+            IdlePoolAction::Drain
+        }
+        _ => IdlePoolAction::Keep,
+    }
+}
+
+/// 盯着「是不是所有窗口都藏起来了」，闲置够久就把预热窗口真正销毁。
+///
+/// 为什么值得这么做：预热（`NOTEPAD_POOL_CAPACITY`）是为了秒开，代价是每个预热窗口
+/// 常驻**一整个 WebView 渲染进程**（实测约 100MB）。挂后台的时候这笔钱不该一直付着，
+/// 所以闲置满 `IDLE_RECLAIM_AFTER` 就关掉；用户一回来立刻按原样补上，秒开照旧。
+fn watch_idle_and_reclaim(app: &AppHandle) {
+    let handle = app.clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(IDLE_CHECK_INTERVAL);
+        let inner = handle.clone();
+        // 所有窗口操作都走主线程：窗口的显示状态与池子里的标签只有主线程在动。
+        if handle
+            .run_on_main_thread(move || reclaim_idle_windows(&inner))
+            .is_err()
+        {
+            // 事件循环已经没了 —— 应用退出了，这个看门线程也该收工。
+            break;
+        }
+    });
+}
+
+fn reclaim_idle_windows(app: &AppHandle) {
+    let Some(state) = app.try_state::<RuntimeState>() else {
+        return;
+    };
+    if state.is_exiting() {
+        return;
+    }
+
+    let any_window_visible = app
+        .webview_windows()
+        .values()
+        .any(|window| window.is_visible().unwrap_or(false));
+
+    let idle_for = {
+        let Ok(mut guard) = state.idle_since.lock() else {
+            return;
+        };
+        if any_window_visible {
+            *guard = None;
+            None
+        } else {
+            Some(guard.get_or_insert_with(Instant::now).elapsed())
+        }
+    };
+
+    let pooled_windows = app
+        .try_state::<NotepadPool>()
+        .map(|pool| pool.len())
+        .unwrap_or(0);
+    let suppressed = state.prewarm_suppressed.load(Ordering::SeqCst);
+
+    match idle_pool_action(
+        any_window_visible,
+        idle_for,
+        IDLE_RECLAIM_AFTER,
+        pooled_windows,
+        suppressed,
+    ) {
+        IdlePoolAction::Keep => {}
+        IdlePoolAction::Drain => drain_notepad_pool(app),
+        IdlePoolAction::Rewarm => {
+            state.prewarm_suppressed.store(false, Ordering::SeqCst);
+            schedule_notepad_prewarm(app);
+        }
+    }
+}
+
+/// 把池子里预热好的窗口**真正关掉**。
+///
+/// `recycle_notepad_window` 只是 `hide()` 之后放回池子 —— 窗口对象还在，连同它那个
+/// 渲染进程一起。回收要的是把这些进程交还给系统，所以这里必须 `close()`。
+fn drain_notepad_pool(app: &AppHandle) {
+    let Some(state) = app.try_state::<RuntimeState>() else {
+        return;
+    };
+    let Some(pool) = app.try_state::<NotepadPool>() else {
+        return;
+    };
+
+    let labels = pool.drain();
+    if labels.is_empty() {
+        return;
+    }
+
+    // 先立旗子再关窗：`close()` 会派发窗口事件，那期间任何一次预热都该被挡掉，
+    // 否则会立刻把刚腾出来的内存又填回去，回收等于白做。
+    state.prewarm_suppressed.store(true, Ordering::SeqCst);
+
+    for label in &labels {
+        if let Some(window) = app.get_webview_window(label) {
+            let _ = window.close();
+        }
+    }
+}
+
 fn schedule_notepad_replenish(app: &AppHandle, delay_ms: u64) {
     let handle = app.clone();
     std::thread::spawn(move || {
@@ -1559,6 +1724,14 @@ fn prewarm_notepad(app: &AppHandle) -> Result<(), AppError> {
         message: "notepad pool not initialized".into(),
         details: Default::default(),
     })?;
+
+    // 闲置回收期间不要再补：补了就等于没回收，白白常驻一份渲染进程。
+    if app
+        .try_state::<RuntimeState>()
+        .is_some_and(|state| state.prewarm_suppressed.load(Ordering::SeqCst))
+    {
+        return Ok(());
+    }
 
     if !pool.is_below_capacity() {
         return Ok(());
@@ -2802,5 +2975,99 @@ mod tests {
         assert!(permissions
             .iter()
             .any(|permission| permission.as_str() == Some("core:window:allow-set-focus")));
+    }
+
+    // ------------------------------------------------------------ 闲置回收
+
+    /// 测试用的阈值，比真实值小得多 —— 真实那 5 分钟是给用户用的，不是给测试跑表用的。
+    const THRESHOLD: Duration = Duration::from_secs(300);
+
+    #[test]
+    fn idle_reclaim_waits_until_every_window_is_gone() {
+        // 有窗口可见 = 用户正在用，一个字节都不该动。
+        assert_eq!(
+            idle_pool_action(true, Some(THRESHOLD * 10), THRESHOLD, 2, false),
+            IdlePoolAction::Keep
+        );
+    }
+
+    #[test]
+    fn idle_reclaim_waits_for_the_full_threshold() {
+        // 刚藏起来（None = 这一轮才进入闲置）不能回收 —— 用户可能只是切了个窗口。
+        assert_eq!(
+            idle_pool_action(false, None, THRESHOLD, 2, false),
+            IdlePoolAction::Keep
+        );
+        assert_eq!(
+            idle_pool_action(false, Some(THRESHOLD - Duration::from_secs(1)), THRESHOLD, 2, false),
+            IdlePoolAction::Keep
+        );
+        assert_eq!(
+            idle_pool_action(false, Some(THRESHOLD), THRESHOLD, 2, false),
+            IdlePoolAction::Drain
+        );
+    }
+
+    #[test]
+    fn idle_reclaim_skips_when_there_is_nothing_pooled() {
+        // 池子本来就空（用户没开过记事本、或者已经回收过了）—— 没什么可销毁的。
+        assert_eq!(
+            idle_pool_action(false, Some(THRESHOLD), THRESHOLD, 0, false),
+            IdlePoolAction::Keep
+        );
+    }
+
+    #[test]
+    fn idle_reclaim_is_not_repeated_once_suppressed() {
+        // 已经回收过就保持安静，不然每个 tick 都白跑一趟。
+        assert_eq!(
+            idle_pool_action(false, Some(THRESHOLD * 2), THRESHOLD, 0, true),
+            IdlePoolAction::Keep
+        );
+    }
+
+    #[test]
+    fn idle_reclaim_rewarms_as_soon_as_the_user_comes_back() {
+        // 回收过之后，只要有窗口重新可见就把预热补回来 —— 秒开体验要还回去。
+        assert_eq!(
+            idle_pool_action(true, None, THRESHOLD, 0, true),
+            IdlePoolAction::Rewarm
+        );
+    }
+
+    #[test]
+    fn idle_reclaim_does_not_rewarm_when_nothing_was_reclaimed() {
+        // 没回收过就别补：池子本来可能是满的，补了只会重排一堆没用的定时器。
+        assert_eq!(
+            idle_pool_action(true, None, THRESHOLD, 2, false),
+            IdlePoolAction::Keep
+        );
+    }
+
+    #[test]
+    fn notepad_pool_drains_and_reports_empty() {
+        let pool = NotepadPool::default();
+        assert_eq!(pool.len(), 0);
+        assert!(pool.drain().is_empty());
+
+        assert!(pool.put("notepad-1".to_string()));
+        assert!(pool.put("notepad-2".to_string()));
+        assert_eq!(pool.len(), 2);
+
+        // 回收：清空并交出标签（调用方据此 close 掉窗口）。
+        let mut drained = pool.drain();
+        drained.sort();
+        assert_eq!(drained, vec!["notepad-1", "notepad-2"]);
+        assert_eq!(pool.len(), 0);
+    }
+
+    #[test]
+    fn notepad_pool_still_caps_at_capacity() {
+        let pool = NotepadPool::default();
+        assert!(pool.put("notepad-1".to_string()));
+        assert!(pool.put("notepad-2".to_string()));
+        // 第三个进不来 —— 回收之后容量规则不能被破坏。
+        assert!(!pool.put("notepad-3".to_string()));
+        assert_eq!(pool.len(), NOTEPAD_POOL_CAPACITY);
     }
 }
