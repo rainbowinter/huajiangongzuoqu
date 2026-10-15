@@ -474,6 +474,15 @@ fn safe_version_label(version: &str) -> String {
     }
 }
 
+/// 这个版本号能不能参与比较（与 [`version_is_newer`] 用的是同一个解析器）。
+///
+/// 市场拿它当准入判据：比不了大小的版本号进来也没法做「有没有新版」的判断，那就不该
+/// 让它出现在市场里。**必须是同一个函数** —— 两处各写一份规则的话，迟早出现「市场说
+/// 能装、校正说比不了」。
+pub fn version_is_comparable(raw: &str) -> bool {
+    version_segments(raw).is_some()
+}
+
 /// 把版本号拆成数字段。拆不出来（含非数字、为空）就返回 `None`。
 fn version_segments(raw: &str) -> Option<Vec<u64>> {
     let trimmed = raw.trim();
@@ -542,6 +551,20 @@ mod tests {
             "预发布后缀不参与比较，且绝不能因此判成更新"
         );
         assert!(!version_is_newer("1.1.0+build.7", "1.1.0"));
+    }
+
+    #[test]
+    fn comparability_uses_the_same_parser_as_comparison() {
+        // 市场拿这个函数当准入判据，两处必须同源 —— 否则会出现「市场放行了一个
+        // 版本比较器根本比不了的版本号」。
+        for good in ["1", "1.0", "1.0.0", "1.0.0-beta.2", "1.0.0+build7", " 2.1 "] {
+            assert!(version_is_comparable(good), "{good} 应当可比较");
+        }
+        for bad in ["", "   ", "nightly", "v1.0", "1_2", "1..0", "1.0.0.0.0.0.x", "1.x"] {
+            assert!(!version_is_comparable(bad), "{bad} 不该被当成可比较");
+        }
+        // 后缀只有前半段算数：`1.0-` 的主版本号是 `1.0`，照样可比较。
+        assert!(version_is_comparable("1.0-"));
     }
 
     #[test]

@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   blockedText,
   catalogSummary,
+  compareVersions,
   defaultRelease,
+  findInstalled,
   formatSize,
   isInstallable,
   isMarketVisible,
+  releaseRelation,
   type MarketState,
 } from "./presentation";
 import type { MarketPlugin, MarketRelease } from "./types";
@@ -125,5 +128,71 @@ describe("catalogSummary", () => {
     expect(
       catalogSummary({ schema: 1, catalogVersion: 7, plugins: [plugin(), plugin({ name: "b" })] }),
     ).toBe("共 2 个插件 · 清单 v7");
+  });
+});
+
+describe("compareVersions", () => {
+  it("按数字段比，不是按字符串", () => {
+    // 字符串比较会说 "1.10.0" < "1.9.0"，那就全错了。
+    expect(compareVersions("1.10.0", "1.9.0")!).toBeGreaterThan(0);
+    expect(compareVersions("2.0.0", "1.99.99")!).toBeGreaterThan(0);
+    expect(compareVersions("1.0.0", "1.0.0")).toBe(0);
+  });
+
+  it("1.0 与 1.0.0 是同一版", () => {
+    expect(compareVersions("1.0", "1.0.0")).toBe(0);
+    expect(compareVersions(" 1.0.0 ", "1.0.0")).toBe(0);
+  });
+
+  it("预发布后缀不参与比较（与 Rust 侧同一个决定）", () => {
+    // 「宁可判成相同也不能判成更新」—— 见 sync.rs 的 version_is_newer。
+    expect(compareVersions("1.0.0-beta1", "1.0.0")).toBe(0);
+    expect(compareVersions("1.1.0-beta.2", "1.1.0")).toBe(0);
+    expect(compareVersions("1.0.0+build7", "1.0.0")).toBe(0);
+  });
+
+  it("拆不出来就说比不了，而不是当成相等", () => {
+    // 这是最要紧的一条：把「比不了」当成「一样」会让界面说「已是最新」，
+    // 而它其实什么都不知道。
+    expect(compareVersions("nightly", "1.0.0")).toBeNull();
+    expect(compareVersions("1.0.0", "dev")).toBeNull();
+    expect(compareVersions("", "1.0.0")).toBeNull();
+    // 整段必须是数字（与 Rust 严格一致）：`v1.0`、`1_2`、空段都拆不出来。
+    expect(compareVersions("v1.0", "1.0.0")).toBeNull();
+    expect(compareVersions("1_2", "1.2")).toBeNull();
+    expect(compareVersions("1..0", "1.0.0")).toBeNull();
+  });
+
+  it("后缀里有非数字段也不影响：先切掉 - 之后的部分再看", () => {
+    // `1.0-beta.1` 的主版本是 `1.0`，所以与 `1.0.0` 同版。
+    expect(compareVersions("1.0-beta.1", "1.0.0")).toBe(0);
+  });
+});
+
+describe("releaseRelation", () => {
+  it("没装过就是安装", () => {
+    expect(releaseRelation(undefined, "1.0.0")).toBe("install");
+    expect(releaseRelation(null, "1.0.0")).toBe("install");
+    // 装了但版本号是空的，也当没装过（清单里版本号缺失是常态）。
+    expect(releaseRelation("", "1.0.0")).toBe("install");
+  });
+
+  it("区分更新、重装与降级", () => {
+    expect(releaseRelation("1.0.0", "1.1.0")).toBe("newer");
+    expect(releaseRelation("1.0.0", "1.0.0")).toBe("same");
+    // 降级是允许的（历史版本），但界面上要说清楚，不能让人以为装的是最新版。
+    expect(releaseRelation("1.1.0", "1.0.0")).toBe("older");
+  });
+
+  it("比不了的时候给 unknown，不猜", () => {
+    expect(releaseRelation("nightly", "1.0.0")).toBe("unknown");
+  });
+});
+
+describe("findInstalled", () => {
+  it("按名字找", () => {
+    const installed = [{ name: "a" }, { name: "b" }];
+    expect(findInstalled(installed, "b")).toEqual({ name: "b" });
+    expect(findInstalled(installed, "c")).toBeUndefined();
   });
 });

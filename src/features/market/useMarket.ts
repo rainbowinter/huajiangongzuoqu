@@ -5,6 +5,37 @@ import type { MarketState } from "./presentation";
 
 export type { MarketState };
 
+/**
+ * 只问「市场配了吗」，**不取清单**。`null` = 还没问出来。
+ *
+ * 用来决定要不要露出市场那个 tab：没配市场时界面上一点痕迹都不该有。取清单是另一件事
+ * （见 `useMarket`），要等用户真的打开那个 tab 再做。
+ */
+export function useMarketEnabled(): boolean | null {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const endpoint = await getMarketEndpoint();
+        if (!cancelled) setEnabled(endpoint !== null);
+      } catch (error) {
+        // 问不出来就当没配 —— 宁可不显示，也不要露出一个点开就报错的功能。
+        console.error("[market] 取市场端点失败", error);
+        if (!cancelled) setEnabled(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return enabled;
+}
+
 export interface MarketController {
   state: MarketState;
   /**

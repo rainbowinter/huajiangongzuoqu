@@ -70,16 +70,9 @@ pub fn verify_signed(data: &[u8], signature_base64: &str, pubkey_base64: &str) -
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// 阶段 0 的实测夹具：用一把**测试密钥**（`market-test.key`，只在本机临时生成、
-    /// 与生产私钥无关）签的一段最小清单。
-    ///
-    /// 私钥没有进仓库；这里只有「原文 + 签名 + 公钥」，够验证配方，也够当成格式的回归锚点。
-    const CATALOG: &str = "{\n  \"schema\": 1,\n  \"catalogVersion\": 1,\n  \"plugins\": []\n}\n";
-
-    const SIGNATURE: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRbXgyaWpFY1dvR1ppK3JJODAweFM5UW5qZS9ra3AvRzE4UmRQN1hwSi9ZMUJuZFduYWN2VjVuVG1icGpvN3RnM0hxYlNrQmxHTjZhdENDcktPWWV2WkFqMkhObjRoK1FZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMDU0NDkwCWZpbGU6cGx1Z2luLWNhdGFsb2cuanNvbgpDU2NtNEtYR1F4SUpwSDdscnV5bkhvL0FpL1UxMUp6NVdNM2dvZ2pLTmtNTXI3Tmo4VlRKVS9zN3g4YkVqUmVPSWUwcW9RcUZDL1YvS2trOHJWOUdDQT09Cg==";
-
-    const PUBKEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE5QThDNTExQTM2OEM3MjYKUldRbXgyaWpFY1dvR1JFQmN5eXM0MHNZNXprN2xrSm9FUURNdEt0NzcxdlNoMmJuKy9SMkcya3AK";
+    use super::super::testkit::{
+        CATALOG_PUBKEY as PUBKEY, CATALOG_SIGNATURE as SIGNATURE, SIGNED_CATALOG as CATALOG,
+    };
 
     #[test]
     fn accepts_a_signature_from_the_matching_key() {

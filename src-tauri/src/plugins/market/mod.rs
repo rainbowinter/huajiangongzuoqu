@@ -12,3 +12,7 @@ pub mod commands;
 pub mod config;
 pub mod install;
 pub mod verify;
+
+/// 测试专用（最小 HTTP 服务器 + 签名夹具），不进正式构建。
+#[cfg(test)]
+pub mod testkit;

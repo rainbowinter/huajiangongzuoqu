@@ -52,7 +52,7 @@
 
 use super::super::errors::{app_error, with_detail};
 use super::super::paths::validate_plugin_name;
-use super::super::sync::version_is_newer;
+use super::super::sync::{version_is_comparable, version_is_newer};
 use super::verify::verify_signed;
 use crate::services::notes::AppError;
 use serde::{Deserialize, Serialize};
@@ -299,8 +299,10 @@ fn build_release(raw: RawRelease, host: &HostEnv, name_usable: bool) -> CatalogR
         Some("marketPluginNameInvalid".to_string())
     } else if version.trim().is_empty() {
         Some("marketReleaseMissingVersion".to_string())
-    } else if !version_segments_parsable(&version) {
+    } else if !version_is_comparable(&version) {
         // 版本号拆不出数字段就没法比大小，也就没法做「更新」判断。宁可拒绝。
+        // 判据用的就是版本校正那个解析器 —— 两处规则一致，才不会出现「市场能装、
+        // 校正比不了」。
         Some("marketReleaseVersionInvalid".to_string())
     } else if url.trim().is_empty() {
         Some("marketReleaseMissingUrl".to_string())
@@ -429,18 +431,6 @@ pub fn normalize_sha256(value: &str) -> Option<String> {
         return None;
     }
     Some(trimmed.to_ascii_lowercase())
-}
-
-/// 版本号能不能拆成数字段（与 `sync::version_is_newer` 的判据一致）。
-fn version_segments_parsable(version: &str) -> bool {
-    let core = version.trim().trim_start_matches('v');
-    if core.is_empty() {
-        return false;
-    }
-    core.split(['.', '-', '_']).all(|part| {
-        let digits: String = part.chars().take_while(|c| c.is_ascii_digit()).collect();
-        !digits.is_empty()
-    })
 }
 
 fn non_empty(value: Option<String>) -> Option<String> {
@@ -900,5 +890,85 @@ mod tests {
         let catalog = parse_catalog(&raw, &host()).unwrap();
         let names: Vec<&str> = catalog.plugins.iter().map(|p| p.name.as_str()).collect();
         assert_eq!(names, vec!["alpha", "zebra"]);
+    }
+
+    // ------------------------------------------------------------ 真起一个服务器取回来
+
+    #[test]
+    fn fetches_and_verifies_the_catalog_over_http() {
+        use super::super::testkit::TestServer;
+
+        let server = TestServer::start(vec![
+            (
+                "/plugin-catalog.json".to_string(),
+                super::super::testkit::SIGNED_CATALOG.as_bytes().to_vec(),
+            ),
+            (
+                "/plugin-catalog.json.sig".to_string(),
+                super::super::testkit::CATALOG_SIGNATURE.as_bytes().to_vec(),
+            ),
+        ]);
+
+        let pubkey = super::super::testkit::CATALOG_PUBKEY;
+        let url = format!("{}/plugin-catalog.json", server.base);
+        let catalog = fetch_catalog(&url, pubkey, &host()).expect("应当取回并验签通过");
+
+        assert_eq!(catalog.schema, CATALOG_SCHEMA);
+        assert_eq!(catalog.catalog_version, 1);
+        assert_eq!(
+            server.hits(),
+            vec!["/plugin-catalog.json", "/plugin-catalog.json.sig"],
+            "签名必须真的去取过 —— 少了那一步，验签就成了摆设"
+        );
+    }
+
+    #[test]
+    fn a_tampered_catalog_is_rejected_before_parsing() {
+        use super::super::testkit::TestServer;
+
+        // 正文被改了一个字节（`catalogVersion` 从 1 改成 9），签名还是那份。
+        let tampered = super::super::testkit::SIGNED_CATALOG.replace(
+            "\"catalogVersion\": 1",
+            "\"catalogVersion\": 9",
+        );
+        let server = TestServer::start(vec![
+            ("/c.json".to_string(), tampered.into_bytes()),
+            (
+                "/c.json.sig".to_string(),
+                super::super::testkit::CATALOG_SIGNATURE.as_bytes().to_vec(),
+            ),
+        ]);
+
+        let error = fetch_catalog(
+            &format!("{}/c.json", server.base),
+            super::super::testkit::CATALOG_PUBKEY,
+            &host(),
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            error.code, "marketSignatureInvalid",
+            "验签不过要在这里就断掉，绝不能带着「版本 9」往下走"
+        );
+    }
+
+    #[test]
+    fn a_missing_signature_is_an_error_not_a_free_pass() {
+        use super::super::testkit::TestServer;
+
+        // 服务器上只有正文，没有 .sig。
+        let server = TestServer::start(vec![(
+            "/plugin-catalog.json".to_string(),
+            super::super::testkit::SIGNED_CATALOG.as_bytes().to_vec(),
+        )]);
+
+        let error = fetch_catalog(
+            &format!("{}/plugin-catalog.json", server.base),
+            super::super::testkit::CATALOG_PUBKEY,
+            &host(),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "marketRequestFailed");
     }
 }

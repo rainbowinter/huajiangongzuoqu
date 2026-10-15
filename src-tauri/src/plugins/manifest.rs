@@ -7,6 +7,7 @@
 
 use super::errors::{plugin_manifest_invalid, with_detail};
 use super::paths::is_supported_entry;
+use super::state::PluginOrigin;
 use crate::services::notes::AppError;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -74,6 +75,8 @@ pub struct PluginManifest {
     pub warnings: Vec<String>,
     /// 插件目录的绝对路径，便于用户在界面上定位。
     pub dir_path: String,
+    /// 打哪来的（随应用分发 / 插件市场）。界面靠它决定「这个能不能从市场更新/卸载」。
+    pub origin: PluginOrigin,
 }
 
 pub fn read_manifest_file(dir: &Path) -> Result<PluginManifestFile, AppError> {
@@ -147,6 +150,7 @@ pub fn to_dto(
     manifest: &PluginManifestFile,
     enabled: bool,
     granted_permissions: Vec<String>,
+    origin: PluginOrigin,
 ) -> PluginManifest {
     let (valid, invalid_reason, warnings) = validate(dir_name, manifest);
 
@@ -167,6 +171,7 @@ pub fn to_dto(
         invalid_reason,
         warnings,
         dir_path: dir_path.display().to_string(),
+        origin,
     }
 }
 
@@ -279,6 +284,7 @@ mod tests {
             &manifest,
             true,
             vec!["editor:read".to_string()],
+            PluginOrigin::Market,
         );
 
         assert_eq!(dto.name, "dir-name", "对外标识必须是目录名");
@@ -286,12 +292,24 @@ mod tests {
         assert!(dto.valid);
         assert_eq!(dto.granted_permissions, vec!["editor:read"]);
         assert_eq!(dto.dir_path, "X:/plugins/dir-name");
+        assert_eq!(
+            dto.origin,
+            PluginOrigin::Market,
+            "界面靠这个字段决定能不能从市场更新/卸载"
+        );
     }
 
     #[test]
     fn to_dto_flags_invalid_manifest() {
         let manifest = manifest_with(99, "index.js");
-        let dto = to_dto("demo", &PathBuf::from("X:/plugins/demo"), &manifest, true, vec![]);
+        let dto = to_dto(
+            "demo",
+            &PathBuf::from("X:/plugins/demo"),
+            &manifest,
+            true,
+            vec![],
+            PluginOrigin::Bundled,
+        );
 
         assert!(!dto.valid);
         assert_eq!(dto.invalid_reason.as_deref(), Some("apiVersionUnsupported:99"));

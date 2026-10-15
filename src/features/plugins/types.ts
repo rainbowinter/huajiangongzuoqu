@@ -36,6 +36,13 @@ export interface PluginManifest {
   warnings: string[];
   /** 插件目录绝对路径。 */
   dirPath: string;
+  /**
+   * 打哪来的：`bundled` = 随应用分发或用户自己放的，`market` = 从插件市场装的。
+   *
+   * 插件市场靠它决定「这个能不能从市场更新/卸载」。内置版本校正（Rust 侧）也按它
+   * 避开市场插件。
+   */
+  origin?: "bundled" | "market";
 }
 
 /**

@@ -28,6 +28,8 @@ import {
 } from "../features/plugins/registry";
 import { buildPluginDetails, type PluginContribution } from "../features/docs/pluginDetails";
 import type { PluginCommand, PluginRuntimeRecord, PluginStatus } from "../features/plugins/types";
+import { useMarketEnabled } from "../features/market/useMarket";
+import { MarketPanel } from "./MarketPanel";
 import { PluginParams, parseSettingFields } from "./PluginParams";
 import { Switch } from "./Switch";
 import { showToast } from "./Toast";
@@ -336,9 +338,12 @@ export function PluginCommandPanel({ onClose, onOpenDoc }: PluginCommandPanelPro
 
   const [pluginsDir, setPluginsDir] = useState("");
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<"plugins" | "commands" | "logs">("plugins");
+  const [tab, setTab] = useState<"plugins" | "commands" | "logs" | "market">("plugins");
   const [query, setQuery] = useState("");
   const [expandedPlugins, setExpandedPlugins] = useState<ReadonlySet<string>>(new Set());
+
+  /** 市场没配的话连这个 tab 都不出现（`null` = 还没问出来，也不出现）。 */
+  const marketEnabled = useMarketEnabled();
 
   const handleToggleExpand = useCallback((name: string) => {
     setExpandedPlugins((current) => {
@@ -421,10 +426,20 @@ export function PluginCommandPanel({ onClose, onOpenDoc }: PluginCommandPanelPro
     );
   }, [plugins, query]);
 
+  /** 装完 / 卸完之后：重载插件，注册表一变，两边列表都会跟着刷新。 */
+  const handleMarketChanged = useCallback(async () => {
+    await reloadPlugins();
+  }, []);
+
+  /** 已装插件的清单，喂给插件市场判断「装过没有、能不能更新」。 */
+  const installedManifests = useMemo(() => plugins.map((record) => record.manifest), [plugins]);
+
   const tabs: Array<{ key: typeof tab; label: string; count: number }> = [
     { key: "plugins", label: "插件", count: plugins.length },
     { key: "commands", label: "命令", count: commands.length },
     { key: "logs", label: "日志", count: logs.length },
+    // 市场没配就不出现 —— 与右上角那颗更新胶囊同一条规矩：没开的功能不留痕迹。
+    ...(marketEnabled ? [{ key: "market" as const, label: "市场", count: 0 }] : []),
   ];
 
   return (
@@ -591,6 +606,10 @@ export function PluginCommandPanel({ onClose, onOpenDoc }: PluginCommandPanelPro
         ) : null}
 
         {tab === "logs" ? <LogList entries={logs} /> : null}
+
+        {tab === "market" ? (
+          <MarketPanel installed={installedManifests} onChanged={handleMarketChanged} />
+        ) : null}
       </div>
 
       <div className="px-4 py-2.5 border-t border-paper-deep/30 flex items-center justify-between gap-2 shrink-0">

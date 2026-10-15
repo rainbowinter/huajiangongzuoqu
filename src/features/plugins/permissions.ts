@@ -40,6 +40,47 @@ export const PERMISSIONS = [
 
 export type Permission = (typeof PERMISSIONS)[number];
 
+/**
+ * 每个权限给人看的一句话。
+ *
+ * 类型写成 `Record<Permission, string>` 是**故意的**：往 `PERMISSIONS` 里加一个权限却
+ * 忘了写说明，TypeScript 会直接报错。市场那边「装之前列清楚」全靠这张表 —— 只给用户看
+ * `workspace:read` 这种串，等于什么都没说。
+ */
+export const PERMISSION_LABEL: Record<Permission, string> = {
+  "workspace:read": "读取工作区里的文件",
+  "workspace:write": "修改或新建工作区里的文件",
+  "categories:read": "读取笔记分类",
+  "categories:write": "修改笔记分类",
+  "editor:read": "读取当前笔记的内容与光标位置",
+  "editor:write": "修改当前笔记的内容",
+  "ui:toast": "弹出提示消息",
+  "ui:panel": "在右侧栏加一个自己的面板",
+  "ui:command": "注册可以在命令面板里调用的命令",
+  "ui:statusbar": "在底部状态栏显示信息",
+  "ui:menus": "往右键菜单里加项目",
+  "ui:toolbar": "往工具栏加按钮",
+  "ui:popover": "打开一个浮层",
+  "ui:open-panel": "打开别的插件面板",
+  "ui:style": "往笔记里注入样式",
+  "ui:gutter": "在编辑器行号旁显示标记",
+  "ui:decorations": "在正文里叠加装饰（不改变文字本身）",
+  events: "订阅笔记与工作区的变化事件",
+  "files:register": "注册新的文件类型",
+  "files:view": "为文件类型提供浏览界面",
+  storage: "在插件自己的数据目录里存东西",
+  settings: "在插件面板里显示自己的设置项",
+  "system:clipboard:read": "读取系统剪贴板",
+  "system:clipboard:write": "往系统剪贴板写入",
+  "system:open-external": "用系统默认程序打开链接或文件",
+  "system:dialog": "弹出系统文件选择框或提示框",
+};
+
+/** 权限的一句话说明；宿主不认识的权限原样返回（界面上会标成「未知」）。 */
+export function describePermission(permission: string): string {
+  return isPermission(permission) ? PERMISSION_LABEL[permission] : "宿主不认识这个权限，会被忽略";
+}
+
 const PERMISSION_SET: ReadonlySet<string> = new Set(PERMISSIONS);
 
 /** 蕴含关系：授予前者即同时获得后者。 */

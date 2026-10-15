@@ -86,6 +86,7 @@ fn invalid_record(
         invalid_reason: Some(reason.into()),
         warnings,
         dir_path: dir.display().to_string(),
+        origin: state::PluginOrigin::Bundled,
     }
 }
 
@@ -102,7 +103,7 @@ fn build_record(dir: &Path, dir_name: &str, state: &state::PluginStateFile) -> P
     let entry = state.entry(dir_name);
     let granted = entry.effective_permissions(&manifest.permissions);
 
-    to_dto(dir_name, dir, &manifest, entry.enabled, granted)
+    to_dto(dir_name, dir, &manifest, entry.enabled, granted, entry.origin)
 }
 
 #[cfg(test)]

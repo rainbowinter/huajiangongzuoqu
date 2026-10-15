@@ -1019,6 +1019,91 @@ mod tests {
         fs::remove_dir_all(root).ok();
     }
 
+    // ------------------------------------------------------------ 端到端（真下一个包）
+
+    /// 走完整条路：真发 HTTP 请求 → 边下边算 sha256 → 解压 → 复核 → 落盘 → 记状态。
+    ///
+    /// 这是唯一一处把「下载」也跑起来的地方 —— 其余用例都假设包已经在本地了。
+    #[test]
+    fn installs_a_plugin_downloaded_over_http() {
+        use super::super::testkit::TestServer;
+
+        let (paths, root) = temp_paths("http");
+        let bytes = plugin_zip("demo", MANIFEST, &[("index.js", "// 从市场装来的")]);
+        let server = TestServer::start(vec![("/demo-1.0.0.zip".to_string(), bytes.clone())]);
+
+        let outcome = install(
+            &paths,
+            &InstallRequest {
+                name: "demo".to_string(),
+                version: "1.0.0".to_string(),
+                url: format!("{}/demo-1.0.0.zip", server.base),
+                sha256: sha256_of(&bytes),
+                approved_permissions: vec!["editor:read".to_string()],
+            },
+        )
+        .expect("应当装成功");
+
+        assert_eq!(outcome.version, "1.0.0");
+        assert_eq!(
+            server.hits(),
+            vec!["/demo-1.0.0.zip"],
+            "下载必须真的发出去过"
+        );
+        assert_eq!(
+            fs::read_to_string(paths.root.join("demo").join("index.js")).unwrap(),
+            "// 从市场装来的",
+            "文件要真的落到插件目录里"
+        );
+
+        // 状态文件里必须是 Some([...])，绝不能是 None（None = 按清单全量自动授予）。
+        let entry = state::load(&paths.state_path, &paths.data_dir).entry("demo");
+        assert_eq!(entry.origin, PluginOrigin::Market);
+        assert_eq!(
+            entry.granted_permissions,
+            Some(vec!["editor:read".to_string()])
+        );
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn a_download_that_fails_its_checksum_never_reaches_the_plugin_directory() {
+        use super::super::testkit::TestServer;
+
+        let (paths, root) = temp_paths("http-bad-hash");
+        let served = plugin_zip("demo", MANIFEST, &[("index.js", "// 服务器给的东西")]);
+        let server = TestServer::start(vec![("/demo-1.0.0.zip".to_string(), served)]);
+
+        let error = install(
+            &paths,
+            &InstallRequest {
+                name: "demo".to_string(),
+                version: "1.0.0".to_string(),
+                url: format!("{}/demo-1.0.0.zip", server.base),
+                // 清单里写的是另一份内容的哈希。
+                sha256: sha256_of(b"not the served content at all"),
+                approved_permissions: vec![],
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "marketChecksumMismatch");
+        assert!(!server.hits().is_empty(), "请求确实发出去过，是内容对不上");
+        assert!(
+            !paths.root.join("demo").exists(),
+            "校验不过的东西一个字节都不许进插件目录"
+        );
+        assert!(
+            !state::load(&paths.state_path, &paths.data_dir)
+                .plugins
+                .contains_key("demo"),
+            "更不该在状态里留下一笔"
+        );
+
+        fs::remove_dir_all(root).ok();
+    }
+
     #[test]
     fn rejects_absurd_permission_lists() {
         let too_many: Vec<String> = (0..MAX_APPROVED_PERMISSIONS + 1)

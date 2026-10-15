@@ -108,3 +108,78 @@ export function catalogSummary(catalog: MarketCatalog): string {
   const count = catalog.plugins.length;
   return `共 ${count} 个插件 · 清单 v${catalog.catalogVersion}`;
 }
+
+/**
+ * 拆版本号里的数字段；拆不出来返回 `null`。
+ *
+ * **规则必须与 Rust 侧 `sync::version_segments` 一模一样**（那是版本校正用的解析器，
+ * 市场那边也拿它当准入判据）：
+ *
+ * * 先去掉 `-` / `+` 之后的部分 —— 预发布后缀不参与比较，`1.1.0-beta.2` 与 `1.1.0` 同版；
+ * * 再按 `.` 切，**每一段整体必须是数字**（`v1.0`、`1_2`、`1.0-beta.1` 都拆不出来）。
+ *
+ * 两边不一致的后果是「界面说有新版、后端说没有」这种自相矛盾，所以宁可两边都严。
+ */
+function versionSegments(raw: string): number[] | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  const core = trimmed.split(/[-+]/)[0] ?? trimmed;
+  const segments: number[] = [];
+  for (const part of core.split(".")) {
+    if (!/^\d+$/.test(part)) return null;
+    segments.push(Number(part));
+  }
+  return segments;
+}
+
+/**
+ * 比大小：`a > b` 返回正数，相等 0，`a < b` 负数。
+ *
+ * **拆不出数字段时返回 `null`**，也就是「比不了」——调用方必须把它当成第三种结果，
+ * 不能当成「相等」：版本号是自由字符串（`nightly`、`1.0-beta` 都合法），把「比不了」
+ * 当成「一样」会让界面显示「已是最新」，而它根本不知道。
+ */
+export function compareVersions(a: string, b: string): number | null {
+  const left = versionSegments(a);
+  const right = versionSegments(b);
+  if (!left || !right) return null;
+
+  // 补齐到等长再逐位比：`1.0` 与 `1.0.0` 是同一版。
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const x = left[index] ?? 0;
+    const y = right[index] ?? 0;
+    if (x !== y) return x - y;
+  }
+  return 0;
+}
+
+/**
+ * 某个版本相对于**已装版本**是什么关系。
+ *
+ * `install` = 还没装过；`unknown` = 装了，但两边有一个版本号拆不出数字段（比不了）。
+ * 界面按这个决定按钮上写「安装 / 更新 / 重装 / 降级」，以及要不要提醒「这是旧版本」。
+ */
+export type ReleaseRelation = "install" | "same" | "newer" | "older" | "unknown";
+
+export function releaseRelation(
+  installed: string | undefined | null,
+  candidate: string,
+): ReleaseRelation {
+  if (!installed) return "install";
+
+  const compared = compareVersions(candidate, installed);
+  if (compared === null) return "unknown";
+  if (compared > 0) return "newer";
+  if (compared < 0) return "older";
+  return "same";
+}
+
+/** 从已装列表里找同名的那个插件。 */
+export function findInstalled<T extends { name: string }>(
+  installed: readonly T[],
+  name: string,
+): T | undefined {
+  return installed.find((plugin) => plugin.name === name);
+}
