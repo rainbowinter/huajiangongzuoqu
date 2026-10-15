@@ -1,5 +1,11 @@
 import { describe, expect, test } from "vitest";
-import { createElementRefHelpers, type ElementRef } from "./elementRef";
+import {
+  createElementRefHelpers,
+  markElementRef,
+  reviveElementRef,
+  type ElementRef,
+  type ElementRefHelpers,
+} from "./elementRef";
 
 /**
  * 只测描述符上的查询助手。
@@ -54,7 +60,7 @@ describe("closest() 的受限选择器语法", () => {
     expect(helpers.closest("#outline-body")?.tag).toBe("div");
   });
 
-  test("支持 [data-x] 与 [data-x=\"v\"]", () => {
+  test('支持 [data-x] 与 [data-x="v"]', () => {
     const helpers = createElementRefHelpers(ref());
 
     expect(helpers.closest("[data-index]")?.tag).toBe("button");
@@ -101,5 +107,29 @@ describe("outline 插件的迁移写法可行性", () => {
 
     expect(btn).not.toBeNull();
     expect(index).toBe(2);
+  });
+});
+
+describe("跨线程还原", () => {
+  test("标记过的描述符还原后带查询助手，插件侧的写法才能跑起来", () => {
+    // 这正是 outline 插件点击目录项时的调用路径：宿主送裸对象，插件调方法。
+    const revived = reviveElementRef(markElementRef(ref())) as ElementRef & ElementRefHelpers;
+
+    expect(revived.closestClass("outline-item")).toEqual(ref().path[0]);
+    expect(revived.data("index")).toBe("2");
+    expect(revived.text).toBe("第二章");
+  });
+
+  test("没标记的对象原样返回", () => {
+    const plain = { tag: "button", text: "第二章" };
+    expect(reviveElementRef(plain)).toBe(plain);
+    expect(reviveElementRef("字符串")).toBe("字符串");
+    expect(reviveElementRef(null)).toBeNull();
+  });
+
+  test("标记不会污染原始描述符", () => {
+    const original = ref();
+    markElementRef(original);
+    expect(Object.keys(original)).not.toContain("__floralElementRef");
   });
 });

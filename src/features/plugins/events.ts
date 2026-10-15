@@ -28,6 +28,23 @@ export interface FloralEvents {
   "theme:changed": { theme: string; accentColor: string };
   "window:focus": undefined;
   "window:blur": undefined;
+  /**
+   * 插件**自己**的设置被改了，载荷就是当前的完整设置。
+   *
+   * 与上面那些应用级事件不同，这一条不是从 Tauri 转发过来的，而是插件运行时直接推
+   * 给该插件的（见 v2Host.refreshSettings）—— 列在这里是为了让 `api.events.on` 认它。
+   */
+  "settings.changed": Record<string, unknown>;
+  /**
+   * 插件**自己目录**里的文件被保存了。
+   *
+   * 典型场景：用户在花笺里打开插件的样式表改完保存，宿主据此通知那个插件「你的资源
+   * 变了」，插件重新读一遍就立刻生效 —— 不必再点「重新加载」。
+   *
+   * 广播给所有订阅者，载荷里带 `plugin` 名字，插件比对自己的名字过滤即可。
+   * ⚠️ 只有**在花笺里保存**才会触发；用外部编辑器改的不会（那需要一个文件监视器）。
+   */
+  "plugin:assetsChanged": { plugin: string; path: string };
 }
 
 export type FloralEventTopic = keyof FloralEvents;
@@ -41,9 +58,13 @@ export const FLORAL_EVENT_TOPICS: readonly FloralEventTopic[] = [
   "editor:contentChanged",
   "editor:selectionChanged",
   "config:changed",
+  // 插件**自己**的设置被改了。与上面那些应用级事件不同，这一条由插件运行时直接推送
+  // （见 v2Host.refreshSettings），列在这里只是为了让 api.events.on 认它。
+  "settings.changed",
   "theme:changed",
   "window:focus",
   "window:blur",
+  "plugin:assetsChanged",
 ];
 
 type Handler = (payload: unknown) => void;
@@ -119,14 +140,17 @@ export function emitContentChanged(content: string): void {
   // 已经有待发的定时器就只更新内容，不再新建——否则窗口期内每次按键都会排一个定时器。
   if (contentTimer !== null) return;
 
-  contentTimer = setTimeout(() => {
-    contentTimer = null;
-    if (pendingContent === null) return;
-    const latest = pendingContent;
-    pendingContent = null;
-    lastContentEmit = Date.now();
-    emitFloralEvent("editor:contentChanged", { content: latest });
-  }, Math.max(0, CONTENT_EVENT_THROTTLE_MS - elapsed));
+  contentTimer = setTimeout(
+    () => {
+      contentTimer = null;
+      if (pendingContent === null) return;
+      const latest = pendingContent;
+      pendingContent = null;
+      lastContentEmit = Date.now();
+      emitFloralEvent("editor:contentChanged", { content: latest });
+    },
+    Math.max(0, CONTENT_EVENT_THROTTLE_MS - elapsed),
+  );
 }
 
 /** 仅供测试：重置节流状态。 */

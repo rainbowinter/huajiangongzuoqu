@@ -38,6 +38,23 @@ export interface PluginManifest {
   dirPath: string;
 }
 
+/**
+ * 启动时那次「插件版本校正」的结果。
+ *
+ * 校正跑在 Rust 侧的应用启动流程里（把随包分发的插件同步到数据目录里已装的副本上），
+ * 前端起来后取一次。`null` 表示这次启动什么都没更新 —— 此时一个字都不该弹。
+ */
+export interface PluginSyncReport {
+  /** 被覆盖过文件的插件。 */
+  updated: string[];
+  /** 因为本地有改动而被跳过的插件。 */
+  skipped: string[];
+  /** 本地改动无法判断、把原件备份走了的插件。 */
+  backedUp: string[];
+  /** 插件状态文件本身在这次启动里被升级过。 */
+  migrated: boolean;
+}
+
 /** 插件在宿主里的运行状态。 */
 export type PluginStatus =
   /** 已加载并在运行。 */

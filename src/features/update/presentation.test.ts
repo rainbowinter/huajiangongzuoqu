@@ -1,129 +1,65 @@
-import i18n from "../../locales";
-import {
-  ABOUT_UPDATE_LABEL_DURATION_MS,
-  applyAboutUpdateStatus,
-  createAboutUpdateReminderState,
-  dismissAboutUpdateReminderText,
-  getInitialUpdateStatusNotice,
-  getUpdateCheckCompletionNotice,
-} from "./presentation";
-import type { UpdateState } from "./types";
 import { describe, expect, test } from "vitest";
+import { downloadPercent, isUpdateVisible, type UpdateState } from "./presentation";
 
-const availableStatus: UpdateState = {
-  status: "available",
-  currentVersion: "1.0.3",
-  latestVersion: "1.0.4",
-  channel: "stable",
-  assetName: "floral-notepaper_1.0.4_macos_aarch64_app.zip",
-  assetPath: null,
-  assetSha256: "abc",
-  assetSize: 12345678,
-  assetUrl: "https://example.com/download.zip",
-  source: "github",
-  checkedAt: "2026-05-27T08:00:00Z",
-  downloadedAt: null,
-  installLogPath: null,
-  installMode: null,
-  installStartedAt: null,
-  installScheduledAt: null,
-  lastError: null,
-};
+/**
+ * 更新提示的显示判据。
+ *
+ * 这两条规则定的是「用户看到什么」，而 `useUpdate` 拖着 Tauri 插件、`UpdateBadge` 拖着
+ * React —— 本仓库没有 @testing-library，两者都测不了。所以判据被抽到这个没有依赖的
+ * 模块里，在这里钉住。
+ */
 
-describe("update presentation helpers", () => {
-  test("keeps the about reminder collapsed for initial pending updates", () => {
-    expect(createAboutUpdateReminderState(availableStatus)).toEqual({
-      hasPendingUpdate: true,
-      showText: false,
-    });
+describe("什么时候露出「有新版」提示", () => {
+  test("没事可做时完全不出现", () => {
+    // 这两条决定了这个功能在**大多数时候是完全隐形的** —— 启动检查在跑的时候也不该闪一下。
+    expect(isUpdateVisible({ stage: "idle" })).toBe(false);
+    expect(isUpdateVisible({ stage: "checking" })).toBe(false);
   });
 
-  test("opens the about reminder when a new pending update arrives", () => {
-    const next = applyAboutUpdateStatus(createAboutUpdateReminderState(null), availableStatus);
+  test("有事可做的每个阶段都出现", () => {
+    const states: UpdateState[] = [
+      { stage: "available", version: "2.0.1", notes: "" },
+      { stage: "downloading", version: "2.0.1", notes: "", downloaded: 0, total: null },
+      { stage: "ready", version: "2.0.1", notes: "" },
+      { stage: "installing", version: "2.0.1", notes: "" },
+      { stage: "error", message: "网络不通" },
+    ];
 
-    expect(next).toEqual({
-      hasPendingUpdate: true,
-      showText: true,
-    });
+    for (const state of states) {
+      expect(isUpdateVisible(state), `${state.stage} 应当露出提示`).toBe(true);
+    }
   });
 
-  test("dismisses the expanded reminder text while keeping the update icon", () => {
-    expect(
-      dismissAboutUpdateReminderText({
-        hasPendingUpdate: true,
-        showText: true,
-      }),
-    ).toEqual({
-      hasPendingUpdate: true,
-      showText: false,
-    });
+  test("下载完那一刻仍然可见 —— 用户还得点一下才会装", () => {
+    // ready 是「点了才下载」这条规则里最关键的一站：东西下好了但没装，
+    // 提示要是消失，用户就再也找不到那个按钮了。
+    expect(isUpdateVisible({ stage: "ready", version: "2.0.1", notes: "" })).toBe(true);
+  });
+});
+
+describe("下载进度百分比", () => {
+  test("正常算得出来", () => {
+    expect(downloadPercent(0, 200)).toBe(0);
+    expect(downloadPercent(50, 200)).toBe(25);
+    expect(downloadPercent(199, 200)).toBe(99);
+    expect(downloadPercent(200, 200)).toBe(100);
   });
 
-  test("uses a 30 second reminder window", () => {
-    expect(ABOUT_UPDATE_LABEL_DURATION_MS).toBe(30_000);
+  test("还不知道总量时返回 null，而不是 0", () => {
+    // 端点没给 Content-Length 时总量是 null。当成 0% 会画出一条一直不动的进度条，
+    // 比不显示进度更像卡死。界面据此换成「下载中」三个字。
+    expect(downloadPercent(1234, null)).toBeNull();
   });
 
-  test("builds checked notices for available, latest, and failed states", () => {
-    expect(getUpdateCheckCompletionNotice(availableStatus, i18n.t.bind(i18n))).toEqual({
-      tone: "success",
-      text: "发现新版本 1.0.4",
-    });
-
-    expect(
-      getUpdateCheckCompletionNotice(
-        {
-          ...availableStatus,
-          status: "idle",
-          latestVersion: null,
-        },
-        i18n.t.bind(i18n),
-      ),
-    ).toEqual({
-      tone: "success",
-      text: "当前已是最新版本",
-    });
-
-    expect(
-      getUpdateCheckCompletionNotice(
-        {
-          ...availableStatus,
-          status: "failed",
-          latestVersion: null,
-          lastError: {
-            code: "updateGithubApi",
-            message: "GitHub API 请求失败：请求超时",
-            recoverable: true,
-            action: "retry",
-          },
-        },
-        i18n.t.bind(i18n),
-      ),
-    ).toEqual({
-      tone: "error",
-      text: "GitHub API 请求失败，请检查网络后重试",
-    });
+  test("总量为 0 或负数时也返回 null，不做除零", () => {
+    expect(downloadPercent(10, 0)).toBeNull();
+    expect(downloadPercent(10, -5)).toBeNull();
   });
 
-  test("only surfaces failed status on initial render", () => {
-    expect(getInitialUpdateStatusNotice(availableStatus, i18n.t.bind(i18n))).toBeNull();
-
-    expect(
-      getInitialUpdateStatusNotice(
-        {
-          ...availableStatus,
-          status: "failed",
-          lastError: {
-            code: "updateInstallVersionMismatch",
-            message: "still on old version",
-            recoverable: true,
-            action: "retryInstall",
-          },
-        },
-        i18n.t.bind(i18n),
-      ),
-    ).toEqual({
-      tone: "error",
-      text: "安装后重新打开的仍是旧版本，请直接重试安装",
-    });
+  test("夹在 0..100 之间", () => {
+    // 分块累加偶尔会超出总量一点点（服务端 chunks 与 Content-Length 不完全一致），
+    // 进度条宽度不能因此变成负数或者超过容器。
+    expect(downloadPercent(250, 200)).toBe(100);
+    expect(downloadPercent(-10, 200)).toBe(0);
   });
 });

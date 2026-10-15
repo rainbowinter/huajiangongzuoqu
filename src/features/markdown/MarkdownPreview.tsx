@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { memo, useState, useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -11,49 +11,26 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Components } from "react-markdown";
 import "katex/dist/katex.min.css";
-import "highlight.js/styles/github.css";
+// 代码主题不再静态 import —— 那一份是写死的浅色，深色模式下代码块一直是浅的。
+// 现在由 `codeThemes.ts` 在运行时注入，跟随应用主题或当前文件类型的声明。
 import remarkAlerts from "./remarkAlerts";
+import { highlightCode } from "./highlight";
+import { parseImageLayout } from "./imageLayout";
 import { resolveMarkdownImageSrc } from "./imageSrc";
 
 /**
- * 基于 highlight.js 的语法高亮
- * 支持的常用语言列表
+ * hast 子树里有没有 `<img>`。
+ *
+ * 参数类型放宽成 `unknown` 是因为 react-markdown 的 `node` 只声明了一个宽松的
+ * Element 形状，逐层 narrow 反而更啰嗦。
  */
-const HLJS_LANGS = new Set([
-  "python", "py",
-  "java",
-  "c", "cpp", "c++", "csharp", "cs",
-  "javascript", "js", "typescript", "ts", "tsx",
-  "rust", "rs",
-  "go", "golang",
-  "html", "css", "scss", "json", "yaml", "toml",
-  "sql", "shell", "sh", "bash", "powershell", "ps1",
-  "xml", "markdown", "md",
-  "ruby", "php", "swift", "kotlin",
-]);
+function containsImage(node: unknown): boolean {
+  if (!node || typeof node !== "object") return false;
 
-async function highlightCode(code: string, lang: string): Promise<string> {
-  const normalized = lang.toLowerCase().trim();
-  if (!HLJS_LANGS.has(normalized)) return escapeHtmlEntities(code);
+  const element = node as { type?: string; tagName?: string; children?: unknown[] };
+  if (element.type === "element" && element.tagName === "img") return true;
 
-  try {
-    const hljs = await import("highlight.js");
-    const result = hljs.default.highlight(code, {
-      language: normalized,
-      ignoreIllegals: true,
-    });
-    return result.value;
-  } catch {
-    return escapeHtmlEntities(code);
-  }
-}
-
-function escapeHtmlEntities(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+  return (element.children ?? []).some(containsImage);
 }
 
 interface MermaidRenderer {
@@ -103,7 +80,9 @@ function CodeBlock({ children, language }: { children: React.ReactNode; language
         if (!cancelled) setHighlighted(html);
       });
     }
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [rawCode, language, isMermaid]);
 
   // mermaid 流程图渲染
@@ -119,7 +98,9 @@ function CodeBlock({ children, language }: { children: React.ReactNode; language
       .catch(() => {
         if (!cancelled) setMermaidFailed(true);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [rawCode, isMermaid]);
 
   const handleCopy = useCallback(() => {
@@ -301,7 +282,7 @@ function Blockquote({
     );
   }
   return (
-    <blockquote className="border-l-2 border-bamboo/40 pl-4 my-3 text-ink-soft/80 italic leading-[1.9]">
+    <blockquote className="border-l-2 md-quote pl-4 my-3 text-ink-soft/80 italic leading-[1.9]">
       {children}
     </blockquote>
   );
@@ -328,7 +309,22 @@ const staticComponents: Components = {
       {children}
     </h4>
   ),
-  p: ({ children }) => <p className="text-ink-soft leading-[1.9]">{children}</p>,
+  /**
+   * 段落里**含有图片**时改渲染成 `<div>`。
+   *
+   * 图片渲染器产出 `<figure>`（内含 `<figcaption>` 图注），而 `<figcaption>` 不是 `<p>`
+   * 的合法后代 —— 浏览器会擅自把段落闭合，React 也会一直报 "cannot be a descendant of
+   * <p>"。返回 `<div>` 等于整段不再有 `<p>`，问题从根上消失。
+   *
+   * ⚠️ 判断必须**递归整个子树**，不能只看「是不是只有一张图」：行内图片
+   * （`文字 ![图](url)`）的段落里还有文字节点，同样会踩到。
+   */
+  p: ({ children, node }) =>
+    containsImage(node) ? (
+      <div className="text-ink-soft leading-[1.9]">{children}</div>
+    ) : (
+      <p className="text-ink-soft leading-[1.9]">{children}</p>
+    ),
   strong: ({ children }) => <strong className="font-semibold text-ink">{children}</strong>,
   em: ({ children }) => <em className="italic text-bamboo-light">{children}</em>,
   blockquote: Blockquote,
@@ -343,9 +339,7 @@ const staticComponents: Components = {
     </ol>
   ),
   li: ({ children }) => <li className="text-ink-soft leading-[1.9]">{children}</li>,
-  hr: () => (
-    <hr className="my-6 border-none h-px bg-gradient-to-r from-transparent via-paper-deep to-transparent" />
-  ),
+  hr: () => <hr className="my-6 border-none h-px md-divider" />,
   code: ({ className, children }) => {
     const isBlock = className?.startsWith("language-") || String(children).includes("\n");
     if (isBlock) {
@@ -396,25 +390,21 @@ const staticComponents: Components = {
   ),
   table: ({ children }) => (
     <div className="my-3 overflow-x-auto">
-      <table className="w-full text-[0.93em] border-collapse border border-paper-deep/50">
-        {children}
-      </table>
+      <table className="w-full text-[0.93em] border-collapse border md-table">{children}</table>
     </div>
   ),
   th: ({ children }) => (
-    <th className="text-left px-3 py-1.5 border border-paper-deep/40 font-semibold text-ink text-[0.85em] bg-paper-warm/50">
+    <th className="text-left px-3 py-1.5 border md-table font-semibold text-ink text-[0.85em] bg-paper-warm/50">
       {children}
     </th>
   ),
-  td: ({ children }) => (
-    <td className="px-3 py-1.5 border border-paper-deep/35 text-ink-soft">{children}</td>
-  ),
-  input: ({ checked, ...props }) => (
+  td: ({ children }) => <td className="px-3 py-1.5 border md-table text-ink-soft">{children}</td>,
+  input: ({ checked, node: _node, ...props }) => (
     <input {...props} checked={checked} disabled className="mr-1.5 accent-bamboo" />
   ),
 };
 
-export function MarkdownPreview({
+function MarkdownPreviewView({
   content,
   fontSize = 14,
   renderHtml = false,
@@ -424,20 +414,37 @@ export function MarkdownPreview({
   const components = useMemo<Components>(
     () => ({
       ...staticComponents,
-      img: ({ src, alt, title, ...props }) => {
+      // `node` 必须显式摘掉：react-markdown 会把它作为 prop 传进来，而 `...props`
+      // 会把整个 hast 节点塞成 DOM 属性。
+      img: ({ src, alt, title, node: _node, ...props }) => {
         const resolvedSrc = resolveMarkdownImageSrc(src, imageBaseDir, convertFileSrc);
-        const caption = title || alt || "";
+        // `![说明|300](url)` —— 尺寸与对齐写在 alt 里，见 imageLayout.ts。
+        // 没有参数时 width 回落到 50%，与改造前的固定宽度一致。
+        const layout = parseImageLayout(alt);
+        const caption = title || layout.alt || "";
+
+        const alignClass =
+          layout.align === "left"
+            ? "ml-0 mr-auto"
+            : layout.align === "right"
+              ? "ml-auto mr-0"
+              : "mx-auto";
+
         return (
           <figure className="my-3">
             <img
               src={resolvedSrc}
-              alt={alt ?? ""}
+              alt={layout.alt}
               loading="lazy"
-              className="w-[50%] rounded mx-auto block"
+              className={`rounded block ${alignClass}`}
+              style={{
+                width: layout.width ?? "50%",
+                ...(layout.height ? { height: layout.height } : {}),
+              }}
               {...props}
             />
             {caption ? (
-              <figcaption className="text-center text-[0.85em] text-ink-ghost mt-1.5">
+              <figcaption className="text-center text-[0.85em] md-caption mt-1.5">
                 {caption}
               </figcaption>
             ) : null}
@@ -448,7 +455,7 @@ export function MarkdownPreview({
     [imageBaseDir],
   );
   return (
-    <div className="font-body markdown-selectable" style={{ fontSize: `${fontSize}px` }}>
+    <div className="font-body markdown-selectable md-body" style={{ fontSize: `${fontSize}px` }}>
       {content.trim() ? (
         <Markdown
           remarkPlugins={remarkPlugins}
@@ -465,3 +472,14 @@ export function MarkdownPreview({
     </div>
   );
 }
+
+/**
+ * 预览整篇走 react-markdown（remark / rehype-raw / rehype-sanitize / katex 全套），
+ * 十几万字符一次要几百毫秒。**必须 memo**：不包的话，主窗口任何一次重渲染 —— 打开
+ * 目录面板、改个选区、切个分栏 —— 都会把整篇文章重新解析排版一遍，表现为「随便点
+ * 什么都卡一下」。
+ *
+ * 配合上游传入的 `content` 是一份**滞后**的正文（见 MainWindow 的 `previewContent`），
+ * 打字期间就一次都不会重排。
+ */
+export const MarkdownPreview = memo(MarkdownPreviewView);

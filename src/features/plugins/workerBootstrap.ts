@@ -19,6 +19,7 @@ import {
   type PluginInfo,
 } from "./protocol";
 import type { WorkerSideTransport } from "./transport";
+import { reviveElementRef } from "./elementRef";
 
 type Handler = (...args: unknown[]) => unknown;
 
@@ -141,9 +142,10 @@ function buildApi(
   call: (method: string, args: unknown[]) => Promise<unknown>,
 ): Record<string, unknown> {
   const namespaces = buildProxiedNamespaces(methods, transport, state, call);
-  const { editor = {}, events = {}, ...rest } = namespaces;
+  const { editor = {}, events = {}, plugin: pluginNamespace = {}, ...rest } = namespaces;
 
-  const localLog = (level: "debug" | "info" | "warn" | "error") =>
+  const localLog =
+    (level: "debug" | "info" | "warn" | "error") =>
     (...args: unknown[]) => {
       transport.post({ t: "log", level, message: formatLogArgs(args) });
     };
@@ -151,6 +153,10 @@ function buildApi(
   return {
     ...rest,
     plugin: {
+      // 方法表下发的 plugin.*（readAsset / listAssets）必须一起展开，否则下面这个
+      // 字面量会把整个命名空间**整体覆盖**掉，插件侧看到 `api.plugin.readAsset`
+      // 是 undefined。静态字段放在后面，避免插件用同名方法顶掉 id / version。
+      ...pluginNamespace,
       id: plugin.id,
       name: plugin.name,
       version: plugin.version,
@@ -172,6 +178,11 @@ function buildApi(
       getSelectionSync: () => state.mirror.selection,
       getCursorSync: () => state.mirror.cursor,
       getActiveNoteIdSync: () => state.mirror.activeNoteId,
+      /**
+       * 当前文件身份：`{ path, typeId, kind, language }`，笔记或未被认领的格式为
+       * `null`。同步可用是因为读的是本地镜像，不走往返。
+       */
+      getFileSync: () => state.mirror.file,
     },
     events: {
       /**
@@ -232,7 +243,8 @@ function handleInvoke(
   }
 
   void Promise.resolve()
-    .then(() => handler(...message.args))
+    // 参数先过一遍还原：宿主送 DOM 相关的参数时只能送裸数据，这里补回方法。
+    .then(() => handler(...message.args.map(reviveElementRef)))
     .then(
       (value) => {
         transport.post({ t: "invokeReply", id: message.id, ok: true, value });
@@ -255,7 +267,9 @@ function dispatchEvent(state: SandboxState, topic: string, payload: unknown): vo
   }
   if (topic === "settings.changed") {
     state.settings = (payload as Record<string, unknown>) ?? {};
-    return;
+    // **不 return**：这一条除了更新快照，插件也常常要跟着改点什么（行号插件就是
+    // 把栏宽重新注册一遍）。吃掉事件等于让 `api.events.on("settings.changed")`
+    // 永远不触发。
   }
 
   const set = state.eventHandlers.get(topic);
@@ -284,7 +298,14 @@ export function runPluginSandbox(transport: WorkerSideTransport): Promise<void> 
       handlerSeq: 0,
       api: {},
       onUnload: null,
-      mirror: { content: "", selection: null, cursor: 0, activeNoteId: null, contentEpoch: 0 },
+      mirror: {
+        content: "",
+        selection: null,
+        cursor: 0,
+        activeNoteId: null,
+        contentEpoch: 0,
+        file: null,
+      },
       settings: {},
       callSeq: 0,
       eventHandlers: new Map(),
@@ -377,9 +398,7 @@ export function runPluginSandbox(transport: WorkerSideTransport): Promise<void> 
             })
             .then(() => {
               for (const entry of pending.values()) {
-                entry.reject(
-                  Object.assign(new Error("插件已卸载"), { code: "transportClosed" }),
-                );
+                entry.reject(Object.assign(new Error("插件已卸载"), { code: "transportClosed" }));
               }
               pending.clear();
               state.handlers.clear();

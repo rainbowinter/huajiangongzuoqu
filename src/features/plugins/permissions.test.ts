@@ -17,9 +17,7 @@ describe("权限词汇表", () => {
   });
 
   test("挑出宿主不认识的声明", () => {
-    expect(unknownPermissions(["editor:read", "nope:thing", "ui:panel"])).toEqual([
-      "nope:thing",
-    ]);
+    expect(unknownPermissions(["editor:read", "nope:thing", "ui:panel"])).toEqual(["nope:thing"]);
     expect(unknownPermissions([...PERMISSIONS])).toEqual([]);
   });
 });

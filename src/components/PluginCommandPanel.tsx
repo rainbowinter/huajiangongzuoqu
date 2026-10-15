@@ -19,11 +19,9 @@ import {
   subscribeLoadedPlugins,
   subscribePluginCommands,
 } from "../features/plugins/registry";
-import type {
-  PluginCommand,
-  PluginRuntimeRecord,
-  PluginStatus,
-} from "../features/plugins/types";
+import type { PluginCommand, PluginRuntimeRecord, PluginStatus } from "../features/plugins/types";
+import { PluginParams, parseSettingFields } from "./PluginParams";
+import { Switch } from "./Switch";
 import { showToast } from "./Toast";
 
 interface PluginCommandPanelProps {
@@ -64,27 +62,76 @@ function useRegistry<T>(
 function PluginRow({
   record,
   busy,
+  expanded,
   onToggle,
   onRevoke,
+  onToggleExpand,
 }: {
   record: PluginRuntimeRecord;
   busy: boolean;
+  expanded: boolean;
   onToggle: (record: PluginRuntimeRecord) => void;
   onRevoke: (record: PluginRuntimeRecord, permission: string) => void;
+  onToggleExpand: (name: string) => void;
 }) {
   const { manifest, status, error, sandboxed } = record;
   const unknown = useMemo(
     () => unknownPermissions(manifest.permissions ?? []),
     [manifest.permissions],
   );
+  const hasSettings = useMemo(() => parseSettingFields(manifest).length > 0, [manifest]);
+  const hasPermissions = manifest.permissions.length > 0;
+  // 只有展开区里有东西的插件才给箭头：点开一个空无一物的行是坏的反馈。
+  const canExpand = hasPermissions || hasSettings;
 
   return (
     <div className="px-3 py-2 rounded-xl hover:bg-paper-warm transition-colors">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[12.5px] text-ink-soft truncate" title={manifest.name}>
-          {manifest.name}
-        </span>
+        <button
+          type="button"
+          onClick={canExpand ? () => onToggleExpand(manifest.name) : undefined}
+          aria-expanded={canExpand ? expanded : undefined}
+          className={`flex items-center gap-1.5 min-w-0 flex-1 text-left rounded ${
+            canExpand ? "cursor-pointer" : "cursor-default"
+          }`}
+          title={manifest.name}
+        >
+          {canExpand ? (
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`shrink-0 text-ink-ghost transition-transform duration-200 ${
+                expanded ? "rotate-90" : ""
+              }`}
+            >
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+          ) : (
+            <span className="w-[10px] shrink-0" />
+          )}
+          <span className="text-[12.5px] text-ink-soft truncate">{manifest.name}</span>
+        </button>
         <span className="text-[10px] text-ink-ghost shrink-0">v{manifest.version || "?"}</span>
+
+        {/* 启用 / 停用。用开关而不是「停用」这种文字按钮：文字按钮读不出当前状态，
+            得先解析「停用」到底是「现在是启用的」还是「点它就会停用」。 */}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={manifest.enabled}
+          aria-label={`${manifest.enabled ? "停用" : "启用"} ${manifest.name}`}
+          disabled={busy || !manifest.valid}
+          onClick={() => onToggle(record)}
+          className="shrink-0 disabled:opacity-40 disabled:cursor-default cursor-pointer"
+        >
+          <Switch checked={manifest.enabled} />
+        </button>
       </div>
 
       <div className="flex items-center gap-1.5 mt-1">
@@ -118,52 +165,58 @@ function PluginRow({
         </p>
       ) : null}
 
-      {manifest.permissions.length > 0 ? (
-        <div className="flex flex-wrap gap-1 mt-1.5">
-          {manifest.permissions.map((permission) => {
-            const isGranted = manifest.grantedPermissions.includes(permission);
-            const isUnknown = unknown.includes(permission);
-            return (
-              <button
-                key={permission}
-                type="button"
-                disabled={busy}
-                onClick={() => onRevoke(record, permission)}
-                title={
-                  isUnknown
-                    ? "宿主不认识这个权限，已忽略"
-                    : isGranted
-                      ? "点击撤销该权限（重新加载后生效）"
-                      : "已撤销，点击重新授予"
-                }
-                className={`text-[10px] px-1.5 py-0.5 rounded-md transition-colors cursor-pointer ${
-                  isUnknown
-                    ? "text-ink-ghost line-through"
-                    : isGranted
-                      ? "text-bamboo bg-bamboo-mist/40"
-                      : "text-ink-ghost bg-paper-warm"
-                }`}
-              >
-                {permission}
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
-
       <div className="flex items-center gap-2 mt-2">
-        <button
-          type="button"
-          disabled={busy || !manifest.valid}
-          onClick={() => onToggle(record)}
-          className="px-2 py-0.5 text-[11px] rounded-lg text-ink-soft hover:bg-paper-deep/30 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
-        >
-          {manifest.enabled ? "停用" : "启用"}
-        </button>
         <span className="text-[10px] text-ink-ghost truncate flex-1" title={manifest.dirPath}>
           {manifest.dirPath}
         </span>
       </div>
+
+      {/* 展开区。权限和参数都放这儿，而不是常驻在行上。
+          **权限尤其不能常驻**：那排小胶囊点一下就撤权并重载全部插件，而它就和插件名
+          挨着，滑一下鼠标就误触了。收进展开区之后，撤销权限至少需要「先点开」这个
+          明确的动作。参数同理由此 —— 它是这个插件的属性，和插件放在一起才找得到，
+          丢进设置面板里就成了一堆只有作者才认识的字段名。 */}
+      {expanded && (hasPermissions || hasSettings) ? (
+        <div className="mt-2 pt-2 border-t border-paper-deep/25 space-y-2.5">
+          {hasPermissions ? (
+            <div>
+              <p className="text-[10px] text-ink-ghost mb-1">权限</p>
+              <div className="flex flex-wrap gap-1">
+                {manifest.permissions.map((permission) => {
+                  const isGranted = manifest.grantedPermissions.includes(permission);
+                  const isUnknown = unknown.includes(permission);
+                  return (
+                    <button
+                      key={permission}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => onRevoke(record, permission)}
+                      title={
+                        isUnknown
+                          ? "宿主不认识这个权限，已忽略"
+                          : isGranted
+                            ? "点击撤销该权限（重新加载后生效）"
+                            : "已撤销，点击重新授予"
+                      }
+                      className={`text-[10px] px-1.5 py-0.5 rounded-md transition-colors cursor-pointer ${
+                        isUnknown
+                          ? "text-ink-ghost line-through"
+                          : isGranted
+                            ? "text-bamboo bg-bamboo-mist/40"
+                            : "text-ink-ghost bg-paper-warm"
+                      }`}
+                    >
+                      {permission}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
+          <PluginParams manifest={manifest} />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -210,6 +263,17 @@ export function PluginCommandPanel({ onClose }: PluginCommandPanelProps) {
   const [pluginsDir, setPluginsDir] = useState("");
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<"plugins" | "commands" | "logs">("plugins");
+  const [query, setQuery] = useState("");
+  const [expandedPlugins, setExpandedPlugins] = useState<ReadonlySet<string>>(new Set());
+
+  const handleToggleExpand = useCallback((name: string) => {
+    setExpandedPlugins((current) => {
+      const next = new Set(current);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }, []);
 
   const logs = useMemo(() => listAllPluginLogs(), [logRevision]);
 
@@ -237,38 +301,32 @@ export function PluginCommandPanel({ onClose }: PluginCommandPanelProps) {
     }
   }, []);
 
-  const handleToggle = useCallback(
-    async (record: PluginRuntimeRecord) => {
-      setBusy(true);
-      try {
-        await setPluginEnabled(record.manifest.name, !record.manifest.enabled);
-        await reloadPlugins();
-      } catch (error) {
-        showToast(`切换插件状态失败：${String(error)}`);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [],
-  );
+  const handleToggle = useCallback(async (record: PluginRuntimeRecord) => {
+    setBusy(true);
+    try {
+      await setPluginEnabled(record.manifest.name, !record.manifest.enabled);
+      await reloadPlugins();
+    } catch (error) {
+      showToast(`切换插件状态失败：${String(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  }, []);
 
-  const handleRevoke = useCallback(
-    async (record: PluginRuntimeRecord, permission: string) => {
-      setBusy(true);
-      try {
-        const granted = record.manifest.grantedPermissions.includes(permission)
-          ? record.manifest.grantedPermissions.filter((item) => item !== permission)
-          : [...record.manifest.grantedPermissions, permission];
-        await setPluginPermissions(record.manifest.name, granted);
-        await reloadPlugins();
-      } catch (error) {
-        showToast(`更新插件权限失败：${String(error)}`);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [],
-  );
+  const handleRevoke = useCallback(async (record: PluginRuntimeRecord, permission: string) => {
+    setBusy(true);
+    try {
+      const granted = record.manifest.grantedPermissions.includes(permission)
+        ? record.manifest.grantedPermissions.filter((item) => item !== permission)
+        : [...record.manifest.grantedPermissions, permission];
+      await setPluginPermissions(record.manifest.name, granted);
+      await reloadPlugins();
+    } catch (error) {
+      showToast(`更新插件权限失败：${String(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  }, []);
 
   const runCommand = useCallback(async (command: PluginCommand) => {
     try {
@@ -277,6 +335,17 @@ export function PluginCommandPanel({ onClose }: PluginCommandPanelProps) {
       showToast(`命令执行失败：${String(error)}`);
     }
   }, []);
+
+  /** 搜索只过滤插件页；命令与日志各有各的列表，混一个框进来反而费解。 */
+  const visiblePlugins = useMemo(() => {
+    const keyword = query.trim().toLowerCase();
+    if (!keyword) return plugins;
+    return plugins.filter((record) =>
+      `${record.manifest.name} ${record.manifest.description ?? ""}`
+        .toLowerCase()
+        .includes(keyword),
+    );
+  }, [plugins, query]);
 
   const tabs: Array<{ key: typeof tab; label: string; count: number }> = [
     { key: "plugins", label: "插件", count: plugins.length },
@@ -352,21 +421,71 @@ export function PluginCommandPanel({ onClose }: PluginCommandPanelProps) {
 
       <div className="px-3 pb-2 flex-1 min-h-0 overflow-y-auto">
         {tab === "plugins" ? (
-          plugins.length === 0 ? (
-            <p className="text-[12px] text-ink-ghost text-center py-8">暂无插件</p>
-          ) : (
-            <div className="flex flex-col gap-1">
-              {plugins.map((record) => (
-                <PluginRow
-                  key={record.manifest.name}
-                  record={record}
-                  busy={busy}
-                  onToggle={(item) => void handleToggle(item)}
-                  onRevoke={(item, permission) => void handleRevoke(item, permission)}
-                />
-              ))}
+          <>
+            {/* 与侧栏的搜索框同一套观感 */}
+            <div className="flex items-center gap-2 px-2.5 h-8 mb-2 rounded-lg bg-paper-warm/80 border border-paper-deep/40 focus-within:border-bamboo/30 focus-within:bg-cloud transition-all">
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                className="text-ink-ghost shrink-0"
+              >
+                <circle cx="11" cy="11" r="8" />
+                <path d="m21 21-4.35-4.35" />
+              </svg>
+              <input
+                type="text"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="搜索插件…"
+                className="flex-1 text-[12px] font-body text-ink placeholder:text-ink-ghost/60 bg-transparent"
+              />
+              {query ? (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  className="text-ink-ghost hover:text-ink-faint transition-colors cursor-pointer"
+                  title="清空搜索"
+                >
+                  <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                  >
+                    <path d="M18 6L6 18M6 6l12 12" />
+                  </svg>
+                </button>
+              ) : null}
             </div>
-          )
+
+            {visiblePlugins.length === 0 ? (
+              <p className="text-[12px] text-ink-ghost text-center py-8">
+                {plugins.length === 0 ? "暂无插件" : "没有匹配的插件"}
+              </p>
+            ) : (
+              <div className="flex flex-col gap-1">
+                {visiblePlugins.map((record) => (
+                  <PluginRow
+                    key={record.manifest.name}
+                    record={record}
+                    busy={busy}
+                    expanded={expandedPlugins.has(record.manifest.name)}
+                    onToggle={(item) => void handleToggle(item)}
+                    onRevoke={(item, permission) => void handleRevoke(item, permission)}
+                    onToggleExpand={handleToggleExpand}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         ) : null}
 
         {tab === "commands" ? (

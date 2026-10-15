@@ -1,8 +1,19 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { PluginManifest } from "./types";
+import type { FontAsset } from "../fonts/fontFace";
+import type { PluginManifest, PluginSyncReport } from "./types";
 
 export function listPlugins(): Promise<PluginManifest[]> {
   return invoke("plugins_list");
+}
+
+/**
+ * 取走启动时那次插件版本校正的报告。
+ *
+ * **取过即清空**（清空在 Rust 侧）：同一个进程里只有第一个调用者拿得到内容，其余拿到
+ * `null`。多窗口下正好只提示一次。
+ */
+export function getPluginSyncReport(): Promise<PluginSyncReport | null> {
+  return invoke("plugins_sync_report");
 }
 
 export function readPlugin(name: string): Promise<string> {
@@ -11,6 +22,21 @@ export function readPlugin(name: string): Promise<string> {
 
 export function readPluginAsset(name: string, relativePath: string): Promise<string> {
   return invoke("plugins_read_asset", { name, relativePath });
+}
+
+/** 列出插件目录下某个子目录里可读的文本资源文件名（不递归，空串表示插件根目录）。 */
+export function listPluginAssets(name: string, relativeDir: string): Promise<string[]> {
+  return invoke("plugins_list_assets", { name, relativeDir });
+}
+
+/**
+ * 列出插件字体目录里的字体文件（不递归）。
+ *
+ * ⚠️ 返回值带**绝对路径**。它只该在宿主侧用来生成 asset URL，**不要**再往下传给插件
+ * —— 那是"插件不触碰文件系统"这条边界的一部分。
+ */
+export function listPluginFontAssets(name: string, relativeDir: string): Promise<FontAsset[]> {
+  return invoke("plugins_list_fonts", { name, relativeDir });
 }
 
 export function getPluginsDir(): Promise<string> {
@@ -25,10 +51,7 @@ export function setPluginEnabled(name: string, enabled: boolean): Promise<Plugin
   return invoke("plugins_set_enabled", { name, enabled });
 }
 
-export function setPluginPermissions(
-  name: string,
-  granted: string[],
-): Promise<PluginManifest> {
+export function setPluginPermissions(name: string, granted: string[]): Promise<PluginManifest> {
   return invoke("plugins_set_permissions", { name, granted });
 }
 

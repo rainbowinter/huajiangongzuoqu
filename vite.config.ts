@@ -25,7 +25,14 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      ignored: ["**/src-tauri/**"],
+      // `.devdata/` 是隔离调试实例的**数据目录**（笔记、已装插件、字体…），不是源码，
+      // 在 .gitignore 里也一样被排除。
+      //
+      // 这里必须显式忽略，否则它会**把整个 dev server 拖崩**：应用会把里面的文件真正
+      // 打开着（装了 font-pack 之后加载的 .ttf 就是），Windows 上对已占用的文件
+      // `fs.watch` 直接返回 EBUSY，而 chokidar 把它当作致命错误抛出 ——
+      // Vite 进程退出，`beforeDevCommand` 非零退出，Tauri 跟着关掉。
+      ignored: ["**/src-tauri/**", "**/.devdata/**"],
     },
   },
   test: {

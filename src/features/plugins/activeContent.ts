@@ -55,6 +55,37 @@ export function setNativeValue(textarea: HTMLTextAreaElement, value: string): vo
   textarea.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+/**
+ * 走浏览器**原生撤销栈**的区间替换。返回 `false` 表示当前环境不支持。
+ *
+ * 为什么不能直接改 `value`：`setNativeValue` 用的是原型上的 value setter，只会把值
+ * 换掉再补发一个合成 `input` 事件，让 React 受控组件同步过来——但它**不会向撤销栈
+ * 压入一条可撤销的编辑**。于是所有经它写入的内容（内置 Markdown 快捷键、插件调用的
+ * `editor.*`）都撤不掉；工具栏的格式化按钮因为走 `execCommand("insertText")`，一直
+ * 都是可以撤销的。
+ *
+ * `execCommand` 只能作用于**当前选区**，所以必须先 `setSelectionRange` 把选区设成
+ * 目标区间——要替换整篇就设 `(0, value.length)`。
+ *
+ * 副作用是会 `focus()` 编辑器：`execCommand` 作用于焦点元素，不聚焦就不生效。工具栏
+ * 格式化早就这么做，插件写入落到当前编辑器上也是合理语义。
+ */
+export function replaceRangeUndoable(
+  textarea: HTMLTextAreaElement,
+  start: number,
+  end: number,
+  text: string,
+): boolean {
+  try {
+    textarea.focus();
+    textarea.setSelectionRange(start, end);
+    return document.execCommand("insertText", false, text);
+  } catch (error) {
+    console.error("[editor] execCommand 写入失败，回退到直接赋值", error);
+    return false;
+  }
+}
+
 export function cursorFromOffset(value: string, offset: number): EditorCursor {
   const clamped = Math.max(0, Math.min(offset, value.length));
   const before = value.slice(0, clamped);
@@ -84,7 +115,12 @@ export function createEditorAccessor(options: EditorAccessorOptions): ActiveCont
     markDirty();
 
     if (textarea && document.contains(textarea)) {
-      setNativeValue(textarea, next);
+      if (textarea.value !== next) {
+        // 优先走可撤销路径；环境不支持时再退回直接赋值（撤销失效，但内容不丢）。
+        if (!replaceRangeUndoable(textarea, 0, textarea.value.length, next)) {
+          setNativeValue(textarea, next);
+        }
+      }
       if (caret) {
         const start = Math.max(0, Math.min(caret.start, next.length));
         const end = Math.max(start, Math.min(caret.end ?? start, next.length));

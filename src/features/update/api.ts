@@ -1,64 +1,19 @@
 import { invoke } from "@tauri-apps/api/core";
-import type {
-  DownloadSourceUsed,
-  UpdateCheckResult,
-  UpdateDownloadResult,
-  UpdateInstallPrepareReportStatus,
-  UpdateInstallResult,
-  UpdateSettings,
-  UpdateState,
-} from "./types";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 
-export function checkForUpdates(manual: boolean): Promise<UpdateCheckResult> {
-  return invoke("update_check", { manual });
+export type { Update };
+
+/**
+ * 有没有配置更新端点。`null` 表示这个功能整体关闭。
+ *
+ * 端点在 Rust 侧运行时解析（见 `src-tauri/src/selfupdate.rs`）：没配的时候**不要**发起
+ * 任何检查，界面上也不该出现任何东西。所以这是更新流程的第一道门，而不是可选的。
+ */
+export function getUpdateEndpoint(): Promise<string | null> {
+  return invoke("update_endpoint");
 }
 
-export function downloadUpdate(source?: DownloadSourceUsed): Promise<UpdateDownloadResult> {
-  return invoke("update_download", { source });
-}
-
-export function installUpdate(): Promise<UpdateInstallResult> {
-  return invoke("update_install");
-}
-
-export function reportInstallPreparation(
-  requestId: string,
-  windowLabel: string,
-  status: UpdateInstallPrepareReportStatus,
-  message?: string,
-): Promise<void> {
-  return invoke("update_install_prepare_report", {
-    requestId,
-    windowLabel,
-    status,
-    message,
-  });
-}
-
-export function cancelUpdate(): Promise<void> {
-  return invoke("update_cancel");
-}
-
-export function getUpdateStatus(): Promise<UpdateState> {
-  return invoke("update_status");
-}
-
-export function getUpdateSettings(): Promise<UpdateSettings> {
-  return invoke("update_settings_get");
-}
-
-export function saveUpdateSettings(settings: UpdateSettings): Promise<UpdateSettings> {
-  return invoke("update_settings_save", { settings });
-}
-
-export function setMirrorChyanCdk(cdk: string): Promise<void> {
-  return invoke("update_mirror_chyan_cdk_set", { cdk });
-}
-
-export function getMirrorChyanCdk(): Promise<string | null> {
-  return invoke("update_mirror_chyan_cdk_get");
-}
-
-export function clearMirrorChyanCdk(): Promise<void> {
-  return invoke("update_mirror_chyan_cdk_clear");
+/** 去端点查有没有新版。没有新版返回 `null`。 */
+export function checkForUpdate(): Promise<Update | null> {
+  return check();
 }

@@ -1,0 +1,35 @@
+/*
+ * 示例样式表 —— 整段都是注释，所以默认不影响任何观感。
+ * 把这里改成你要的样式，保存后在插件面板点「重新加载」（或按命令面板里的
+ * 「重新加载样式表」）即可生效，不需要重启应用。
+ *
+ * ── 优先改这些 CSS 自定义属性，而不是直接覆盖选择器 ──
+ * 直接覆盖选择器在版本升级后容易失效；变量是稳定的对外契约。
+ *
+ *   背景三层      --color-paper / --color-paper-warm / --color-paper-deep
+ *   文字四级      --color-ink / --color-ink-soft / --color-ink-faint / --color-ink-ghost
+ *   强调色        --color-bamboo / --color-bamboo-light / --color-bamboo-mist
+ *   预览配色      --md-text-color / --md-table-color / --md-divider-color
+ *                 --md-quote-color / --md-caption-color
+ *                 （就是设置面板「预览配色」那一组）
+ *   圆角          --app-window-radius / --app-surface-radius
+ *
+ * ── 预览区的语义类（在 MarkdownPreview 的渲染结果上）──
+ *   .md-body     预览容器（正文、列表项的文字颜色）
+ *   .md-table    表格（含 th / td 的边框）
+ *   .md-divider  水平分割线
+ *   .md-quote    引用块
+ *   .md-caption  图片下方的图注
+ *
+ * 示例：把窗口和卡片都拉成直角，并把正文行距放宽
+ */
+/*
+:root {
+  --app-window-radius: 4px;
+  --app-surface-radius: 4px;
+}
+
+.md-body p {
+  line-height: 2.1;
+}
+*/

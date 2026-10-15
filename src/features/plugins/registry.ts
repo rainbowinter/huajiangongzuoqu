@@ -11,6 +11,22 @@
  * 面板订阅都依赖它，改成事件总线会牵动一大片 React 代码。
  */
 
+/**
+ * ⚠️ **本模块持有全局状态，改动它必须整页刷新，不能做局部热替换。**
+ *
+ * 下面的%s是**模块级单例**。HMR 重新求值本模块时它们会被换成一份全新的空实例，
+ * 而别处（`loader.ts`、各组件）手里的引用不一定跟着换 —— 表现是「改一下这个文件，
+ * 插件列表就空了 / 行旁注没了」，而且不报任何错。
+ *
+ * 试过 `hot.invalidate()`，**不够**：它只是把更新往上传，而 `loader.ts` 与各组件那几层
+ * 里总有 React 组件（Fast Refresh）接住，传播就停在那儿，`loader.ts` 拿不到新实例。
+ * 所以要的是**整页重载**：本模块自接受，然后在回调里直接刷新。
+ * 代价是改这几个文件会重载一次页面 —— 对持有全局状态的模块，这比悄悄少一半状态强。
+ */
+if (import.meta.hot) {
+  import.meta.hot.accept(() => window.location.reload());
+}
+
 import { toDisposable, type Disposable } from "./disposable";
 import type {
   PluginCommand,
@@ -182,10 +198,7 @@ export type StatusBarRenderer = (selection: Selection | null) => string | null;
 
 const statusBarRenderers = new OwnedRegistry<StatusBarRenderer>();
 
-export function registerStatusBarRenderer(
-  owner: string,
-  renderer: StatusBarRenderer,
-): Disposable {
+export function registerStatusBarRenderer(owner: string, renderer: StatusBarRenderer): Disposable {
   return statusBarRenderers.register(owner, renderer);
 }
 
@@ -211,6 +224,31 @@ export function listPluginPanels(): readonly PluginPanelDef[] {
 
 export function subscribePluginPanels(listener: () => void): () => void {
   return panels.subscribe(listener);
+}
+
+// ------------------------------------------------------------ 编辑器行旁注
+
+/** 宿主侧的行旁注声明。逐行文字在 stores 里（异步渲染，见 v2Host）。 */
+export interface PluginEditorGutter {
+  id: string;
+  title: string;
+  plugin: string;
+  /** 栏宽（px）。 */
+  width: number;
+}
+
+const editorGutters = new OwnedRegistry<PluginEditorGutter>();
+
+export function registerEditorGutter(owner: string, gutter: PluginEditorGutter): Disposable {
+  return editorGutters.register(owner, gutter);
+}
+
+export function listEditorGutters(): readonly PluginEditorGutter[] {
+  return editorGutters.list();
+}
+
+export function subscribeEditorGutters(listener: () => void): () => void {
+  return editorGutters.subscribe(listener);
 }
 
 // ------------------------------------------------- 右键菜单 / 工具栏贡献
@@ -242,9 +280,49 @@ export interface PluginToolbarButton {
   run: () => void | Promise<void>;
 }
 
+/**
+ * 工具栏浮层在宿主侧的形态。
+ *
+ * 与 `PluginToolbarButton` 一样，条目里带的是**活的闭包**（`refresh` / `onClick`），
+ * 界面直接调，不需要再拿一份宿主引用 —— v1 与 v2 的差异全在闭包里面（v2 的闭包内部
+ * 是跨线程往返）。
+ */
+export interface PluginPopover {
+  id: string;
+  title: string;
+  icon?: string;
+  /** 下拉宽度（px）。 */
+  width?: number;
+  markdownOnly: boolean;
+  closeOnClick: boolean;
+  plugin: string;
+  /** 重新问插件要一份内容 HTML（点开时调一次）。 */
+  refresh: () => void;
+  /** 点击内容的回调；插件返回字符串时由实现方写回缓存。 */
+  onClick?: (target: HTMLElement) => void;
+}
+
+/**
+ * 行内装饰在宿主侧的形态。
+ *
+ * 与工具栏按钮、浮层一样，条目里带的是**活的闭包**：`refresh` 重新问插件要一份条目，
+ * `pick` 把「用户在哪个区间选了什么颜色」回传给插件。v1 / v2 的差异全在闭包内部。
+ */
+export interface PluginDecoration {
+  id: string;
+  title: string;
+  plugin: string;
+  /** 重新问插件要一份条目（正文 / 文件变化时调）。 */
+  refresh: () => void;
+  /** 用户选完颜色。区间与颜色都由宿主校验过。 */
+  pick?: (offset: number, length: number, color: string) => void;
+}
+
 const editorMenuItems = new OwnedRegistry<PluginMenuItem>();
 const noteMenuItems = new OwnedRegistry<PluginNoteMenuItem>();
 const toolbarButtons = new OwnedRegistry<PluginToolbarButton>();
+const popovers = new OwnedRegistry<PluginPopover>();
+const decorations = new OwnedRegistry<PluginDecoration>();
 
 export function registerEditorMenuItem(item: PluginMenuItem): Disposable {
   return editorMenuItems.register(item.plugin, item);
@@ -282,6 +360,30 @@ export function subscribeToolbarButtons(listener: () => void): () => void {
   return toolbarButtons.subscribe(listener);
 }
 
+export function registerDecoration(decoration: PluginDecoration): Disposable {
+  return decorations.register(decoration.plugin, decoration);
+}
+
+export function listDecorations(): readonly PluginDecoration[] {
+  return decorations.list();
+}
+
+export function subscribeDecorations(listener: () => void): () => void {
+  return decorations.subscribe(listener);
+}
+
+export function registerPopover(popover: PluginPopover): Disposable {
+  return popovers.register(popover.plugin, popover);
+}
+
+export function listPopovers(): readonly PluginPopover[] {
+  return popovers.list();
+}
+
+export function subscribePopovers(listener: () => void): () => void {
+  return popovers.subscribe(listener);
+}
+
 // ---------------------------------------------------------- 已加载插件
 
 const plugins = new OwnedRegistry<PluginRuntimeRecord>();
@@ -300,11 +402,7 @@ export function registerLoadedPlugin(
 }
 
 /** 更新某个插件的运行状态（例如被看门狗暂停）。 */
-export function updatePluginStatus(
-  name: string,
-  status: PluginStatus,
-  error?: string,
-): void {
+export function updatePluginStatus(name: string, status: PluginStatus, error?: string): void {
   plugins.update(name, (record) => ({ ...record, status, error }));
 }
 
@@ -349,6 +447,9 @@ export function unregisterPlugin(name: string): void {
   editorMenuItems.removeOwner(name);
   noteMenuItems.removeOwner(name);
   toolbarButtons.removeOwner(name);
+  popovers.removeOwner(name);
+  editorGutters.removeOwner(name);
+  decorations.removeOwner(name);
   plugins.removeOwner(name);
 }
 
@@ -361,6 +462,16 @@ export function clearAllPlugins(): void {
   editorMenuItems.clear();
   noteMenuItems.clear();
   toolbarButtons.clear();
+  popovers.clear();
+  // ⚠️ 行旁注与行内装饰**必须在这里清**。
+  //
+  // 它们是「带活闭包」的注册项，宿主卸载时会各自 dispose（正常路径没问题）。但这里还
+  // 兜着另一条路：Vite HMR 重新求值 `loader.ts` 时，那个模块的 `running` 表会归零，
+  // **旧的宿主实例再也没人会去 dispose 它** —— 它登记的条目就留在注册表里。于是插件
+  // 重新加载一遍，同一个 id 就有了两条：行旁注会多出一栏，行内装饰会在同一个位置画两个
+  // 色块（React 报 "two children with the same key"）。
+  editorGutters.clear();
+  decorations.clear();
   plugins.clear();
 }
 
@@ -374,6 +485,7 @@ export function pluginRegistrySizes(): Record<string, number> {
     editorMenuItems: editorMenuItems.size,
     noteMenuItems: noteMenuItems.size,
     toolbarButtons: toolbarButtons.size,
+    popovers: popovers.size,
     plugins: plugins.size,
   };
 }

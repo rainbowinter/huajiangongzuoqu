@@ -43,5 +43,14 @@ export interface AppConfig {
   backgroundScale?: number;
   backgroundPositionX?: number;
   backgroundPositionY?: number;
-  textRenderColor?: string;
+  /** 表格边框颜色。空串/缺省表示跟随主题。 */
+  tableColor?: string;
+  /** 水平分割线颜色。 */
+  dividerColor?: string;
+  /** 引用块左侧竖线与文字颜色。 */
+  quoteColor?: string;
+  /** 图片图注颜色。 */
+  captionColor?: string;
+  /** 用户添加的工作文件夹（绝对路径）。浏览与编辑只允许落在这些根之内。 */
+  workspaceFolders?: string[];
 }

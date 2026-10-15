@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { blockIndexAtOffset, measureBlockOffsets, tagPreviewBlocks } from "./scrollSync";
+import {
+  blockIndexAtOffset,
+  blockOffsetsFromLayer,
+  measureBlockOffsets,
+  parseBlocks,
+  tagPreviewBlocks,
+} from "./scrollSync";
 
 class FakeTextNode {
   constructor(public readonly textContent: string) {}
@@ -192,11 +198,73 @@ describe("scroll sync helpers", () => {
     root.appendChild(paragraph);
     root.appendChild(list);
 
-    tagPreviewBlocks(container as unknown as HTMLElement);
+    tagPreviewBlocks(container as unknown as HTMLElement, "content");
 
     expect(heading.getAttribute("data-block-index")).toBe("0");
     expect(paragraph.getAttribute("data-block-index")).toBe("1");
     expect(list.getAttribute("data-block-index")).toBe("2");
+  });
+
+  test("skips re-tagging while the preview is unchanged, and re-tags once it is", () => {
+    installFakeDom();
+    const container = new FakeHTMLElement("section");
+    const root = new FakeHTMLElement("article");
+    root.className = "font-body";
+    const heading = new FakeHTMLElement("h1");
+    container.appendChild(root);
+    root.appendChild(heading);
+
+    tagPreviewBlocks(container as unknown as HTMLElement, "content-a");
+    expect(heading.getAttribute("data-block-index")).toBe("0");
+
+    // 手动改坏，再拿同样的内容打一次：应当被缓存挡住，不做任何写入。
+    heading.setAttribute("data-block-index", "touched");
+    tagPreviewBlocks(container as unknown as HTMLElement, "content-a");
+    expect(heading.getAttribute("data-block-index")).toBe("touched");
+
+    // 内容变了就必须重打，否则块下标会一直停在旧结构上。
+    tagPreviewBlocks(container as unknown as HTMLElement, "content-b");
+    expect(heading.getAttribute("data-block-index")).toBe("0");
+  });
+
+  test("reads block offsets straight off the highlight layer", () => {
+    installFakeDom();
+    const content = ["# 标题", "", "段落一", "段落二", "", "```", "code", "```"].join("\n");
+
+    // 高亮层一行一个子元素。假 DOM 只给 span 记 offsetTop，所以这里用 span 建。
+    const layer = new FakeHTMLElement("div");
+    for (let index = 0; index < content.split("\n").length; index++) {
+      layer.appendChild(new FakeTextNode("\n"));
+      layer.appendChild(new FakeHTMLElement("span"));
+    }
+
+    const blocks = parseBlocks(content);
+    expect(blocks.map((block) => block.startLine)).toEqual([0, 2, 5]);
+
+    const offsets = blockOffsetsFromLayer(layer as unknown as HTMLElement, content);
+    expect(offsets).toEqual(
+      blocks.map(
+        (block) => (layer.children[block.startLine] as unknown as { offsetTop: number }).offsetTop,
+      ),
+    );
+    // 三块拿到的必须是三个**不同**的位置 —— 全零说明取错了行。
+    expect(new Set(offsets).size).toBe(3);
+  });
+
+  test("falls back to the mirror when the layer cannot be trusted", () => {
+    installFakeDom();
+    const content = "# 标题\n\n段落";
+
+    // 空层：超大文档放弃着色时就是这样。
+    expect(
+      blockOffsetsFromLayer(new FakeHTMLElement("div") as unknown as HTMLElement, content),
+    ).toBeNull();
+    expect(blockOffsetsFromLayer(null, content)).toBeNull();
+
+    // 层还没跟上（行数不够）时也不能硬给一份错的。
+    const short = new FakeHTMLElement("div");
+    short.appendChild(new FakeHTMLElement("span"));
+    expect(blockOffsetsFromLayer(short as unknown as HTMLElement, content)).toBeNull();
   });
 
   test("measures representative markdown blocks from their source line starts", async () => {

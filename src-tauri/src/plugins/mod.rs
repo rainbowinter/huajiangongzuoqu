@@ -4,6 +4,10 @@
 //! `paths` / `manifest` / `state` / `store` / `assets` 里，`commands.rs` 只做
 //! `#[tauri::command]` 薄封装——与 `updater/` 子系统的组织方式保持一致。
 //!
+//! `sync.rs` 是唯一会**写**插件代码目录的模块（其余都只读代码、只写数据）：应用升级后
+//! 把随包分发的那份插件同步到用户数据目录里已装的副本上。它只覆盖没被用户改过的文件，
+//! 详见其模块注释。
+//!
 //! 关于「插件标识」：**目录名就是规范标识**。读取代码、定位数据、存取状态全部
 //! 以目录名为准，manifest 里的 `name` 只用于展示与提示（不一致会产生一条 warning）。
 //! 原实现以 manifest 的 `name` 做列举、却以同名目录做读取，两者不一致时插件会
@@ -12,10 +16,12 @@
 pub mod assets;
 pub mod commands;
 pub mod errors;
+pub mod fontmeta;
 pub mod manifest;
 pub mod paths;
 pub mod state;
 pub mod store;
+pub mod sync;
 
 use crate::services::notes::AppError;
 use manifest::{read_manifest_file, to_dto, PluginManifest};

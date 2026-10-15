@@ -2,8 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { checkGlobalShortcut, chooseBackgroundImage } from "../features/settings/api";
+import { CodeFontSection } from "./CodeFontSection";
 import { UpdateSettingsSection } from "../features/update/UpdateSettingsSection";
-import { PluginSettingsSection } from "./PluginSettingsSection";
+import type { UpdateController } from "../features/update/useUpdate";
 import type {
   AccentColor,
   AppConfig,
@@ -23,6 +24,7 @@ import { DEFAULT_TILE_COLOR, normalizeTileColor } from "../features/settings/til
 import { applyTheme, watchSystemTheme } from "../features/settings/theme";
 import { LOCALE_OPTIONS } from "../locales/locale-whitelist";
 import { SlidingButtonGroup } from "./SlidingButtonGroup";
+import { Switch } from "./Switch";
 
 const HARMONY_FONT_LICENSE_URL = new URL("../assets/fonts/LICENSE_Fonts", import.meta.url).href;
 
@@ -31,9 +33,20 @@ interface SettingsPanelProps {
   onChange: (config: AppConfig) => void;
   onMigrateDataDir: () => void;
   onClose: () => void;
+  /**
+   * 更新控制器，**由调用方传进来**（`MainWindow` 已经 `useUpdate()` 过一次）。
+   * 这里不能自己再调那个 hook —— 会造出第二个控制器，多排一次启动检查。
+   */
+  update: UpdateController;
 }
 
-export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: SettingsPanelProps) {
+export function SettingsPanel({
+  config,
+  onChange,
+  onMigrateDataDir,
+  onClose,
+  update,
+}: SettingsPanelProps) {
   const { t } = useTranslation();
   const setConfigValue = <Key extends keyof AppConfig>(key: Key, value: AppConfig[Key]) => {
     onChange({ ...config, [key]: value });
@@ -346,34 +359,44 @@ export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: S
           </div>
         </section>
 
-        <section className="space-y-2">
-          <label className="block text-[11px] font-body text-ink-faint">
-            {t("settings.textRenderColor.label", { defaultValue: "文字渲染颜色" })}
-          </label>
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              value={config.textRenderColor || "#333333"}
-              onChange={(event) => setConfigValue("textRenderColor", event.target.value)}
-              className="w-10 h-8 rounded-lg border border-paper-deep/40 bg-paper-warm/70 cursor-pointer"
-            />
-            <input
-              type="text"
-              value={config.textRenderColor || ""}
-              onChange={(event) => setConfigValue("textRenderColor", event.target.value)}
-              placeholder="#333333"
-              spellCheck={false}
-              className="min-w-0 flex-1 h-8 px-2.5 rounded-lg bg-paper-warm/70 border border-paper-deep/40 text-[12px] font-mono text-ink-soft outline-none"
-            />
-            <button
-              type="button"
-              onClick={() => setConfigValue("textRenderColor", "")}
-              className="h-8 px-2.5 rounded-lg border border-paper-deep/45 text-[11px] text-ink-faint hover:text-bamboo hover:bg-bamboo-mist/50 transition-colors cursor-pointer whitespace-nowrap"
-            >
-              {t("common.default", { defaultValue: "默认" })}
-            </button>
-          </div>
+        <section className="space-y-3">
+          <h3 className="text-[11px] font-body text-ink-faint">
+            {t("settings.renderColors.title", { defaultValue: "预览配色" })}
+          </h3>
+          <p className="text-[10px] leading-relaxed text-ink-ghost/75">
+            {t("settings.renderColors.hint", {
+              defaultValue: "留空即跟随主题。",
+            })}
+          </p>
+          <ColorField
+            label={t("settings.renderColors.table", { defaultValue: "表格边框" })}
+            value={config.tableColor}
+            placeholder="#e8e1d3"
+            onChange={(value) => setConfigValue("tableColor", value)}
+          />
+          <ColorField
+            label={t("settings.renderColors.divider", { defaultValue: "分割线" })}
+            value={config.dividerColor}
+            placeholder="#e8e1d3"
+            onChange={(value) => setConfigValue("dividerColor", value)}
+          />
+          <ColorField
+            label={t("settings.renderColors.quote", { defaultValue: "引用块竖线" })}
+            value={config.quoteColor}
+            placeholder="#2d5a3d"
+            onChange={(value) => setConfigValue("quoteColor", value)}
+          />
+          <ColorField
+            label={t("settings.renderColors.caption", { defaultValue: "图片图注" })}
+            value={config.captionColor}
+            placeholder="#b8b8ae"
+            onChange={(value) => setConfigValue("captionColor", value)}
+          />
         </section>
+
+        <CodeFontSection />
+
+        <UpdateSettingsSection controller={update} />
 
         <section className="space-y-2">
           <label className="block text-[11px] font-body text-ink-faint">
@@ -525,10 +548,6 @@ export function SettingsPanel({ config, onChange, onMigrateDataDir, onClose }: S
           />
         </section>
 
-        <PluginSettingsSection />
-
-        <UpdateSettingsSection mode="settingsOnly" />
-
         <section className="pt-2 border-t border-paper-deep/25">
           <p className="text-[10px] leading-relaxed text-ink-ghost/75">
             <span>
@@ -568,18 +587,57 @@ function ToggleRow({ label, checked, onChange }: ToggleRowProps) {
         onChange={(event) => onChange(event.target.checked)}
         className="sr-only"
       />
-      <div
-        className={`relative w-8 h-[18px] rounded-full transition-colors duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-          checked ? "bg-bamboo" : "bg-paper-deep/50"
-        }`}
-      >
-        <div
-          className={`absolute top-[2px] left-[2px] w-[14px] h-[14px] rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.15)] transition-transform duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-            checked ? "translate-x-[14px]" : "translate-x-0"
-          }`}
-        />
-      </div>
+      {/* 外观与插件面板里的开关是同一份实现（见 Switch.tsx）—— 两处不能各画一套。 */}
+      <Switch checked={checked} />
     </label>
+  );
+}
+
+interface ColorFieldProps {
+  label: string;
+  /** 空 / undefined 表示跟随主题。 */
+  value: string | undefined;
+  /** 输入框的占位色，仅作提示，取的是浅色主题下的默认值。 */
+  placeholder: string;
+  onChange: (value: string) => void;
+}
+
+/**
+ * 一行颜色选择：色板 + 手填十六进制 + 「默认」。
+ *
+ * 抽成组件是因为预览配色现在有五项，逐个铺开会把设置面板撑得没法看。
+ * 五个字段的取值与写回完全同构，只是绑定的配置键不同。
+ */
+function ColorField({ label, value, placeholder, onChange }: ColorFieldProps) {
+  const { t } = useTranslation();
+
+  return (
+    <div className="space-y-1.5">
+      <label className="block text-[11px] font-body text-ink-faint">{label}</label>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={value || placeholder}
+          onChange={(event) => onChange(event.target.value)}
+          className="w-10 h-8 rounded-lg border border-paper-deep/40 bg-paper-warm/70 cursor-pointer"
+        />
+        <input
+          type="text"
+          value={value || ""}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          spellCheck={false}
+          className="min-w-0 flex-1 h-8 px-2.5 rounded-lg bg-paper-warm/70 border border-paper-deep/40 text-[12px] font-mono text-ink-soft outline-none"
+        />
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          className="h-8 px-2.5 rounded-lg border border-paper-deep/45 text-[11px] text-ink-faint hover:text-bamboo hover:bg-bamboo-mist/50 transition-colors cursor-pointer whitespace-nowrap"
+        >
+          {t("common.default", { defaultValue: "默认" })}
+        </button>
+      </div>
+    </div>
   );
 }
 

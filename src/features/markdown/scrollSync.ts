@@ -223,6 +223,31 @@ export async function measureBlockOffsets(
   return offsets;
 }
 
+/**
+ * 用**高亮层**算每个块的纵向偏移。
+ *
+ * 高亮层一行一个 div、行号就是源码行号，所以「第 N 块在哪儿」直接读
+ * `children[block.startLine].offsetTop` —— 那就是浏览器按真实编辑区排出来的位置。
+ *
+ * 这里原先走 `measureBlockOffsets`：另起一个 div、复制 textarea 的样式再排一遍。那份复制品
+ * 只要有一处排版对不上（字体特性、字距、折行规则……），偏差就**随行数累积**：几万字符的文档
+ * 里能攒到一两屏，表现为「分栏两边对不上，预览整体偏下一段，写的时候看不到对应结果」。
+ * 复制品永远追不上本体，所以这里直接问本体。
+ *
+ * 返回 `null` 表示层不可用（超大文档放弃着色时它是空的），调用方回退到镜像测量。
+ */
+export function blockOffsetsFromLayer(layer: HTMLElement | null, content: string): number[] | null {
+  if (!layer || layer.children.length === 0) return null;
+
+  const offsets: number[] = [];
+  for (const block of parseBlocks(content)) {
+    const node = layer.children[block.startLine];
+    if (!(node instanceof HTMLElement)) return null;
+    offsets.push(node.offsetTop);
+  }
+  return offsets;
+}
+
 /** Find which block index occupies the given textarea scrollTop. */
 export function blockIndexAtOffset(offsets: number[], scrollTop: number): number {
   for (let i = offsets.length - 1; i >= 0; i--) {
@@ -232,19 +257,36 @@ export function blockIndexAtOffset(offsets: number[], scrollTop: number): number
 }
 
 /**
- * Add data-block-index attributes to block-level children
- * of the MarkdownPreview root element (.font-body).
- * Indices match the non-empty block indices from parseBlocks.
+ * 给预览的块级子元素打上 `data-block-index`，下标与 `parseBlocks` 的块序号一一对应。
+ *
+ * 带一层"打过就不用再打"的缓存：这个函数现在每帧都会被调（见 MainWindow 的滚动测量），
+ * 而它对每个块子元素都要 `setAttribute` 一次 —— 上千个块的文档里，白跑一遍就是上千次
+ * DOM 写。判据用**内容 + 根元素 + 子元素个数**三个一起：内容没变、根节点还是同一个、
+ * 块数也没变，那就没必要重打；任何一项变了（React 换了节点、块被拆开或合并）就重来。
  */
-export function tagPreviewBlocks(container: HTMLElement): void {
+const taggedPreview = new WeakMap<HTMLElement, { content: string; root: Element; count: number }>();
+
+export function tagPreviewBlocks(container: HTMLElement, content: string): void {
   const root = container.querySelector<HTMLElement>(".font-body");
   if (!root) return;
+
+  const previous = taggedPreview.get(container);
+  if (
+    previous &&
+    previous.content === content &&
+    previous.root === root &&
+    previous.count === root.children.length
+  ) {
+    return;
+  }
+
   let index = 0;
   for (const child of root.children) {
     if (child instanceof HTMLElement) {
       child.setAttribute("data-block-index", String(index++));
     }
   }
+  taggedPreview.set(container, { content, root, count: root.children.length });
 }
 
 export interface SelectionRect {
@@ -500,16 +542,33 @@ export function measureSelectionRects(
   if (start >= end) return [];
 
   const style = getComputedStyle(textarea);
-  const width =
-    style.width && style.width !== "auto" ? style.width : `${textarea.clientWidth}px`;
   const measure = document.createElement("div");
+
+  /**
+   * 镜像的宽度必须给**内容宽度**，并且显式声明 `content-box`。
+   *
+   * 原来是把 `getComputedStyle().width` 原样搬过来、再复制元素的 `box-sizing`。这两件事
+   * 凑在一起是错的：`width` 取到的是**内容**宽度，而 `box-sizing` 是 `border-box`
+   * （Tailwind preflight 全局设的），于是镜像的可用宽度被 padding **又减了一次**。
+   *
+   * 后果不是「差几个像素」—— 镜像比编辑器窄，换行就更早，前面每多折一行，目标位置就往下
+   * 偏一点，累积起来就是「预览里选中的文字，编辑区的高亮框落在它下一行」。
+   *
+   * `clientWidth - padding` 无论 `width` 返回哪种语义都等于真实内容宽度（clientWidth 已经
+   * 扣掉了滚动条），所以这里用它。
+   */
+  const contentWidth =
+    textarea.clientWidth -
+    parseFloat(style.paddingLeft || "0") -
+    parseFloat(style.paddingRight || "0");
+  const width = `${contentWidth}px`;
 
   measure.style.cssText = `
     position: fixed; top: -9999px; left: -9999px;
     width: ${width};
     height: auto;
     margin: 0;
-    box-sizing: ${style.boxSizing};
+    box-sizing: content-box;
     white-space: pre-wrap;
     overflow-wrap: break-word;
     overflow: hidden;
@@ -526,7 +585,8 @@ export function measureSelectionRects(
   const selected = document.createElement("span");
   selected.textContent = value.slice(start, end);
   measure.appendChild(selected);
-  measure.appendChild(document.createTextNode(value.slice(end)));
+  // **不追加尾部文本。** 目标矩形只由它**前面**的内容决定，后面写什么都不影响；
+  // 而镜像每次都要整体布局一遍，白带上十几万字符就是几十上百毫秒。
 
   document.body.appendChild(measure);
 

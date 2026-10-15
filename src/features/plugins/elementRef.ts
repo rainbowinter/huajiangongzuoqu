@@ -157,3 +157,36 @@ export function createElementRefHelpers(ref: ElementRef): ElementRefHelpers {
     },
   };
 }
+
+/**
+ * 跨线程传递描述符时打的标记。
+ *
+ * 宿主那边可以随手 `Object.assign(element, helpers)`，Worker 这边不行 ——
+ * `postMessage` 的结构化克隆会把函数整个丢掉。所以宿主送过去的只能是一个**裸对象**
+ * 加这个标记，沙箱在调用插件回调前据此还原成带查询助手的形态。
+ *
+ * 前缀用 `__floral` 而不是随便一个短名字：这是个通用入口，任何回调的任何参数都会
+ * 从这里过一遍，撞上插件自己的字段就会把它变成看不懂的东西。
+ */
+export const ELEMENT_REF_MARKER = "__floralElementRef";
+
+/** 宿主侧：给描述符打标记，让沙箱能认出来。 */
+export function markElementRef(ref: ElementRef): ElementRef {
+  return { ...ref, [ELEMENT_REF_MARKER]: true } as ElementRef;
+}
+
+/**
+ * 沙箱侧：把宿主送来的裸描述符还原成带查询助手的形式。
+ *
+ * 认不出标记就**原样返回** —— 这里过的是所有回调的所有参数，认错一个就会把普通的
+ * 对象参数改写成别的东西。
+ */
+export function reviveElementRef(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  if ((value as Record<string, unknown>)[ELEMENT_REF_MARKER] !== true) return value;
+
+  const ref = value as ElementRef;
+  // 描述符字段一并摊开：插件直接读 ref.text / ref.classes 是合理的，
+  // 没理由逼它绕一层 ref.ref。
+  return { ...ref, ...createElementRefHelpers(ref) };
+}

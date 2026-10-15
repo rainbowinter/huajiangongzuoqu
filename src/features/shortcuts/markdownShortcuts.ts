@@ -5,8 +5,29 @@
  * 设计为纯函数，不依赖组件状态，可在 MainWindow 和 NotePad 中复用。
  */
 
-import { setNativeValue } from "../plugins/activeContent";
+import { replaceRangeUndoable, setNativeValue } from "../plugins/activeContent";
 import { transformSelection } from "../plugins/registry";
+
+/**
+ * 替换 textarea 的一段区间，并让它进浏览器**原生撤销栈**。
+ *
+ * 以前这里统一用 `setNativeValue` 直接改 value，后果是 Ctrl+B / Ctrl+/ / Ctrl+\ 这些
+ * 快捷键插进去的内容**撤不掉**——Ctrl+Z 只会回退到上一次真正敲键盘的编辑。工具栏的
+ * 格式化按钮一直是可撤销的，正是因为它走 `execCommand("insertText")`。
+ *
+ * `execCommand` 只能替换当前选区，所以先 `setSelectionRange(start, end)`。它不可用时
+ * 回退到直接赋值：撤销会失效，但内容不会丢。
+ */
+function applyEdit(
+  textarea: HTMLTextAreaElement,
+  start: number,
+  end: number,
+  text: string,
+): void {
+  if (replaceRangeUndoable(textarea, start, end, text)) return;
+  const value = textarea.value;
+  setNativeValue(textarea, value.slice(0, start) + text + value.slice(end));
+}
 
 export interface ShortcutAction {
   /** 插入到光标前的文本（替换选中内容时用 prefix + selected + suffix） */
@@ -100,7 +121,9 @@ export function handleMarkdownShortcut(
 
 /**
  * 包裹选中文本（如 **粗体**、*斜体* 等）
- * 使用原生 value setter 方式，兼容 React 受控组件且不会引入额外字符
+ *
+ * 只替换选区这一段，而不是整篇重写：这样既保留了选区外的内容与光标，也让这次改动
+ * 成为撤销栈里的**一条**记录。
  */
 function applyWrapShortcut(
   textarea: HTMLTextAreaElement,
@@ -109,30 +132,18 @@ function applyWrapShortcut(
   const { selectionStart, selectionEnd, value } = textarea;
   const hasSelection = selectionStart !== selectionEnd;
 
-  textarea.focus();
-
   if (hasSelection) {
     const selected = value.slice(selectionStart, selectionEnd);
-    const newText =
-      value.slice(0, selectionStart) +
-      action.prefix +
-      selected +
-      action.suffix +
-      value.slice(selectionEnd);
 
-    setNativeValue(textarea, newText);
+    applyEdit(textarea, selectionStart, selectionEnd, action.prefix + selected + action.suffix);
 
     const newStart = selectionStart + action.prefix.length;
     const newEnd = newStart + selected.length;
     textarea.setSelectionRange(newStart, newEnd);
   } else {
     const insertion = action.prefix + action.placeholder + action.suffix;
-    const newText =
-      value.slice(0, selectionStart) +
-      insertion +
-      value.slice(selectionEnd);
 
-    setNativeValue(textarea, newText);
+    applyEdit(textarea, selectionStart, selectionEnd, insertion);
 
     const newStart = selectionStart + action.prefix.length;
     const newEnd = newStart + action.placeholder.length;
@@ -151,25 +162,19 @@ function applyHeadingShortcut(textarea: HTMLTextAreaElement): void {
   const currentLine = value.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
   const match = currentLine.match(/^(#{1,6})\s/);
 
-  textarea.focus();
+  // 只重写当前行，撤销栈里就只留这一条改动。
+  const lineEndOffset = lineEnd === -1 ? value.length : lineEnd;
 
   if (match) {
     const newLevel = Math.min(match[1].length + 1, 6);
     const newLine = "#".repeat(newLevel) + " " + currentLine.slice(match[0].length);
-    const newValue =
-      value.slice(0, lineStart) + newLine +
-      (lineEnd === -1 ? "" : value.slice(lineEnd));
 
-    setNativeValue(textarea, newValue);
+    applyEdit(textarea, lineStart, lineEndOffset, newLine);
 
     const cursorOffset = lineStart + newLevel + 1 + (selectionStart - lineStart - match[0].length);
     textarea.setSelectionRange(cursorOffset, cursorOffset);
   } else {
-    const newValue =
-      value.slice(0, lineStart) + "# " +
-      value.slice(lineStart);
-
-    setNativeValue(textarea, newValue);
+    applyEdit(textarea, lineStart, lineStart, "# ");
 
     const cursorPos = lineStart + 2 + (selectionStart - lineStart);
     textarea.setSelectionRange(cursorPos, cursorPos);
@@ -191,12 +196,12 @@ function applyHeadingIncreaseShortcut(textarea: HTMLTextAreaElement): void {
   const prefix = "#".repeat(newLevel) + " ";
   const lineContent = match ? currentLine.slice(match[0].length) : currentLine.replace(/^#*\s*/, "");
 
-  const newValue =
-    value.slice(0, lineStart) + prefix + lineContent +
-    (lineEnd === -1 ? "" : value.slice(lineEnd));
-
-  textarea.focus();
-  setNativeValue(textarea, newValue);
+  applyEdit(
+    textarea,
+    lineStart,
+    lineEnd === -1 ? value.length : lineEnd,
+    prefix + lineContent,
+  );
 
   const cursorOffset = lineStart + prefix.length + (selectionStart - lineStart - (match ? match[0].length : 0));
   const safePos = Math.max(lineStart + prefix.length, cursorOffset);
@@ -237,8 +242,7 @@ function applyTableShortcut(textarea: HTMLTextAreaElement): void {
       const start = Math.min(from, current.length);
       const end = Math.min(Math.max(to, start), current.length);
 
-      textarea.focus();
-      setNativeValue(textarea, current.slice(0, start) + transformed + current.slice(end));
+      applyEdit(textarea, start, end, transformed);
       const caret = start + transformed.length;
       textarea.setSelectionRange(caret, caret);
     })
@@ -250,7 +254,7 @@ function applyTableShortcut(textarea: HTMLTextAreaElement): void {
 
 /** 插入 3x3 表格模板，并把光标停在表头首格上。 */
 function insertTableTemplate(textarea: HTMLTextAreaElement): void {
-  const { selectionStart, value } = textarea;
+  const { selectionStart } = textarea;
 
   const table = [
     "| 列1 | 列2 | 列3 |",
@@ -260,10 +264,8 @@ function insertTableTemplate(textarea: HTMLTextAreaElement): void {
   ].join("\n");
 
   const insertion = "\n" + table + "\n";
-  const newValue = value.slice(0, selectionStart) + insertion + value.slice(selectionStart);
 
-  textarea.focus();
-  setNativeValue(textarea, newValue);
+  applyEdit(textarea, selectionStart, selectionStart, insertion);
 
   const cursorPos = selectionStart + insertion.indexOf("列1");
   textarea.setSelectionRange(cursorPos, cursorPos + 2);

@@ -1,0 +1,23 @@
+{
+  "name": "line-numbers",
+  "version": "1.1.0",
+  "apiVersion": 2,
+  "main": "index.js",
+  "description": "行号：在编辑区左侧标出每一行的行号，随滚动同步，栏宽可调",
+  "author": "花笺",
+  "permissions": ["ui:gutter", "editor:read", "events", "settings"],
+  "contributes": {
+    "settings": [
+      {
+        "key": "width",
+        "type": "number",
+        "title": "行号栏宽度",
+        "description": "单位像素。太窄会挤到正文，太宽则白占地方；改完立即生效。",
+        "default": 36,
+        "min": 20,
+        "max": 120,
+        "step": 2
+      }
+    ]
+  }
+}

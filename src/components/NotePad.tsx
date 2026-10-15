@@ -9,9 +9,8 @@ import { handleMarkdownShortcut } from "../features/shortcuts/markdownShortcuts"
 import { exportNoteAsPdf } from "../features/pdfExport/api";
 import { saveImageFromPath } from "../features/images/api";
 import { open } from "@tauri-apps/plugin-dialog";
-import { reportInstallPreparation } from "../features/update/api";
-import type { UpdateInstallPrepareRequest } from "../features/update/types";
 import { showToast } from "./Toast";
+import { disposeListener } from "./listeners";
 import { PluginCommandPanel } from "./PluginCommandPanel";
 import { CommandPalette } from "./CommandPalette";
 import { FindReplacePanel } from "./FindReplacePanel";
@@ -171,7 +170,6 @@ export function NotePad({
   const [tileColor, setTileColor] = useState(() =>
     resolveTileColor("system", normalizeTileColor(initialTileColor)),
   );
-  const [textRenderColor, setTextRenderColor] = useState("");
   const [isExiting, setIsExiting] = useState(false);
   const [pluginsPanelOpen, setPluginsPanelOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -343,6 +341,9 @@ export function NotePad({
       selection: activeSelection,
       cursor: contentRef.current?.selectionStart ?? 0,
       activeNoteId: initialNoteId ?? null,
+      // 小窗只有笔记，没有文件概念。**必须显式传 null**：镜像是浅合并的，
+      // 漏传这一项会沿用主窗口推过来的上一个文件的身份。
+      file: null,
     });
     refreshPluginStatusBar(activeSelection);
     emitContentChanged(content);
@@ -425,13 +426,6 @@ export function NotePad({
           setTileColor(
             resolveTileColor(loadedConfig.tileColorMode ?? "system", loadedConfig.tileColor),
           );
-          if (loadedConfig.textRenderColor) {
-            setTextRenderColor(loadedConfig.textRenderColor);
-            document.documentElement.style.setProperty(
-              "--text-render-color",
-              loadedConfig.textRenderColor,
-            );
-          }
         }
         if (initialNoteId) {
           const note = await getNote(initialNoteId);
@@ -453,7 +447,7 @@ export function NotePad({
       void refreshNotes().catch(() => undefined);
     });
     return () => {
-      void unlisten.then((fn) => fn());
+      disposeListener(unlisten);
     };
   }, [refreshNotes]);
 
@@ -483,7 +477,6 @@ export function NotePad({
       tileRenderMarkdown?: boolean;
       tileDoubleClickToEdit?: boolean;
       tileSaveReturnsToPin?: boolean;
-      textRenderColor?: string;
     }>("config-changed", (event) => {
       const mode = event.payload.tileColorMode ?? tileColorMode;
       const raw = event.payload.tileColor ?? tileColorRaw;
@@ -497,16 +490,9 @@ export function NotePad({
         setTileDoubleClickToEdit(event.payload.tileDoubleClickToEdit);
       if (event.payload.tileSaveReturnsToPin != null)
         setTileSaveReturnsToPin(event.payload.tileSaveReturnsToPin);
-      if (event.payload.textRenderColor != null) {
-        setTextRenderColor(event.payload.textRenderColor);
-        document.documentElement.style.setProperty(
-          "--text-render-color",
-          event.payload.textRenderColor || "inherit",
-        );
-      }
     });
     return () => {
-      void unlisten.then((fn) => fn());
+      disposeListener(unlisten);
     };
   }, [tileColorMode, tileColorRaw]);
 
@@ -549,7 +535,7 @@ export function NotePad({
         .catch(() => undefined);
     });
     return () => {
-      void unlisten.then((fn) => fn());
+      disposeListener(unlisten);
     };
   }, [refreshNotes]);
 
@@ -573,44 +559,6 @@ export function NotePad({
     setStatus(contentChanged ? "dirty" : "saved");
     return note;
   }, [content, editingNoteId, notes, title]);
-
-  useEffect(() => {
-    const unlisten = listen<UpdateInstallPrepareRequest>("update://prepare-install", (event) => {
-      const respond = async () => {
-        const windowLabel = windowLabelRef.current || "notepad";
-        if (statusRef.current !== "dirty") {
-          await reportInstallPreparation(event.payload.requestId, windowLabel, "ready");
-          return;
-        }
-
-        try {
-          await saveNote();
-          await reportInstallPreparation(event.payload.requestId, windowLabel, "ready");
-        } catch (error) {
-          setStatus("saveFailed");
-          showToast(getErrorMessage(error));
-          await reportInstallPreparation(
-            event.payload.requestId,
-            windowLabel,
-            "failed",
-            getErrorMessage(error),
-          );
-        }
-      };
-
-      void respond().catch(async (error) => {
-        await reportInstallPreparation(
-          event.payload.requestId,
-          windowLabelRef.current || "notepad",
-          "failed",
-          getErrorMessage(error),
-        ).catch(() => undefined);
-      });
-    });
-    return () => {
-      void unlisten.then((fn) => fn());
-    };
-  }, [saveNote]);
 
   const hasDraftContent = useCallback(
     () => Boolean(editingNoteId || title.trim() || content.trim()),
@@ -1157,10 +1105,7 @@ export function NotePad({
                   }}
                   placeholder={t("notepad.placeholder.title", { defaultValue: "标题（可选）" })}
                   className="w-full font-display font-medium text-ink placeholder:text-ink-ghost/60 mb-2 tracking-wide shrink-0"
-                  style={{
-                    fontSize: `${surfaceFontSize}px`,
-                    color: textRenderColor || undefined,
-                  }}
+                  style={{ fontSize: `${surfaceFontSize}px` }}
                 />
 
                 <div className="relative flex-1 min-h-0">
@@ -1174,7 +1119,7 @@ export function NotePad({
                       whiteSpace: "pre-wrap",
                       wordBreak: "break-word",
                       padding: "2px",
-                      color: textRenderColor || "var(--color-ink-soft)",
+                      color: "var(--md-text-color, var(--color-ink-soft))",
                     }}
                     dangerouslySetInnerHTML={{ __html: highlightedHtml }}
                   />
@@ -1233,7 +1178,7 @@ export function NotePad({
                     fontSize: `${surfaceFontSize}px`,
                     tabSize: `var(--tab-indent-size, 2)`,
                     color: "transparent",
-                    caretColor: textRenderColor || "var(--color-ink)",
+                    caretColor: "var(--color-ink)",
                     padding: "2px",
                   }}
                 />

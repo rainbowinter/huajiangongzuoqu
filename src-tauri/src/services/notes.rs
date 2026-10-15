@@ -72,6 +72,21 @@ pub struct AppConfig {
     pub background_position_y: f64,
     #[serde(default)]
     pub text_render_color: String,
+    // 预览配色。空串 = 跟随主题变量（默认），非空为 CSS 颜色值。
+    // 前端 `applyRenderColors()` 会把它们写成 :root 上的 --md-* 变量，
+    // 预览样式用 `var(--md-x, <主题回退>)` 读取。
+    #[serde(default)]
+    pub table_color: String,
+    #[serde(default)]
+    pub divider_color: String,
+    #[serde(default)]
+    pub quote_color: String,
+    #[serde(default)]
+    pub caption_color: String,
+    /// 用户添加的工作文件夹（绝对路径）。浏览与编辑都只允许落在这些根之内，
+    /// 判据见 `services::workspace`。
+    #[serde(default)]
+    pub workspace_folders: Vec<String>,
     #[serde(default = "default_remember_surface_size")]
     pub remember_surface_size: bool,
     #[serde(default = "default_tile_ctrl_close")]
@@ -1092,6 +1107,11 @@ impl NoteStore {
             background_position_x: default_background_position(),
             background_position_y: default_background_position(),
             text_render_color: String::new(),
+            table_color: String::new(),
+            divider_color: String::new(),
+            quote_color: String::new(),
+            caption_color: String::new(),
+            workspace_folders: Vec::new(),
             remember_surface_size: default_remember_surface_size(),
             tile_ctrl_close: default_tile_ctrl_close(),
             tile_double_click_to_edit: false,
@@ -1850,6 +1870,11 @@ mod tests {
             background_position_x: 50.0,
             background_position_y: 50.0,
             text_render_color: String::new(),
+            table_color: String::new(),
+            divider_color: String::new(),
+            quote_color: String::new(),
+            caption_color: String::new(),
+            workspace_folders: Vec::new(),
             remember_surface_size: true,
             tile_ctrl_close: true,
             tile_double_click_to_edit: true,

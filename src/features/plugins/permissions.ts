@@ -22,8 +22,13 @@ export const PERMISSIONS = [
   "ui:statusbar",
   "ui:menus",
   "ui:toolbar",
+  "ui:popover",
   "ui:open-panel",
+  "ui:style",
+  "ui:gutter",
+  "ui:decorations",
   "events",
+  "files:register",
   "storage",
   "settings",
   "system:clipboard:read",
@@ -72,8 +77,7 @@ export function isGranted(
   permission: Permission,
 ): boolean {
   const effective = granted.filter(
-    (candidate): candidate is Permission =>
-      isPermission(candidate) && declared.includes(candidate),
+    (candidate): candidate is Permission => isPermission(candidate) && declared.includes(candidate),
   );
 
   if (effective.includes(permission)) return true;

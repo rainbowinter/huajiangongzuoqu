@@ -12,6 +12,8 @@
  */
 
 /** 插件侧回调令牌的前缀。用不可打印字符开头，避免与普通字符串参数撞车。 */
+import type { FilePreviewKind } from "../workspace/fileTypes";
+
 export const HANDLER_PREFIX = "\u0000h:";
 
 export interface SerializedError {
@@ -23,6 +25,25 @@ export interface SerializedError {
   stack?: string;
 }
 
+/**
+ * 当前打开的文件是什么。
+ *
+ * 插件过去只能读到正文，**无从知道这是 `.py` 还是 `.md`** —— 于是「按文件类型做
+ * 不同的事」只能靠嗅探正文猜。这里把身份补上。
+ *
+ * 字段都投影成纯数据：镜像要跨 `postMessage`（结构化克隆），传 `FileType` 实例
+ * 是过不去的。
+ */
+export interface EditorFileInfo {
+  /** 绝对路径。笔记没有磁盘路径，为 `null`。 */
+  path: string | null;
+  /** 命中文件类型注册表时的 id（如 `"python"`）；没被任何插件认领时为 `null`。 */
+  typeId: string | null;
+  kind: FilePreviewKind | null;
+  /** highlight.js 语言名，只有 `kind === "code"` 的文件才有。 */
+  language: string | null;
+}
+
 /** 会被推送给插件的宿主状态镜像。 */
 export interface EditorMirror {
   content: string;
@@ -31,6 +52,8 @@ export interface EditorMirror {
   activeNoteId: string | null;
   /** 每次内容变化自增，插件可据此判断快照是否过期。 */
   contentEpoch: number;
+  /** 当前文件身份；笔记与未被认领的格式为 `null`。 */
+  file: EditorFileInfo | null;
 }
 
 export interface PluginInfo {
@@ -96,10 +119,7 @@ export const TIMEOUTS = {
   lifecycle: 5_000,
 } as const;
 
-export function serializeError(
-  error: unknown,
-  fallbackCode = "pluginError",
-): SerializedError {
+export function serializeError(error: unknown, fallbackCode = "pluginError"): SerializedError {
   if (error && typeof error === "object" && "code" in error) {
     const candidate = error as {
       code?: unknown;
@@ -141,9 +161,7 @@ export class PluginApiError extends Error {
   }
 }
 
-export function deserializeError(
-  error: SerializedError | undefined,
-): PluginApiError {
+export function deserializeError(error: SerializedError | undefined): PluginApiError {
   if (!error) {
     return new PluginApiError("pluginError", "插件调用失败");
   }

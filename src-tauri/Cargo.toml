@@ -1,6 +1,6 @@
 [package]
 name = "floral-notepaper"
-version = "1.0.4"
+version = "2.0.0"
 description = "A lightweight cross-platform desktop note app"
 authors = ["Achilng"]
 edition = "2021"
@@ -20,7 +20,9 @@ tauri-build = { version = "2", features = [] }
 serde_json = "1"
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset", "tray-icon", "macos-private-api"] }
+# 注意：npm 侧的 `@tauri-apps/api` 必须与这里的 minor 对齐，否则 tauri-cli 会直接拒绝构建
+# （"Found version mismatched Tauri packages"）。两边要一起动。
+tauri = { version = "~2.12", features = ["protocol-asset", "tray-icon", "macos-private-api"] }
 tauri-plugin-cli = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
@@ -32,6 +34,11 @@ serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 tauri-plugin-clipboard-manager = "2"
+# 应用自更新。用官方插件，端点指向**自己的**发布地址（见 `selfupdate.rs`）——
+# 原来是自研的那套，指向上游仓库，走完会把上游代码装进来，所以被停用了。
+tauri-plugin-updater = "~2.14"
+# 装完之后重启应用。updater 只负责下载与安装，重启要单独来。
+tauri-plugin-process = "~2.4"
 tokio = { version = "1", features = ["time"] }
 trash = "5"
 keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }

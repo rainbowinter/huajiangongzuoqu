@@ -1,10 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  deserializeError,
-  HANDLER_PREFIX,
-  PluginApiError,
-  serializeError,
-} from "./protocol";
+import { deserializeError, HANDLER_PREFIX, PluginApiError, serializeError } from "./protocol";
 
 describe("serializeError", () => {
   test("保留 AppError 形状（与 Rust 侧一致）", () => {

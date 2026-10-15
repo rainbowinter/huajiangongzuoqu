@@ -196,3 +196,29 @@ function renderLine(line: string): string {
 export function renderMarkdownHighlight(text: string): string {
   return text.split("\n").map(renderLine).join("\n");
 }
+
+/**
+ * 逐行分词，且**按行缓存**。
+ *
+ * `renderLine` 是纯函数 —— 它只看这一行怎么写，不记录「我在代码块里」这类跨行状态
+ * （围栏行本身会被上色，但下一行并不因此改变分词方式）。所以「行文本 → HTML」这个映射
+ * 可以放心缓存：在几千行的文档里改一行，其余的行直接命中缓存，一次正则都不用跑。
+ *
+ * 缓存是**模块级**的，跨笔记共享 —— 缓存键是行内容本身，同一行在哪儿都是同一个结果。
+ */
+const lineHtmlCache = new Map<string, string>();
+
+/** 缓存上限。超了就整体清空：文档里出现过的行集合本来就不会无限大，够用即可。 */
+const LINE_CACHE_LIMIT = 8000;
+
+export function renderMarkdownLines(text: string): string[] {
+  return text.split("\n").map((line) => {
+    const cached = lineHtmlCache.get(line);
+    if (cached !== undefined) return cached;
+
+    const html = renderLine(line);
+    if (lineHtmlCache.size >= LINE_CACHE_LIMIT) lineHtmlCache.clear();
+    lineHtmlCache.set(line, html);
+    return html;
+  });
+}

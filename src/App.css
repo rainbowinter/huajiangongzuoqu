@@ -25,12 +25,15 @@
 }
 
 @theme {
-  --color-paper: #f6f3ec;
-  --color-paper-warm: #f0ebe0;
-  --color-paper-deep: #e8e1d3;
+  /* 浅色底：整条 paper 阶梯比原来提亮了一档。
+     原来是 #f6f3ec 这种偏灰的米色，铺满编辑区时整体发闷；现在保留暖调（不是纯白），
+     只把明度抬上去。`paper-deep` 是描边 / 分隔线用的，跟着抬会削弱边界，所以只微调。 */
+  --color-paper: #fbf9f4;
+  --color-paper-warm: #f5f1e8;
+  --color-paper-deep: #eae4d8;
   --color-ink: #1a1a18;
   --color-ink-soft: #3d3d38;
-  --color-ink-faint: #8a8a80;
+  --color-ink-faint: #e4e449;
   --color-ink-ghost: #b8b8ae;
   --color-bamboo: #2d5a3d;
   --color-bamboo-light: #3a7a52;
@@ -49,7 +52,15 @@
     "HarmonyOS Sans SC", -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
     "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
   --font-serif: "Source Han Serif SC", "Songti SC", "Noto Serif CJK SC", "STSong", "SimSun", serif;
-  --font-mono: "SF Mono", "Menlo", "JetBrains Mono", "Fira Code", "HarmonyOS Sans SC", monospace;
+  /* 等宽字体栈。⚠️ 顺序有讲究：`HarmonyOS Sans SC` 是应用自带的**比例**中文字体，
+     它前面若有任何一款本机不存在的西文等宽字体，整条栈就会掉到它身上 —— Windows 上
+     没有 "SF Mono" / "Menlo"，于是代码渲染成比例字体。所以：先给各平台**一定存在**的
+     等宽字体（macOS 的 Menlo、Windows 的 Consolas），再让用户自装的 JetBrains Mono /
+     Fira Code 在中文字体之前接手。
+     用户可在「设置 → 代码字体」整体覆盖这一项，见 features/settings/codeFont.ts。 */
+  --font-mono:
+    ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Cascadia Code", Consolas, "Liberation Mono",
+    "JetBrains Mono", "Fira Code", "HarmonyOS Sans SC", monospace;
 }
 
 :root {
@@ -78,9 +89,9 @@
 
 /* ── 紫色主题（浅色）── 整套 UI 偏紫调 ── */
 :root[data-accent="purple"] {
-  --color-paper: #f7f4fa;
-  --color-paper-warm: #efe8f5;
-  --color-paper-deep: #e4dcec;
+  --color-paper: #fbf9fd;
+  --color-paper-warm: #f4eff9;
+  --color-paper-deep: #e9e3f0;
   --color-ink: #221a2a;
   --color-ink-soft: #443a4e;
   --color-ink-faint: #8a7e96;
@@ -90,6 +101,12 @@
   --color-bamboo-mist: #f0e8f7;
   --color-bamboo-glow: #e4d4f0;
   --color-stone: #6b6272;
+  /* 这几项原先在紫/粉主题里没有覆盖，会沿用绿色主题的暖棕色调，导致侧栏、Toast
+     与阴影的色调和整体不同步。这里补齐，让强调色主题是一套自洽的配色。 */
+  --color-cloud: #fdfbff;
+  --color-shadow: rgba(34, 26, 42, 0.06);
+  --color-shadow-deep: rgba(34, 26, 42, 0.12);
+  --color-danger-bg: #fef2f2;
 }
 /* ── 紫色主题（深色）── */
 :root[data-theme="dark"][data-accent="purple"] {
@@ -106,13 +123,16 @@
   --color-bamboo-glow: #342646;
   --color-stone: #8a8292;
   --color-cloud: #1b1722;
+  --color-shadow: rgba(0, 0, 0, 0.3);
+  --color-shadow-deep: rgba(0, 0, 0, 0.5);
+  --color-danger-bg: rgba(220, 38, 38, 0.15);
 }
 
 /* ── 粉色主题（浅色）── 整套 UI 偏粉调 ── */
 :root[data-accent="pink"] {
-  --color-paper: #fcf6f8;
-  --color-paper-warm: #f8e8ec;
-  --color-paper-deep: #f0d8e0;
+  --color-paper: #fdf9fb;
+  --color-paper-warm: #faf1f4;
+  --color-paper-deep: #f3e2e8;
   --color-ink: #2a1a1e;
   --color-ink-soft: #4e343a;
   --color-ink-faint: #96727a;
@@ -122,6 +142,10 @@
   --color-bamboo-mist: #fce8ef;
   --color-bamboo-glow: #f8d4e0;
   --color-stone: #726064;
+  --color-cloud: #fffafb;
+  --color-shadow: rgba(42, 26, 30, 0.06);
+  --color-shadow-deep: rgba(42, 26, 30, 0.12);
+  --color-danger-bg: #fef2f2;
 }
 /* ── 粉色主题（深色）── */
 :root[data-theme="dark"][data-accent="pink"] {
@@ -138,6 +162,9 @@
   --color-bamboo-glow: #462630;
   --color-stone: #928284;
   --color-cloud: #22171a;
+  --color-shadow: rgba(0, 0, 0, 0.3);
+  --color-shadow-deep: rgba(0, 0, 0, 0.5);
+  --color-danger-bg: rgba(220, 38, 38, 0.15);
 }
 
 /* Theme transition — applied briefly during theme switch for a uniform crossfade */
@@ -382,6 +409,63 @@ textarea::-webkit-scrollbar {
 .markdown-selectable svg {
   -webkit-user-select: none;
   user-select: none;
+}
+
+/* ---------------------------------------------------------------- 预览配色
+ *
+ * 每个 --md-* 变量都由 `features/settings/renderColors.ts` 写到 :root 上。
+ * 用户没配就取回退值——回退值刻意写成与改造前**逐字等价**的表达式（含 Tailwind
+ * 的 /40 这类不透明度修饰，v4 用 color-mix(in oklab) 生成），因此默认观感与升级前
+ * 完全一致，只有配色项被显式设置时才会改变。
+ *
+ * 规则写在本文件靠后位置：Tailwind 工具类在第 1 行就导入了，同优先级下后写的胜出。
+ */
+
+.md-body,
+.md-body p,
+.md-body li {
+  color: var(--md-text-color, var(--color-ink-soft));
+}
+
+.md-table {
+  border-color: var(
+    --md-table-color,
+    color-mix(in oklab, var(--color-paper-deep) 50%, transparent)
+  );
+}
+
+.md-table th {
+  border-color: var(
+    --md-table-color,
+    color-mix(in oklab, var(--color-paper-deep) 40%, transparent)
+  );
+}
+
+.md-table td {
+  border-color: var(
+    --md-table-color,
+    color-mix(in oklab, var(--color-paper-deep) 35%, transparent)
+  );
+}
+
+.md-divider {
+  background-image: linear-gradient(
+    to right,
+    transparent,
+    var(--md-divider-color, var(--color-paper-deep)),
+    transparent
+  );
+}
+
+.md-quote {
+  border-left-color: var(
+    --md-quote-color,
+    color-mix(in oklab, var(--color-bamboo) 40%, transparent)
+  );
+}
+
+.md-caption {
+  color: var(--md-caption-color, var(--color-ink-ghost));
 }
 
 /* Noise texture overlay for paper feel */

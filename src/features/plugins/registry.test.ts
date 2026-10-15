@@ -3,10 +3,14 @@ import {
   addPluginCommand,
   clearAllPlugins,
   getStatusBarRenderers,
+  listDecorations,
+  listEditorGutters,
   listLoadedPlugins,
   listPluginCommands,
   listPluginPanels,
   pluginRegistrySizes,
+  registerDecoration,
+  registerEditorGutter,
   registerLoadedPlugin,
   registerPluginPanel,
   registerSelectionTransformer,
@@ -184,5 +188,35 @@ describe("已加载插件状态", () => {
       status: "invalid",
       error: "pluginManifestInvalid",
     });
+  });
+});
+
+describe("重载时的兜底清理", () => {
+  /**
+   * 行旁注与行内装饰是「带活闭包」的注册项，正常卸载由宿主的 disposable 负责。
+   * 这里盯的是另一条路：Vite HMR 重新求值 `loader.ts` 时，旧宿主实例再也没人去
+   * dispose —— 条目会留在注册表里，插件重新加载一遍就有两条。
+   * 后果：行旁注多出一栏，行内装饰在同一位置画两个色块（React 报重复 key）。
+   */
+  test("clearAllPlugins 会把行旁注与行内装饰一并清掉", () => {
+    registerEditorGutter("alpha", { id: "g", title: "行号", plugin: "alpha", width: 40 });
+    registerDecoration({ id: "d", title: "颜色块", plugin: "alpha", refresh: () => {} });
+
+    expect(listEditorGutters()).toHaveLength(1);
+    expect(listDecorations()).toHaveLength(1);
+
+    clearAllPlugins();
+
+    expect(listEditorGutters()).toHaveLength(0);
+    expect(listDecorations()).toHaveLength(0);
+  });
+
+  test("unregisterPlugin 只带走该插件的那些条目", () => {
+    registerDecoration({ id: "a", title: "A", plugin: "alpha", refresh: () => {} });
+    registerDecoration({ id: "b", title: "B", plugin: "beta", refresh: () => {} });
+
+    unregisterPlugin("alpha");
+
+    expect(listDecorations().map((item) => item.plugin)).toEqual(["beta"]);
   });
 });

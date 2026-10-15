@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
+import { disposeListener } from "./listeners";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import {
   listEditorMenuItems,
@@ -52,7 +53,7 @@ export function ContextMenuProvider({ children }: { children: React.ReactNode })
       tileCtrlCloseRef.current = event.payload.tileCtrlClose ?? true;
     });
     return () => {
-      void unlisten.then((fn) => fn());
+      disposeListener(unlisten);
     };
   }, []);
 

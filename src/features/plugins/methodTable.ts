@@ -15,6 +15,8 @@ import type { Disposable } from "./disposable";
 import type { PluginApiError } from "./protocol";
 import { TIMEOUTS, type MethodDescriptor, type PluginInfo } from "./protocol";
 import { PermissionError, checkPermission, type Permission } from "./permissions";
+import type { CodeThemePreference } from "../markdown/codeThemes";
+import type { FontFaceOverride } from "../fonts/fontFace";
 
 export interface CommandContribution {
   id: string;
@@ -37,6 +39,21 @@ export interface StatusBarContribution {
   renderToken: string;
 }
 
+/**
+ * 编辑器行旁注：在编辑区左侧加一栏「每行一段文字」。
+ *
+ * 插件只负责**出文字**（行号、以后的 git blame、TODO 标记…），位置与滚动同步由宿主
+ * 保证 —— 插件量不到编辑器的换行与行高，把它交给插件只会得到对不齐的栏。
+ */
+export interface GutterContribution {
+  id: string;
+  title: string;
+  /** 栏宽（px）。默认 44。 */
+  width?: number;
+  /** 返回**每行一个字符串**；第 i 项对应第 i 个逻辑行。 */
+  renderToken: string;
+}
+
 export interface MenuContribution {
   id: string;
   title: string;
@@ -50,9 +67,115 @@ export interface ToolbarContribution {
   runToken: string;
 }
 
+/**
+ * 工具栏浮层：工具栏上的一个按钮，点开一个**贴着它**的下拉面板，内容由插件渲染。
+ *
+ * 与 `registerPanel` 的分工：面板是常驻侧栏，浮层是随手开合的临时界面 —— 符号表、
+ * 表情选择、颜色盘、模板插入这类「看一眼、点一下、关掉」的东西用它更合适。
+ *
+ * 下拉内容**懒加载**：注册时不渲染，用户点开时才向插件要一次 HTML。
+ */
+export interface PopoverContribution {
+  id: string;
+  title: string;
+  /** 按钮上显示的文字；不给就用 `title`。 */
+  icon?: string;
+  /** 下拉宽度（px），默认 320。高度由内容决定，超出会滚。 */
+  width?: number;
+  /** `true` 时只在笔记 / Markdown 文件下出现，与内置的 Markdown 格式化按钮一致。 */
+  markdownOnly?: boolean;
+  /** 点开时调用一次，返回下拉里的 HTML。 */
+  renderToken: string;
+  /**
+   * 点击下拉内容时的回调。
+   *
+   * **返回一个字符串**表示「用这段 HTML 换掉当前内容」—— 分类切换、翻页这类交互靠它
+   * 实现，插件只需在自己的沙箱里记住状态。返回其它值则内容保持不变。
+   */
+  onClickToken?: string;
+  /** 每次点击后自动收起。默认 `false` —— 符号表那种要连点好几次。 */
+  closeOnClick?: boolean;
+}
+
+/**
+ * 行内装饰：在正文里叠一层**贴着字符**的小控件。
+ *
+ * 与行旁注（`ui.registerGutter`）的分工：行旁注在左侧固定栏里出**文字**，位置与点击都不归
+ * 插件管；行内装饰跟着**列位置**走，而且是可点的 —— 颜色块、跳转箭头、行内提示都走这个口子。
+ *
+ * `render()` 返回的是**数据**不是 HTML（`{ offset, length, color }`），所以这条链路不需要
+ * 消毒器。
+ */
+export interface DecorationContribution {
+  id: string;
+  title: string;
+  /** 每次正文 / 文件变化时调用一次，返回要叠的条目。 */
+  renderToken: string;
+  /** 用户选完颜色时调用：`(offset, length, "#rrggbb")`。 */
+  pickToken?: string;
+}
+
 export interface SelectionTransformerContribution {
   id: string;
   transformToken: string;
+}
+
+export interface StyleContribution {
+  id: string;
+  /** 原始 CSS 文本，由宿主插进一个 `<style>` 元素。 */
+  css: string;
+}
+
+/**
+ * 文件类型声明。
+ *
+ * 插件**不接触文件系统**：它只负责说「`.py` 是 Python、徽章是 PY、颜色是这个」，
+ * 至于"文件夹里有哪些文件、内容是什么"全部由宿主提供。这条边界让「文件读取器」
+ * 这种看起来很大的功能不需要任何新增的文件系统权限。
+ */
+export interface FileTypeContribution {
+  id: string;
+  /** 扩展名，不含点，大小写不敏感。 */
+  extensions: string[];
+  label: string;
+  badge: string;
+  /** 卡片强调色，任意合法 CSS 颜色。 */
+  color: string;
+  kind: string;
+  /** `kind === "code"` 时交给宿主 highlight.js 的语言名。 */
+  language?: string;
+  /** 编辑区字体，任意合法 CSS font-family。不填按 kind 取默认。 */
+  font?: string;
+  /** 代码着色主题：单个主题名，或 `{ light, dark }` 按应用主题各用一套。 */
+  highlightTheme?: CodeThemePreference;
+  /** `kind === "custom"` 时的渲染回调令牌。 */
+  renderToken?: string;
+}
+
+/**
+ * 字体登记声明。
+ *
+ * 插件只说"我的字体放在哪个文件夹"，其余全由宿主完成：列文件、生成 asset URL、拼
+ * `@font-face`、注入样式、登记族名。插件既**拿不到路径**（回给它的只有族名），也
+ * **塞不进任意 CSS**（规则由宿主按校验过的文件名生成）—— 因此这比 `ui:style` 还弱。
+ */
+export interface FontRegistration {
+  /** 相对插件目录的字体文件夹，默认为 `fonts`。 */
+  dir?: string;
+  /**
+   * 按**文件名**覆盖自动推导出的族名 / 字重 / 字形。
+   *
+   * 族名由文件名推导（见 `features/fonts/fontFace.ts`），字体文件名乱起来六亲不认时
+   * 用这里兜。键是 `listAssets` 那种纯文件名，不是路径。
+   */
+  overrides?: Record<string, FontFaceOverride>;
+}
+
+export interface PluginFontRegistrationResult {
+  /** 本次登记到的字体族名（去重）。 */
+  families: string[];
+  /** 实际加载的字体**文件**数（一个字族可能占多个文件）。 */
+  count: number;
 }
 
 /**
@@ -65,11 +188,31 @@ export interface PluginHostBridge {
   registerCommand(contribution: CommandContribution): string;
   registerPanel(contribution: PanelContribution): string;
   registerStatusBarItem(contribution: StatusBarContribution): string;
+  registerGutter(contribution: GutterContribution): string;
   registerEditorMenuItem(contribution: MenuContribution): string;
   registerNoteMenuItem(contribution: MenuContribution): string;
   registerToolbarButton(contribution: ToolbarContribution): string;
+  registerPopover(contribution: PopoverContribution): string;
+  registerDecorations(contribution: DecorationContribution): string;
   registerSelectionTransformer(contribution: SelectionTransformerContribution): string;
+  /** 把一段 CSS 注入当前窗口的主世界。 */
+  registerStyle(contribution: StyleContribution): string;
+  /** 声明一种可识别的文件类型。 */
+  registerFileType(contribution: FileTypeContribution): string;
   openPanel(panelId: string): void;
+
+  /** 读插件自己目录下的文本资源（样式表、附加脚本、图标 SVG…）。 */
+  readPluginAsset(relativePath: string): Promise<string>;
+  /** 列出插件自己目录下某个子目录里的可读资源文件名（不递归）。 */
+  listPluginAssets(relativeDir: string): Promise<string[]>;
+
+  /**
+   * 扫描插件自己的字体目录并登记为可用的 `@font-face`。
+   *
+   * 回传的只有**族名**：绝对路径在主世界就被 `convertFileSrc` 吃掉了，插件全程
+   * 不知道自己的文件在哪。
+   */
+  registerFonts(options: FontRegistration): Promise<PluginFontRegistrationResult>;
 
   // ---- editor
   editorGetContent(): string;
@@ -188,6 +331,18 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
   "plugin.info": {
     handler: (ctx) => ctx.plugin,
   },
+  // 读自己的资源不需要权限：插件代码本来就是从这个目录加载的，能读自己的样式表
+  // 不构成任何新增能力。路径穿越由后端 `safe_join_file` 挡。
+  "plugin.readAsset": {
+    timeoutMs: TIMEOUTS.io,
+    handler: (ctx, args) =>
+      ctx.bridge.readPluginAsset(asString(args[0], "plugin.readAsset", "relativePath")),
+  },
+  "plugin.listAssets": {
+    timeoutMs: TIMEOUTS.io,
+    handler: (ctx, args) =>
+      ctx.bridge.listPluginAssets(asString(args[0], "plugin.listAssets", "relativeDir")),
+  },
 
   // ---- ui
   "ui.showToast": {
@@ -210,9 +365,7 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
         id,
         title,
         runToken,
-        ...(asOptionalString(record.keybinding)
-          ? { keybinding: record.keybinding as string }
-          : {}),
+        ...(asOptionalString(record.keybinding) ? { keybinding: record.keybinding as string } : {}),
       });
     },
   },
@@ -234,6 +387,21 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
       });
     },
   },
+  "ui.registerGutter": {
+    permission: "ui:gutter",
+    handler: (ctx, args) => {
+      const record = asRecord(args[0], "ui.registerGutter");
+      const id = asString(record.id, "ui.registerGutter", "id");
+      const title = asString(record.title, "ui.registerGutter", "title");
+      const renderToken = requireToken(record, "render", "ui.registerGutter");
+      return ctx.bridge.registerGutter({
+        id,
+        title,
+        renderToken,
+        ...(typeof record.width === "number" ? { width: record.width } : {}),
+      });
+    },
+  },
   "ui.registerStatusBarItem": {
     permission: "ui:statusbar",
     handler: (ctx, args) => {
@@ -246,11 +414,13 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
   },
   "ui.registerEditorMenuItem": {
     permission: "ui:menus",
-    handler: (ctx, args) => ctx.bridge.registerEditorMenuItem(menuContribution(args, "ui.registerEditorMenuItem")),
+    handler: (ctx, args) =>
+      ctx.bridge.registerEditorMenuItem(menuContribution(args, "ui.registerEditorMenuItem")),
   },
   "ui.registerNoteMenuItem": {
     permission: "ui:menus",
-    handler: (ctx, args) => ctx.bridge.registerNoteMenuItem(menuContribution(args, "ui.registerNoteMenuItem")),
+    handler: (ctx, args) =>
+      ctx.bridge.registerNoteMenuItem(menuContribution(args, "ui.registerNoteMenuItem")),
   },
   "ui.registerToolbarButton": {
     permission: "ui:toolbar",
@@ -265,11 +435,98 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
       });
     },
   },
+  "ui.registerPopover": {
+    permission: "ui:popover",
+    handler: (ctx, args) => {
+      const record = asRecord(args[0], "ui.registerPopover");
+      const icon = asOptionalString(record.icon);
+      const onClickToken = asOptionalString(record.onClick);
+      return ctx.bridge.registerPopover({
+        id: asString(record.id, "ui.registerPopover", "id"),
+        title: asString(record.title, "ui.registerPopover", "title"),
+        renderToken: requireToken(record, "render", "ui.registerPopover"),
+        ...(icon ? { icon } : {}),
+        ...(typeof record.width === "number" ? { width: record.width } : {}),
+        ...(typeof record.markdownOnly === "boolean" ? { markdownOnly: record.markdownOnly } : {}),
+        ...(typeof record.closeOnClick === "boolean" ? { closeOnClick: record.closeOnClick } : {}),
+        ...(onClickToken ? { onClickToken } : {}),
+      });
+    },
+  },
+  "ui.registerDecorations": {
+    permission: "ui:decorations",
+    handler: (ctx, args) => {
+      const record = asRecord(args[0], "ui.registerDecorations");
+      const pickToken = asOptionalString(record.pick);
+      return ctx.bridge.registerDecorations({
+        id: asString(record.id, "ui.registerDecorations", "id"),
+        title: asString(record.title, "ui.registerDecorations", "title"),
+        renderToken: requireToken(record, "render", "ui.registerDecorations"),
+        ...(pickToken ? { pickToken } : {}),
+      });
+    },
+  },
   "ui.openPanel": {
     permission: "ui:open-panel",
     handler: (ctx, args) => {
       ctx.bridge.openPanel(asString(args[0], "ui.openPanel", "panelId"));
       return undefined;
+    },
+  },
+  "ui.registerStyle": {
+    permission: "ui:style",
+    handler: (ctx, args) => {
+      const record = asRecord(args[0], "ui.registerStyle");
+      return ctx.bridge.registerStyle({
+        id: asString(record.id, "ui.registerStyle", "id"),
+        css: asString(record.css, "ui.registerStyle", "css"),
+      });
+    },
+  },
+  // ---- files（工作文件夹里"哪些扩展名算数、每种长什么样"）
+  "files.registerType": {
+    permission: "files:register",
+    handler: (ctx, args) => {
+      const record = asRecord(args[0], "files.registerType");
+      const extensions = record.extensions;
+      if (!Array.isArray(extensions) || extensions.length === 0) {
+        throw invalidArgument("files.registerType", "extensions 必须是非空数组");
+      }
+      const renderToken = asOptionalString(record.render);
+
+      return ctx.bridge.registerFileType({
+        id: asString(record.id, "files.registerType", "id"),
+        extensions: extensions.map((value) =>
+          asString(value, "files.registerType", "extensions[]"),
+        ),
+        label: asString(record.label, "files.registerType", "label"),
+        badge: asString(record.badge, "files.registerType", "badge"),
+        color: asString(record.color, "files.registerType", "color"),
+        kind: asString(record.kind, "files.registerType", "kind"),
+        ...(asOptionalString(record.language) ? { language: record.language as string } : {}),
+        ...(asOptionalString(record.font) ? { font: record.font as string } : {}),
+        ...(asCodeThemePreference(record.highlightTheme)
+          ? { highlightTheme: asCodeThemePreference(record.highlightTheme) }
+          : {}),
+        ...(renderToken ? { renderToken } : {}),
+      });
+    },
+  },
+  // ---- fonts（插件自带字体）
+  //
+  // 不需要权限：宿主自己读盘、自己拼 `@font-face`，插件既拿不到路径也塞不进任意 CSS,
+  // 能力严格弱于 `ui:style`。
+  "fonts.register": {
+    timeoutMs: TIMEOUTS.io,
+    handler: (ctx, args) => {
+      const record = args[0] === undefined ? {} : asRecord(args[0], "fonts.register");
+      const dir = asOptionalString(record.dir);
+      const overrides = asFontOverrides(record.overrides, "fonts.register");
+
+      return ctx.bridge.registerFonts({
+        ...(dir ? { dir } : {}),
+        ...(overrides ? { overrides } : {}),
+      });
     },
   },
   "ui.dispose": {
@@ -365,11 +622,7 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
       const record = asRecord(args[0], "editor.registerSelectionTransformer");
       return ctx.bridge.registerSelectionTransformer({
         id: asString(record.id, "editor.registerSelectionTransformer", "id"),
-        transformToken: requireToken(
-          record,
-          "transform",
-          "editor.registerSelectionTransformer",
-        ),
+        transformToken: requireToken(record, "transform", "editor.registerSelectionTransformer"),
       });
     },
   },
@@ -395,10 +648,7 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
     permission: "workspace:write",
     timeoutMs: TIMEOUTS.io,
     handler: (ctx, args) =>
-      ctx.bridge.workspaceUpdateNote(
-        asString(args[0], "workspace.updateNote", "id"),
-        args[1],
-      ),
+      ctx.bridge.workspaceUpdateNote(asString(args[0], "workspace.updateNote", "id"), args[1]),
   },
   "workspace.deleteNote": {
     permission: "workspace:write",
@@ -454,10 +704,7 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
     permission: "storage",
     timeoutMs: TIMEOUTS.io,
     handler: async (ctx, args) => {
-      await ctx.bridge.storageSet(
-        asString(args[0], "storage.set", "key"),
-        args[1] ?? null,
-      );
+      await ctx.bridge.storageSet(asString(args[0], "storage.set", "key"), args[1] ?? null);
       return undefined;
     },
   },
@@ -563,6 +810,25 @@ function menuContribution(args: unknown[], method: string): MenuContribution {
   };
 }
 
+/**
+ * 解析插件给的主题声明。
+ *
+ * 非法值一律丢弃（回落到跟随应用主题），而不是报错：主题只是个观感选项，为它让
+ * 整个文件类型注册失败不划算。
+ */
+function asCodeThemePreference(value: unknown): CodeThemePreference | undefined {
+  if (typeof value === "string" && value.length > 0) return value;
+
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    if (typeof record.light === "string" && typeof record.dark === "string") {
+      return { light: record.light, dark: record.dark };
+    }
+  }
+
+  return undefined;
+}
+
 function asDialogOptions(value: unknown): Record<string, unknown> | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   return value as Record<string, unknown>;
@@ -578,8 +844,48 @@ function asDialogOptions(value: unknown): Record<string, unknown> | undefined {
  */
 export const NO_PERMISSION_METHODS: ReadonlySet<string> = new Set([
   "plugin.info",
+  "plugin.listAssets",
+  "plugin.readAsset",
+  "fonts.register",
   "ui.dispose",
 ]);
+
+/**
+ * 解析插件给的字体覆盖表。
+ *
+ * 与主题声明同样采取"非法值丢弃"而不是报错：这是给乱文件名兜底的逃生口，为一条写错的
+ * 覆盖项让整个字体登记失败不划算。`overrides` 本身不是对象时才报错——那属于调用方式
+ * 就错了。
+ */
+function asFontOverrides(
+  value: unknown,
+  method: string,
+): Record<string, FontFaceOverride> | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw invalidArgument(method, "overrides 必须是以文件名为键的对象");
+  }
+
+  const result: Record<string, FontFaceOverride> = {};
+  for (const [file, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) continue;
+
+    const entry = raw as Record<string, unknown>;
+    const override: FontFaceOverride = {};
+    if (typeof entry.family === "string" && entry.family.trim()) {
+      override.family = entry.family.trim();
+    }
+    if (typeof entry.weight === "number" && Number.isFinite(entry.weight)) {
+      override.weight = entry.weight;
+    }
+    if (entry.style === "normal" || entry.style === "italic") {
+      override.style = entry.style;
+    }
+    result[file] = override;
+  }
+
+  return result;
+}
 
 export function methodDescriptors(): MethodDescriptor[] {
   return Object.entries(METHOD_TABLE).map(([name, entry]) => ({
@@ -641,11 +947,7 @@ export async function dispatchPluginCall(
   }
 
   const timeoutMs = entry.timeoutMs ?? TIMEOUTS.read;
-  return withTimeout(
-    Promise.resolve(entry.handler(ctx, args ?? [])),
-    timeoutMs,
-    method,
-  );
+  return withTimeout(Promise.resolve(entry.handler(ctx, args ?? [])), timeoutMs, method);
 }
 
 /** 供测试与文档列举：按命名空间分组的方法名。 */

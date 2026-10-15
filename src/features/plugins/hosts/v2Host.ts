@@ -11,6 +11,7 @@
  * 悄悄降级等于悄悄放弃隔离，不能接受。
  */
 
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { confirm, message as nativeMessage } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
@@ -29,6 +30,9 @@ import {
 import { openNoteInEditor } from "../../windows/api";
 import { getActiveContentAccessor } from "../activeContent";
 import {
+  listPluginAssets,
+  listPluginFontAssets,
+  readPluginAsset,
   settingsGet,
   storageClear,
   storageDelete,
@@ -37,7 +41,13 @@ import {
   storageSet,
 } from "../api";
 import { DisposableStore, toDisposable, type Disposable } from "../disposable";
-import { describeElement } from "../elementRef";
+import {
+  isFilePreviewKind,
+  registerFileType as registerHostFileType,
+} from "../../workspace/fileTypes";
+import { DEFAULT_FONT_DIR, deriveFontFaceSpecs } from "../../fonts/fontFace";
+import { installPluginFonts } from "../../fonts/pluginFonts";
+import { describeElement, markElementRef } from "../elementRef";
 import { isFloralEventTopic, subscribeFloralEvent } from "../events";
 import { scrollEditorTo, scrollPreviewTo } from "../jump";
 import { appendPluginLog } from "../logs";
@@ -46,14 +56,19 @@ import {
   methodDescriptors,
   type CommandContribution,
   type MenuContribution,
+  type GutterContribution,
+  type DecorationContribution,
   type PanelContribution,
   type PluginCallContext,
+  type PopoverContribution,
   type PluginHostBridge,
+  type FileTypeContribution,
   type SelectionTransformerContribution,
   type StatusBarContribution,
+  type StyleContribution,
   type ToolbarContribution,
 } from "../methodTable";
-import { unknownPermissions } from "../permissions";
+import { isGranted, unknownPermissions } from "../permissions";
 import {
   serializeError,
   TIMEOUTS,
@@ -65,17 +80,26 @@ import {
 } from "../protocol";
 import {
   addPluginCommand,
+  registerEditorGutter,
   registerEditorMenuItem,
   registerNoteMenuItem,
+  registerDecoration,
   registerPluginPanel,
+  registerPopover,
   registerSelectionTransformer,
   registerToolbarButton,
 } from "../registry";
 import {
   addStatusBarItemId,
+  clearGutterLines,
+  clearDecorationItems,
   clearPanelHtml,
+  clearPopoverHtml,
   removeStatusBarItemId,
+  setGutterLines,
+  setDecorationItems,
   setPanelHtml,
+  setPopoverHtml,
   setStatusBarText,
 } from "../stores";
 import { createLoopbackPair, type HostSideTransport } from "../transport";
@@ -124,6 +148,53 @@ interface StatusBarRecord {
   itemId: string;
 }
 
+interface GutterRecord {
+  contribution: GutterContribution;
+  cacheKey: string;
+  /** 注册表里那一条；重新注册同一 id 时要先把它撤掉。 */
+  disposable: Disposable;
+}
+
+/**
+ * 颜色块只认 `#rrggbb`。
+ *
+ * 不是宿主挑食：色块本体是 `<input type="color">`，它的 `value` 按规范只接受这个格式。
+ * 换算（`rgb()` / `hsl()` / 三位缩写 → 六位）是**插件的事** —— 它本来就知道原文长什么样，
+ * 顺手还能记住有没有 alpha。宿主拿到不合规的就丢掉这一条，不猜。
+ */
+const SWATCH_COLOR = /^#[0-9a-f]{6}$/i;
+
+/** 校验一条插件送来的行内装饰；不合规返回 null（丢掉单条，而不是让整层失败）。 */
+function parseDecorationItem(
+  value: unknown,
+): { offset: number; length: number; color: string } | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+
+  const offset = record.offset;
+  if (typeof offset !== "number" || !Number.isInteger(offset) || offset < 0) return null;
+
+  const color = record.color;
+  if (typeof color !== "string" || !SWATCH_COLOR.test(color)) return null;
+
+  const rawLength = record.length;
+  const length =
+    typeof rawLength === "number" && Number.isInteger(rawLength) && rawLength > 0 ? rawLength : 1;
+
+  return { offset, length, color: color.toLowerCase() };
+}
+
+interface DecorationRecord {
+  contribution: DecorationContribution;
+  cacheKey: string;
+  disposable: Disposable;
+}
+
+interface PopoverRecord {
+  contribution: PopoverContribution;
+  cacheKey: string;
+}
+
 export interface V2HostOptions {
   manifest: PluginManifest;
   code: string;
@@ -137,6 +208,8 @@ export interface V2PluginHost {
   updateMirror(mirror: Partial<EditorMirror>): void;
   refreshPanels(): void;
   refreshStatusBar(selection: Selection | null): void;
+  /** 用户在界面上改了这份插件的设置：重新读一次并推给沙箱。 */
+  refreshSettings(): void;
 }
 
 let promptProvider:
@@ -183,6 +256,9 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
   const store = new DisposableStore();
   const registrations = new RegistrationBag();
   const panels: PanelRecord[] = [];
+  const gutters: GutterRecord[] = [];
+  const popovers: PopoverRecord[] = [];
+  const decorations: DecorationRecord[] = [];
   const statusBarItems: StatusBarRecord[] = [];
   const pendingInvocations = new Map<
     number,
@@ -194,8 +270,16 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
   let contentEpoch = 0;
   const declared = manifest.permissions ?? [];
   const granted = manifest.grantedPermissions ?? [];
-  const canReadEditor = granted.includes("editor:read");
-  const canReadContent = canReadEditor;
+  /**
+   * 能不能把正文下发到镜像里。
+   *
+   * ⚠️ 必须走 `isGranted`，**不能**写成 `granted.includes("editor:read")`：权限模型里
+   * `editor:write` **蕴含** `editor:read`（见 `permissions.ts` 的 IMPLIES 与文档的权限表），
+   * 而方法表的门（`checkPermission`）走的就是 `isGranted`。两处判据不一致的后果是：
+   * 只声明 `editor:write` 的插件**调得动** `editor.getContent()`，镜像里却是一份被抹白的
+   * 空正文与 `file: null` —— 表现为「插件拿得到数据，但看到的是空的」，极难查。
+   */
+  const canReadContent = isGranted(declared, granted, "editor:read");
 
   // 初始镜像必须**从当前编辑器状态播种**，不能留空。
   //
@@ -210,6 +294,9 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
     cursor: seedAccessor?.getCursor()?.offset ?? 0,
     activeNoteId: null,
     contentEpoch: 0,
+    // 播种源只有正文，没有文件身份 —— 只能等宿主第一次 updateMirror 推过来。
+    // （宿主在窗口挂载时就会推，所以差不了几帧。）
+    file: null,
   };
 
   const pluginInfo: PluginInfo = {
@@ -283,9 +370,103 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
     for (const record of panels) refreshPanel(record);
   };
 
+  /**
+   * 重新问插件要一份浮层内容。
+   *
+   * 与面板不同，这个**不在正文变化时刷新**，只有用户点开时才由界面调一次
+   * （见 registry 里 `PluginPopover.refresh`）—— 浮层是临时界面，没人开着的时候
+   * 反复渲染纯属浪费。
+   *
+   * 失败时留一段错误 HTML 而不是空白：面板可以空着，浮层空着用户只会以为按钮坏了。
+   */
+  const refreshPopover = (record: PopoverRecord): void => {
+    void invokeHandler(record.contribution.renderToken, [])
+      .then((html) => {
+        if (typeof html === "string") {
+          setPopoverHtml(record.cacheKey, html);
+        } else if (html != null) {
+          log("warn", `浮层 ${record.contribution.id} 的 render() 没有返回字符串`);
+          setPopoverHtml(record.cacheKey, "");
+        }
+      })
+      .catch((error: unknown) => {
+        const serialized = serializeError(error);
+        log("error", `浮层渲染失败：${serialized.message}`);
+        setPopoverHtml(
+          record.cacheKey,
+          `<p style="padding:12px;color:#b4552d;font-size:12px;">浮层渲染失败：${serialized.message}</p>`,
+        );
+      });
+  };
+
+  /**
+   * 重新问插件要一份行旁注文字。
+   *
+   * 与面板不同的是，这里**没有失败占位**：行旁注是边栏装饰，渲染失败时最好的表现是
+   * 那一栏干脆不出现，而不是在行号位置塞一句报错。失败只记日志。
+   */
+  const refreshGutter = (record: GutterRecord): void => {
+    void invokeHandler(record.contribution.renderToken, [])
+      .then((value) => {
+        const lines = Array.isArray(value)
+          ? value.map((line) => (typeof line === "string" ? line : ""))
+          : [];
+        setGutterLines(record.cacheKey, lines);
+      })
+      .catch((error: unknown) => {
+        const serialized = serializeError(error);
+        log("error", `行旁注 ${record.contribution.id} 渲染失败：${serialized.message}`);
+      });
+  };
+
+  const refreshGutterList = (): void => {
+    for (const record of gutters) refreshGutter(record);
+  };
+
+  /**
+   * 重新问插件要一份行内装饰。
+   *
+   * 与行旁注同样是正文派生的，所以触发条件完全一致（见 `updateMirror`）。宿主对插件送来的
+   * 条目做**基本校验**：偏移要是非负整数、颜色要长得像 `#rrggbb`（`<input type="color">`
+   * 只认这个格式）。不合规的丢掉而不是整批失败 —— 一条坏数据不该让整层消失。
+   */
+  const refreshDecoration = (record: DecorationRecord): void => {
+    void invokeHandler(record.contribution.renderToken, [])
+      .then((value) => {
+        const items = Array.isArray(value)
+          ? value.map(parseDecorationItem).filter((item) => item !== null)
+          : [];
+        setDecorationItems(record.cacheKey, items);
+      })
+      .catch((error: unknown) => {
+        const serialized = serializeError(error);
+        log("error", `行内装饰 ${record.contribution.id} 渲染失败：${serialized.message}`);
+      });
+  };
+
+  const refreshDecorationList = (): void => {
+    for (const record of decorations) refreshDecoration(record);
+  };
+
+  const disposeDecoration = (record: DecorationRecord): void => {
+    record.disposable.dispose();
+    const index = decorations.indexOf(record);
+    if (index >= 0) decorations.splice(index, 1);
+    clearDecorationItems(record.cacheKey);
+  };
+
+  /** 撤掉一条已经登记的旁注：注册表条目、记录、缓存一起清掉。 */
+  const disposeGutter = (record: GutterRecord): void => {
+    record.disposable.dispose();
+    const index = gutters.indexOf(record);
+    if (index >= 0) gutters.splice(index, 1);
+    clearGutterLines(record.cacheKey);
+  };
+
   const doRefreshStatusBar = (selection: Selection | null): void => {
     for (const record of statusBarItems) {
-      const payload = canReadEditor ? selection : null;
+      // 选区同属 editor:read 这一档，判据与镜像一致。
+      const payload = canReadContent ? selection : null;
       void invokeHandler(record.contribution.renderToken, [payload])
         .then((text) => {
           setStatusBarText(record.itemId, typeof text === "string" && text ? text : null);
@@ -335,8 +516,12 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
         render: () => "",
         onClick: (target) => {
           if (!contribution.onClickToken) return;
-          void invokeHandler(contribution.onClickToken, [describeElement(target)]).catch(
-            (error: unknown) => log("error", `面板点击处理失败：${serializeError(error).message}`),
+          // 打标记：Worker 里没法给参数挂方法（函数过不了结构化克隆），只能送裸对象
+          // 过去，由沙箱还原成带 closestClass / data 的形态。
+          void invokeHandler(contribution.onClickToken, [
+            markElementRef(describeElement(target)),
+          ]).catch((error: unknown) =>
+            log("error", `面板点击处理失败：${serializeError(error).message}`),
           );
         },
       });
@@ -351,6 +536,32 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
       );
 
       refreshPanel(record);
+      return id;
+    },
+
+    registerGutter(contribution: GutterContribution) {
+      const cacheKey = `${owner}:${contribution.id}`;
+
+      // 同一个 id 再注册一次是**替换**，不是叠加。插件改了自己的参数（比如行号栏
+      // 的宽度）之后会重新注册一遍，不替换的话会留下一条僵尸记录：每次刷新都多跑
+      // 一次 render、多占一栏宽度，而且旧宽度会把新宽度挤开。
+      const existing = gutters.find((item) => item.cacheKey === cacheKey);
+      if (existing) disposeGutter(existing);
+
+      const record: GutterRecord = {
+        contribution,
+        cacheKey,
+        disposable: registerEditorGutter(owner, {
+          id: cacheKey,
+          title: contribution.title,
+          plugin: owner,
+          width: contribution.width ?? 36,
+        }),
+      };
+      gutters.push(record);
+
+      const id = registrations.add(toDisposable(() => disposeGutter(record)));
+      refreshGutter(record);
       return id;
     },
 
@@ -410,6 +621,82 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
       );
     },
 
+    registerPopover(contribution: PopoverContribution) {
+      const cacheKey = `${owner}:${contribution.id}`;
+      const record: PopoverRecord = { contribution, cacheKey };
+      popovers.push(record);
+
+      const disposable = registerPopover({
+        id: cacheKey,
+        title: contribution.title,
+        plugin: owner,
+        markdownOnly: contribution.markdownOnly ?? false,
+        closeOnClick: contribution.closeOnClick ?? false,
+        ...(contribution.icon ? { icon: contribution.icon } : {}),
+        ...(contribution.width !== undefined ? { width: contribution.width } : {}),
+        refresh: () => refreshPopover(record),
+        onClick: (target) => {
+          if (!contribution.onClickToken) return;
+          // 与面板同款：Worker 里没法给参数挂方法，只能送裸描述符过去。
+          void invokeHandler(contribution.onClickToken, [markElementRef(describeElement(target))])
+            .then((html) => {
+              // 返回字符串 = 「用这段换掉当前内容」，分类切换 / 翻页靠它实现。
+              if (typeof html === "string") setPopoverHtml(cacheKey, html);
+            })
+            .catch((error: unknown) =>
+              log("error", `浮层点击处理失败：${serializeError(error).message}`),
+            );
+        },
+      });
+
+      return registrations.add(
+        toDisposable(() => {
+          disposable.dispose();
+          const index = popovers.indexOf(record);
+          if (index >= 0) popovers.splice(index, 1);
+          clearPopoverHtml(cacheKey);
+        }),
+      );
+    },
+
+    registerDecorations(contribution: DecorationContribution) {
+      const cacheKey = `${owner}:${contribution.id}`;
+
+      // 同一个 id 再注册是**替换**（与行旁注一致）：插件改了自己的设置后重新注册一遍即可，
+      // 宿主据此换掉旧的，不会叠成两层。
+      const existing = decorations.find((item) => item.contribution.id === contribution.id);
+      if (existing) disposeDecoration(existing);
+
+      const record: DecorationRecord = {
+        contribution,
+        cacheKey,
+        disposable: toDisposable(() => undefined),
+      };
+      decorations.push(record);
+
+      const picked = registerDecoration({
+        id: cacheKey,
+        title: contribution.title,
+        plugin: owner,
+        refresh: () => refreshDecoration(record),
+        ...(contribution.pickToken
+          ? {
+              pick: (offset: number, length: number, color: string) => {
+                void invokeHandler(contribution.pickToken as string, [offset, length, color]).catch(
+                  (error: unknown) =>
+                    log("error", `行内装饰选色处理失败：${serializeError(error).message}`),
+                );
+              },
+            }
+          : {}),
+      });
+      record.disposable = picked;
+
+      const id = registrations.add(toDisposable(() => disposeDecoration(record)));
+      refreshDecoration(record);
+      return id;
+    },
+
     registerSelectionTransformer(contribution: SelectionTransformerContribution) {
       return registrations.add(
         registerSelectionTransformer(owner, async (text) => {
@@ -417,6 +704,100 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
           return typeof result === "string" ? result : null;
         }),
       );
+    },
+
+    /**
+     * 把插件声明的 CSS 注入当前窗口。
+     *
+     * **这里刻意不做消毒**，与面板 HTML 的处理不同 —— 因为 CSS 不具备脚本执行能力：
+     * 面板 HTML 走 `dangerouslySetInnerHTML`，一句 `onerror` 就能在主世界拿到
+     * `__TAURI_INTERNALS__`，所以必须清洗；而样式表最多只能做视觉改动与网络请求
+     * （`url(...)`），到不了「执行代码」这一步。能力大小诚实地由清单里的
+     * `ui:style` 权限表达，用户可以逐项撤销。
+     *
+     * `id` 只用于调试时定位是哪个插件注入的，不参与去重 —— 同名多次注册会叠加，
+     * 与 CSS 的层叠语义一致。
+     */
+    /**
+     * 声明一种可识别的文件类型。
+     *
+     * 插件只是「登记一条规则」，宿主据此决定工作文件夹里显示哪些文件、卡片长什么样。
+     * 文件内容始终由宿主读取后交给插件，插件**拿不到路径**。
+     *
+     * `kind` 拼错时直接抛错而不是回落：静默回落会让插件作者以为注册成功了，却一直
+     * 看不到期望的渲染结果。
+     */
+    registerFileType(contribution: FileTypeContribution) {
+      if (!isFilePreviewKind(contribution.kind)) {
+        throw Object.assign(new Error(`未知的文件预览方式：${contribution.kind}`), {
+          code: "invalidArgument",
+          details: { kind: contribution.kind },
+        });
+      }
+
+      const renderToken = contribution.renderToken;
+      const dispose = registerHostFileType(
+        {
+          id: `${owner}:${contribution.id}`,
+          extensions: contribution.extensions,
+          label: contribution.label,
+          badge: contribution.badge,
+          color: contribution.color,
+          kind: contribution.kind,
+          ...(contribution.language ? { language: contribution.language } : {}),
+          ...(contribution.font ? { font: contribution.font } : {}),
+          ...(contribution.highlightTheme ? { highlightTheme: contribution.highlightTheme } : {}),
+        },
+        renderToken
+          ? async (file) => {
+              // 插件侧的回调是异步的，且内容由宿主读好后随 payload 递过去 —— 插件
+              // 全程拿不到路径，也没有任何读盘能力。
+              const result = await invokeHandler(renderToken, [file]);
+              return typeof result === "string" ? result : "";
+            }
+          : undefined,
+      );
+
+      return registrations.add(toDisposable(dispose));
+    },
+
+    registerStyle(contribution: StyleContribution) {
+      const element = document.createElement("style");
+      element.dataset.pluginStyle = `${owner}:${contribution.id}`;
+      element.textContent = contribution.css;
+      document.head.appendChild(element);
+
+      return registrations.add(toDisposable(() => element.remove()));
+    },
+
+    readPluginAsset: (relativePath) => readPluginAsset(owner, relativePath),
+
+    listPluginAssets: (relativeDir) => listPluginAssets(owner, relativeDir),
+
+    async registerFonts(options) {
+      const dir = options.dir?.trim() || DEFAULT_FONT_DIR;
+      const assets = await listPluginFontAssets(owner, dir);
+
+      // 绝对路径在这里就被 `convertFileSrc` 吃掉了：往下走的只有 file 与 url，
+      // 没有任何一个字段能让插件反推出自己的目录在哪。
+      const specs = deriveFontFaceSpecs(
+        assets.map((asset) => ({
+          file: asset.file,
+          url: convertFileSrc(asset.path),
+          family: asset.family,
+          weight: asset.weight,
+          style: asset.style,
+        })),
+        options.overrides,
+      );
+
+      // 走 registrations：插件卸载 / 重载时 `<style>` 与族名一起撤掉，不会残留。
+      registrations.add(toDisposable(installPluginFonts(owner, specs)));
+
+      return {
+        families: [...new Set(specs.map((spec) => spec.family))],
+        count: specs.length,
+      };
     },
 
     openPanel(panelId: string) {
@@ -431,8 +812,7 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
     editorReplaceSelection: (replacement) => accessor()?.replaceSelection(replacement) ?? false,
     editorInsertText: (text, at) => accessor()?.insertText(text, at) ?? false,
     editorWrapSelection: (before, after) => accessor()?.wrapSelection(before, after) ?? false,
-    editorReplaceRange: (start, end, text) =>
-      accessor()?.replaceRange(start, end, text) ?? false,
+    editorReplaceRange: (start, end, text) => accessor()?.replaceRange(start, end, text) ?? false,
     editorSetSelection: (start, end) => accessor()?.setSelection(start, end),
     editorFocus: () => accessor()?.focus(),
     editorGetCursor: () => accessor()?.getCursor() ?? null,
@@ -596,12 +976,21 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
     });
   });
 
+  /**
+   * 把插件自己的设置**随 init 一起**发下去。
+   *
+   * 之前这里是空对象，而 `api.settings.get()` 读的正是这一份 —— 于是插件永远看到 `{}`：
+   * 用户在界面上改的值确实存进了 `plugin-data/<name>/settings.json`，插件却一无所知，
+   * 表现为「改了没反应，重启才好」。设置是插件自己的声明字段，读它不需要权限门。
+   */
+  const initialSettings = await settingsGet(owner).catch(() => ({}));
+
   post({
     t: "init",
     // 只有拿到 editor:read 才下发内容，否则镜像里不含正文。
     // 否则未授权的插件可以直接用 getContentSync() 绕过权限门读到全文。
-    mirror: canReadContent ? mirror : { ...mirror, content: "", selection: null },
-    settings: {},
+    mirror: canReadContent ? mirror : { ...mirror, content: "", selection: null, file: null },
+    settings: initialSettings,
     plugin: pluginInfo,
     code,
     methods: methodDescriptors(),
@@ -615,7 +1004,7 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
     /**
      * 接收宿主推来的编辑器状态。
      *
-     * 刷新时机刻意分开：**只有内容变了才重渲染面板**（面板渲染要跨线程往返，
+     * 刷新时机刻意分开：**内容或文件变了才重渲染面板**（面板渲染要跨线程往返，
      * 每次按键都刷会很吵）；选区变化只更新状态栏。两者都依赖 `editor.mirror`
      * 这条推送，因此镜像更新一定发生在对应回调之前（同一传输通道，顺序有序）。
      */
@@ -623,17 +1012,50 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
       const contentChanged = next.content !== undefined && next.content !== mirror.content;
       if (contentChanged) contentEpoch += 1;
 
+      // 文件身份要**按值**比：调用方每次渲染都构造一个新对象，比引用必然为真，
+      // 那样每帧都会刷面板。
+      //
+      // 为什么身份变了也得刷：目录这类面板渲染的是「这份内容的骨架」，而骨架由
+      // 文件类型决定 —— 从笔记切到 .py 时如果正文恰好没变（两个同内容的文件），
+      // 只看内容就会漏刷。
+      const fileChanged =
+        next.file !== undefined &&
+        (next.file?.path !== mirror.file?.path || next.file?.typeId !== mirror.file?.typeId);
+
       mirror = { ...mirror, ...next, contentEpoch };
       emitToPlugin(
         "editor.mirror",
-        canReadContent ? mirror : { ...mirror, content: "", selection: null },
+        canReadContent ? mirror : { ...mirror, content: "", selection: null, file: null },
       );
 
-      if (contentChanged) refreshPanelList();
+      if (contentChanged || fileChanged) {
+        refreshPanelList();
+        // 行号这类旁注是正文的行数 / 行内容派生的，必须跟着一起重算。
+        refreshGutterList();
+        // 行内装饰同理：颜色块的位置与颜色都来自正文，错一拍就会指到别的地方。
+        refreshDecorationList();
+      }
       doRefreshStatusBar(mirror.selection);
     },
 
     refreshPanels: refreshPanelList,
+
+    /**
+     * 用户在界面上改了这份插件的设置。
+     *
+     * 除了把新值推给沙箱，还**必须让订阅者收到** —— 插件常常要靠这个事件重做点什么
+     * （行号插件就是把栏宽重新注册一遍）。
+     */
+    refreshSettings() {
+      void settingsGet(owner)
+        .then((values) => {
+          emitToPlugin("settings.changed", values);
+        })
+        .catch((error: unknown) => {
+          const serialized = serializeError(error);
+          log("error", `读取插件设置失败：${serialized.message}`);
+        });
+    },
 
     refreshStatusBar: doRefreshStatusBar,
 

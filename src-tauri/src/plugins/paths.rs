@@ -103,6 +103,20 @@ pub fn validate_plugin_name(name: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+/// 判断一个字符串是不是「干净的相对路径」：非空、且每一段都是普通名字。
+///
+/// 拒绝绝对路径、`..`、`.`、根与盘符前缀。这是路径校验的第一道关：`safe_join_file`
+/// 拿它挡穿越，`sync` 拿它挡清单里写歪的 `main`。
+pub fn is_plain_relative(relative: &str) -> bool {
+    let trimmed = relative.trim();
+    if trimmed.is_empty() || trimmed != relative {
+        return false;
+    }
+    Path::new(trimmed)
+        .components()
+        .all(|c| matches!(c, Component::Normal(_)))
+}
+
 /// 把一个插件目录下的**相对**路径安全解析为绝对路径。
 ///
 /// 拒绝绝对路径、`..`、盘符前缀；`canonicalize()` 之后再确认结果仍落在 `base` 之内，
@@ -113,17 +127,7 @@ pub fn validate_plugin_name(name: &str) -> Result<(), AppError> {
 /// 任何放在插件目录里的 `plugin.json` 都能读到磁盘任意文件。
 pub fn safe_join_file(base: &Path, relative: &str) -> Result<PathBuf, AppError> {
     let trimmed = relative.trim();
-    if trimmed.is_empty() {
-        return Err(plugin_path_invalid(relative, "路径为空"));
-    }
-    if Path::new(trimmed).is_absolute() {
-        return Err(plugin_path_invalid(relative, "不允许绝对路径"));
-    }
-    // 仅接受纯 Normal 片段：`..`、根、盘符前缀一律拒绝。
-    if !Path::new(trimmed)
-        .components()
-        .all(|c| matches!(c, Component::Normal(_)))
-    {
+    if !is_plain_relative(trimmed) {
         return Err(plugin_path_invalid(relative, "包含非法路径片段"));
     }
 
@@ -150,6 +154,45 @@ pub fn safe_join_file(base: &Path, relative: &str) -> Result<PathBuf, AppError> 
             metadata.len(),
             MAX_PLUGIN_FILE_BYTES,
         ));
+    }
+
+    Ok(canonical)
+}
+
+/// 与 `safe_join_file` 同源的**目录**解析：同样的片段校验与 canonicalize 前缀检查，
+/// 但要求目标存在、是目录，且不加体积上限。空串表示插件目录本身。
+///
+/// 单独抽出来是因为 `safe_join_file` 结尾的 `is_file()` 断言会把目录判为非法。
+pub fn safe_join_dir(base: &Path, relative: &str) -> Result<PathBuf, AppError> {
+    let trimmed = relative.trim();
+
+    let base_canonical = base
+        .canonicalize()
+        .map_err(|_| plugin_path_invalid(relative, "插件目录不存在"))?;
+
+    if trimmed.is_empty() {
+        return Ok(base_canonical);
+    }
+    if Path::new(trimmed).is_absolute() {
+        return Err(plugin_path_invalid(relative, "不允许绝对路径"));
+    }
+    if !Path::new(trimmed)
+        .components()
+        .all(|c| matches!(c, Component::Normal(_)))
+    {
+        return Err(plugin_path_invalid(relative, "包含非法路径片段"));
+    }
+
+    let canonical = base_canonical
+        .join(trimmed)
+        .canonicalize()
+        .map_err(|_| plugin_path_invalid(relative, "目录不存在"))?;
+
+    if !canonical.starts_with(&base_canonical) {
+        return Err(plugin_path_invalid(relative, "路径越出插件目录"));
+    }
+    if !canonical.is_dir() {
+        return Err(plugin_path_invalid(relative, "目标不是目录"));
     }
 
     Ok(canonical)

@@ -2543,11 +2543,16 @@ mod tests {
             tab_indent_size: 2,
             external_file_auto_save: true,
             background_image_path: String::new(),
-            // 以下三个字段是 AppConfig 后来新增的，这些测试字面量当时没同步补上，
+            // 以下几个字段是 AppConfig 后来新增的，这些测试字面量当时没同步补上，
             // 导致 `cargo test` 无法编译。取值与各自的 #[serde(default)] 保持一致。
             accent_color: "green".into(),
             background_enabled: true,
             text_render_color: String::new(),
+            table_color: String::new(),
+            divider_color: String::new(),
+            quote_color: String::new(),
+            caption_color: String::new(),
+            workspace_folders: Vec::new(),
             background_fit: "cover".into(),
             background_dim: 0.25,
             background_blur: 0.0,
@@ -2633,11 +2638,16 @@ mod tests {
             tab_indent_size: 2,
             external_file_auto_save: true,
             background_image_path: String::new(),
-            // 以下三个字段是 AppConfig 后来新增的，这些测试字面量当时没同步补上，
+            // 以下几个字段是 AppConfig 后来新增的，这些测试字面量当时没同步补上，
             // 导致 `cargo test` 无法编译。取值与各自的 #[serde(default)] 保持一致。
             accent_color: "green".into(),
             background_enabled: true,
             text_render_color: String::new(),
+            table_color: String::new(),
+            divider_color: String::new(),
+            quote_color: String::new(),
+            caption_color: String::new(),
+            workspace_folders: Vec::new(),
             background_fit: "cover".into(),
             background_dim: 0.25,
             background_blur: 0.0,
@@ -2675,11 +2685,16 @@ mod tests {
             tab_indent_size: 4,
             external_file_auto_save: true,
             background_image_path: String::new(),
-            // 以下三个字段是 AppConfig 后来新增的，这些测试字面量当时没同步补上，
+            // 以下几个字段是 AppConfig 后来新增的，这些测试字面量当时没同步补上，
             // 导致 `cargo test` 无法编译。取值与各自的 #[serde(default)] 保持一致。
             accent_color: "green".into(),
             background_enabled: true,
             text_render_color: String::new(),
+            table_color: String::new(),
+            divider_color: String::new(),
+            quote_color: String::new(),
+            caption_color: String::new(),
+            workspace_folders: Vec::new(),
             background_fit: "cover".into(),
             background_dim: 0.25,
             background_blur: 0.0,

@@ -19,12 +19,15 @@
     "core:window:allow-show",
     "core:window:allow-hide",
     "core:window:allow-set-focus",
+    "core:webview:allow-set-webview-zoom",
     "dialog:allow-message",
     "dialog:allow-confirm",
     "dialog:allow-open",
     "dialog:allow-save",
     "opener:default",
     "clipboard-manager:allow-write-text",
-    "clipboard-manager:allow-read-text"
+    "clipboard-manager:allow-read-text",
+    "updater:default",
+    "process:allow-restart"
   ]
 }

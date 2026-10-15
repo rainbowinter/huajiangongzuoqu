@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "花笺",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "identifier": "com.floral-notepaper.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "taskkill /F /IM floral-notepaper.exe 2>nul & taskkill /F /IM 花笺.exe 2>nul & npm run build",
+    "beforeBuildCommand": "node scripts/kill-local-build.mjs && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -35,7 +35,18 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg", "nsis", "deb", "rpm", "appimage"],
+    "targets": [
+      "app",
+      "dmg",
+      "nsis",
+      "deb",
+      "rpm",
+      "appimage"
+    ],
+    "resources": {
+      "../example-plugins-v2": "example-plugins-v2"
+    },
+    "createUpdaterArtifacts": true,
     "linux": {
       "appimage": {
         "bundleMediaFramework": false
@@ -47,7 +58,9 @@
     "windows": {
       "nsis": {
         "installMode": "both",
-        "languages": ["SimpChinese"],
+        "languages": [
+          "SimpChinese"
+        ],
         "displayLanguageSelector": false,
         "installerIcon": "icons/icon.ico",
         "installerHooks": "nsis-hooks.nsh"
@@ -55,13 +68,18 @@
     },
     "fileAssociations": [
       {
-        "ext": ["md", "markdown"],
+        "ext": [
+          "md",
+          "markdown"
+        ],
         "name": "Markdown Document",
         "description": "Markdown document file",
         "role": "Editor"
       },
       {
-        "ext": ["txt"],
+        "ext": [
+          "txt"
+        ],
         "name": "Text Document",
         "description": "Plain text file",
         "role": "Editor"
@@ -79,6 +97,10 @@
     "cli": {
       "description": "Floral Notepaper - lightweight local note app",
       "args": []
+    },
+    "updater": {
+      "endpoints": [],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlENDc3QjNFMjUxMTZFMDMKUldRRGJoRWxQbnRIbmZCR1EzUUpKcG54NjZEWWFFN1dxUEcvUGQ0ZHdveWpab2Y0UmZaaWpWOWIK"
     }
   }
 }

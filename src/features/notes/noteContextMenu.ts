@@ -11,10 +11,6 @@ export interface NoteContextMenuItem {
 export function getNoteContextMenuItems(translate: TFunction = t): NoteContextMenuItem[] {
   return [
     {
-      action: "export",
-      label: translate("noteMenu.export", { defaultValue: "导出 Markdown" }),
-    },
-    {
       action: "move",
       label: translate("noteMenu.moveToCategory", { defaultValue: "移动到分类…" }),
     },

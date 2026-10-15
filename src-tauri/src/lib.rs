@@ -2,11 +2,13 @@ pub mod desktop;
 pub mod json_io;
 pub mod locales;
 pub mod plugins;
+pub mod selfupdate;
 pub mod services;
 pub mod updater;
 
 use locales::Locale;
 use services::notes::{default_store, AppConfig, AppError, Note, NoteMetadata, SaveNoteRequest};
+use services::workspace;
 use std::{env, fs, io::Write, path::PathBuf};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -260,6 +262,113 @@ fn config_migrate_data_dir(app: AppHandle, new_data_dir: String) -> Result<AppCo
     Ok(config)
 }
 
+// ------------------------------------------------------------ 工作文件夹
+//
+// 这几个命令的共同点：目标路径必须落在**用户显式添加过**的工作文件夹之内。
+// 校验不在前端做——前端的任何判断都只是提示，真正的闸在 `services::workspace`：
+// canonicalize 之后做前缀匹配，因此 `..` 与符号链接都绕不过去。
+
+/// 列出一个工作文件夹里**一层**的内容（目录树是按需懒加载的，不递归）。
+#[tauri::command]
+fn workspace_list_dir(dir: String) -> Result<workspace::WorkspaceListing, AppError> {
+    let store = default_store()?;
+    let config = store.load_config()?;
+    workspace::list_dir(&workspace::roots_from_config(&config.workspace_folders), &dir)
+}
+
+#[tauri::command]
+fn workspace_read_file(path: String) -> Result<String, AppError> {
+    let store = default_store()?;
+    let config = store.load_config()?;
+    workspace::read_text_file(&workspace::roots_from_config(&config.workspace_folders), &path)
+}
+
+#[tauri::command]
+fn workspace_write_file(path: String, content: String) -> Result<(), AppError> {
+    let store = default_store()?;
+    let config = store.load_config()?;
+    workspace::write_text_file(
+        &workspace::roots_from_config(&config.workspace_folders),
+        &path,
+        &content,
+    )
+}
+
+/// 删除工作文件夹里的一个**文件**（目录会被拒绝）。
+#[tauri::command]
+fn workspace_delete_file(path: String) -> Result<(), AppError> {
+    let store = default_store()?;
+    let config = store.load_config()?;
+    workspace::delete_file(&workspace::roots_from_config(&config.workspace_folders), &path)
+}
+
+/// 把文件或目录移动到另一个工作目录下，返回移动后的新路径。
+#[tauri::command]
+fn workspace_move_entry(path: String, target_dir: String) -> Result<String, AppError> {
+    let store = default_store()?;
+    let config = store.load_config()?;
+    workspace::move_entry(
+        &workspace::roots_from_config(&config.workspace_folders),
+        &path,
+        &target_dir,
+    )
+}
+
+/// 列出某个工作目录下的所有子目录，供「移动到…」选择目标。
+#[tauri::command]
+fn workspace_list_subdirs(dir: String) -> Result<Vec<String>, AppError> {
+    let store = default_store()?;
+    let config = store.load_config()?;
+    workspace::list_subdirs(&workspace::roots_from_config(&config.workspace_folders), &dir)
+}
+
+/// 添加一个工作文件夹。
+///
+/// 除了写进配置，还要把该目录加进 asset 协议白名单：文件夹里的图片要能显示就得走
+/// `convertFileSrc`，而它只对 scope 内的路径生效。
+#[tauri::command]
+fn workspace_add_folder(app: AppHandle, path: String) -> Result<AppConfig, AppError> {
+    let root = workspace::normalize_root(&path)?;
+
+    let store = default_store()?;
+    let mut config = store.load_config()?;
+
+    // 用规范化后的路径去重，避免同一个目录因写法不同（尾斜杠、短路径）被加两次。
+    let already = workspace::roots_from_config(&config.workspace_folders)
+        .iter()
+        .any(|existing| existing == &root);
+
+    // 存**普通形式**的路径：它会被原样回传给前端，再交给 `convertFileSrc` 生成
+    // asset URL。verbatim 形式（`\\?\...`）与 scope 里登记的普通路径对不上，
+    // 图片就会加载失败。
+    let display = workspace::to_frontend_path(&root);
+    if !already {
+        config.workspace_folders.push(display.clone());
+    }
+
+    let saved = store.save_config(config)?;
+    let _ = app.asset_protocol_scope().allow_directory(&display, true);
+    let _ = app.emit("config-changed", &saved);
+    Ok(saved)
+}
+
+/// 移除一个工作文件夹。
+///
+/// 这里**刻意不调用 `normalize_root`**：目录可能已经被删除或挪走，而那正是用户想要
+/// 把它移出列表的场景；此时按存在性校验会拒绝移除，把用户卡死。
+#[tauri::command]
+fn workspace_remove_folder(app: AppHandle, path: String) -> Result<AppConfig, AppError> {
+    let target = path.trim().to_string();
+
+    let store = default_store()?;
+    let mut config = store.load_config()?;
+    config.workspace_folders.retain(|item| item.trim() != target);
+
+    let saved = store.save_config(config)?;
+    let _ = app.emit("config-changed", &saved);
+    Ok(saved)
+}
+
 #[tauri::command]
 fn global_shortcut_check(
     app: AppHandle,
@@ -432,7 +541,13 @@ pub fn run() {
         .plugin(tauri_plugin_cli::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_opener::init());
+        .plugin(tauri_plugin_opener::init())
+        // 自更新。端点来自 `tauri.conf.json` 的 `plugins.updater.endpoints`，
+        // **默认为空 = 整个功能关闭**：前端问过 `update_endpoint` 之后连一次请求都不会发。
+        // 见 `selfupdate` 模块。
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        // 更新装完之后要重启，那一步由 process 插件负责。
+        .plugin(tauri_plugin_process::init());
 
     if single_instance_disabled() {
         eprintln!(
@@ -454,13 +569,45 @@ pub fn run() {
                 let scope = app.asset_protocol_scope();
                 let _ = scope.allow_directory(data.join("images"), true);
                 let _ = scope.allow_directory(data.join("backgrounds"), true);
+
+                // 已添加的工作文件夹也要放行。asset scope 是**运行时**状态，不会跨进程
+                // 保留，重启后必须重新登记，否则工作文件夹里的图片会显示不出来。
+                // 这里只读配置、失败就跳过：scope 是尽力而为的，不该让它挡住启动。
+                if let Ok(config) = store.load_config() {
+                    for root in workspace::roots_from_config(&config.workspace_folders) {
+                        // 同样要用普通形式：asset 协议的 scope 按普通路径登记，
+                        // `convertFileSrc` 生成的 URL 也是普通路径。
+                        let _ = scope.allow_directory(workspace::to_frontend_path(&root), true);
+                    }
+                }
             }
-            let updater_state = updater::UpdaterState::new(app.package_info().version.to_string());
-            if let Err(error) = updater_state.initialize() {
-                eprintln!("failed to initialize updater infrastructure: {error}");
+            // 自动更新已整体停用 —— 本仓库是上游的 fork，且改动很大。
+            // 原来的检查器指向 Achilng/floral-notepaper 与 Mirror酱，一旦真的走完更新
+            // 流程就会把上游代码装进来，覆盖掉本仓库的全部改动。因此这里不再初始化
+            // UpdaterState、不启动自动检查调度器，`invoke_handler` 里也不再注册
+            // update_* 命令（前端对应的调用点已一并移除）。
+            //
+            // `pub mod updater` 仍然保留：`main.rs` 在安装辅助进程模式下要用
+            // `updater::helper::run_cli`，且该模块自带的测试也在跑。删掉这个声明会让
+            // 那些代码无法编译。
+            // 版本校正：把随包分发的那份插件，同步到用户数据目录里已经装好的副本上
+            // （应用升级后那份副本不会自己变，新宿主配老插件会出问题）。
+            //
+            // 时机放在这里：数据目录已定、asset scope 已登记，且早于前端任何
+            // `plugins_list` —— 前端拿到的列表就已经是校正过的。
+            //
+            // 最后那句**不是自动成立的**：`tauri::app::setup` 先按配置把窗口建出来
+            // （见该函数开头），再跑这个钩子，所以 WebView 其实已经在了。真正兜住的是
+            // 派发机制 —— `#[tauri::command]` 由事件循环处理，而这个钩子跑完之前事件循环
+            // 不会往下走，前端就算抢跑也只会排队等到校正之后才被受理。
+            //
+            // 结果存在模块里，由 `plugins_sync_report` 取走，前端据此决定要不要提示用户。
+            // 校正失败只记日志，**绝不往上抛**：它是附带动作，不该挡住应用启动。
+            match app.path().resource_dir() {
+                Ok(resource_dir) => plugins::sync::sync_at_startup(&resource_dir),
+                Err(error) => eprintln!("[plugins:sync] 取不到资源目录，跳过版本校正：{error}"),
             }
-            app.manage(updater_state);
-            updater::start_auto_check_scheduler(app.handle().clone());
+
             desktop::setup_desktop(app)?;
             Ok(())
         })
@@ -499,20 +646,11 @@ pub fn run() {
             open_tile_window,
             toggle_tile_window,
             open_note_in_editor,
-            updater::commands::update_status,
-            updater::commands::update_settings_get,
-            updater::commands::update_settings_save,
-            updater::commands::update_mirror_chyan_cdk_set,
-            updater::commands::update_mirror_chyan_cdk_clear,
-            updater::commands::update_mirror_chyan_cdk_get,
-            updater::commands::update_check,
-            updater::commands::update_download,
-            updater::commands::update_install,
-            updater::commands::update_install_prepare_report,
-            updater::commands::update_cancel,
             plugins::commands::plugins_list,
             plugins::commands::plugins_read,
             plugins::commands::plugins_read_asset,
+            plugins::commands::plugins_list_assets,
+            plugins::commands::plugins_list_fonts,
             plugins::commands::plugins_dir_path,
             plugins::commands::plugins_open_dir,
             plugins::commands::plugins_set_enabled,
@@ -524,7 +662,17 @@ pub fn run() {
             plugins::commands::plugins_storage_clear,
             plugins::commands::plugins_settings_get,
             plugins::commands::plugins_settings_set,
-            take_startup_file
+            plugins::commands::plugins_sync_report,
+            workspace_list_dir,
+            workspace_read_file,
+            workspace_write_file,
+            workspace_add_folder,
+            workspace_remove_folder,
+            workspace_delete_file,
+            workspace_move_entry,
+            workspace_list_subdirs,
+            take_startup_file,
+            selfupdate::update_endpoint
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
