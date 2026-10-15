@@ -190,7 +190,7 @@ fn precheck(paths: &PluginPaths, request: &InstallRequest) -> Result<Prepared, A
     check_approved_permissions(&request.approved_permissions)?;
 
     // 便宜的判断放在下载之前：地址不合法、校验值不像 sha256，就别浪费一次网络请求。
-    if !catalog::release_url_is_allowed(&request.url) {
+    if !catalog::url_is_allowed(&request.url) {
         return Err(app_error(
             "marketReleaseUrlInvalid",
             format!("下载地址不合法：{}", request.url),

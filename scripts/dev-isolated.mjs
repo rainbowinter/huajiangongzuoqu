@@ -53,7 +53,14 @@ console.log(`[dev:isolated] 配置目录 : ${configDir}`);
 console.log(`[dev:isolated] 数据目录 : ${dataDir}`);
 console.log("[dev:isolated] 单实例锁 : 已跳过，不会与已安装实例互相影响");
 
-const child = spawn("npm", ["run", "tauri", "--", "dev"], {
+// 多余的参数原样转给 `tauri dev`（例如 `--config <文件>` 用来合并一份临时的配置覆盖，
+// 见 `scripts/market-sandbox.mjs`）。
+const extra = process.argv.slice(2);
+if (extra.length > 0) {
+  console.log(`[dev:isolated] 追加参数 : ${extra.join(" ")}`);
+}
+
+const child = spawn("npm", ["run", "tauri", "--", "dev", ...extra], {
   cwd: root,
   env,
   stdio: "inherit",

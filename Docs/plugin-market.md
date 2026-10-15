@@ -191,6 +191,30 @@ npm run plugin -- --dir example-plugins-v2/pdf-viewer --repo <用户名>/<插件
 * **清单最后传**：先传清单的话，应用会先看到一份指向「还没传上去的 zip」的清单。
 * **资产名必须纯 ASCII**：GitHub 会把以中文开头的名字吃掉，URL 静默 404（发布应用时踩过）。
 
+## 在本地先试一遍（不用建仓库）
+
+```bash
+node scripts/market-sandbox.mjs            # 按住它，另开一个终端跑它打印的命令
+```
+
+它把 `example-plugins-v2/` 里每个插件打成 zip、造一份清单、用**测试密钥**
+（`~/.tauri/market-test.key`，与生产私钥无关）签名，再在回环端口上托管，最后把配置覆盖
+写进 `.devdata/market-override.json` 并打印启动命令：
+
+```bash
+npm run dev:isolated -- --config .devdata/market-override.json
+```
+
+`--config` 是 `tauri dev` 的参数，会把那份覆盖**合并**进配置 —— 临时的，应用本身与
+`tauri.conf.json` 一个字都不改。起来之后：右侧栏 → 插件 → 市场。
+
+**托管那侧会把每个请求打出来**（`← GET /plugin-catalog.json.sig`），所以「应用真的去取签名
+了」是看得见的，而不是我们假设的。逻辑层（下载、验签、解压、原子落盘、状态）有 Rust 测试
+盯着；这个沙箱补的是**配置读取 → 命令 → IPC → 前端渲染**那一段，只有在真实运行时里才走得到。
+
+⚠️ 覆盖文件里那份 `pubkey` 是**测试公钥**。别把它抄进正式配置 —— 那样应用就再也验不过
+真正的清单了。
+
 ## 防回滚
 
 签名保证清单**出自私钥持有者**，但**不保证这是最新的一份** —— 能控制端点（或能中间人）的

@@ -40,6 +40,19 @@ export FLORAL_NOTEPAPER_NO_SINGLE_INSTANCE=1
 npm run tauri dev
 ```
 
+## 覆盖构建期配置（临时）
+
+端点之类写在 `tauri.conf.json` 里的东西是**构建期**读的，调试时不必改那个文件 ——
+多出来的参数会原样转给 `tauri dev`，而 `tauri dev` 的 `--config <文件>` 会把那份 JSON
+**合并**进配置：
+
+```bash
+npm run dev:isolated -- --config .devdata/market-override.json
+```
+
+临时文件放 `.devdata/`（已被 gitignore）。插件市场的本地沙箱
+（`node scripts/market-sandbox.mjs`）就是这么接上去的，见 `Docs/plugin-market.md`。
+
 ## 不要做的事
 
 - **不要** `npm run tauri build` 之后再运行产出的安装包 —— 那会覆盖已安装的正式版。

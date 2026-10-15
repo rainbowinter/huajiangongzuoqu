@@ -306,7 +306,7 @@ fn build_release(raw: RawRelease, host: &HostEnv, name_usable: bool) -> CatalogR
         Some("marketReleaseVersionInvalid".to_string())
     } else if url.trim().is_empty() {
         Some("marketReleaseMissingUrl".to_string())
-    } else if !release_url_is_allowed(&url) {
+    } else if !url_is_allowed(&url) {
         Some("marketReleaseUrlInvalid".to_string())
     } else if sha256.is_empty() {
         Some("marketReleaseSha256Invalid".to_string())
@@ -400,12 +400,12 @@ fn block_duplicate_versions(releases: &mut [CatalogRelease]) {
     }
 }
 
-/// zip 的下载地址是否可接受。
+/// 这个地址能不能走。
 ///
-/// **只认 https**，例外是回环地址的 http（本地端到端测试要用）。内容本身还有 sha256
-/// 兜底，所以这一条是纵深防御而不是唯一防线 —— 但它把「不小心写了个明文地址」挡在
-/// 清单阶段，而不是等下载完了才发现。
-pub fn release_url_is_allowed(url: &str) -> bool {
+/// **只认 https**，例外是回环地址的 http（本地端到端测试与 `market-sandbox.mjs` 要用）。
+/// 清单地址与 zip 下载地址用的是同一条规矩：内容本身还有签名与 sha256 兜底，所以这一条是
+/// 纵深防御而不是唯一防线 —— 但它把「不小心写了个明文地址」挡在最前面。
+pub fn url_is_allowed(url: &str) -> bool {
     let Ok(parsed) = reqwest::Url::parse(url.trim()) else {
         return false;
     };
@@ -448,9 +448,13 @@ fn non_empty(value: Option<String>) -> Option<String> {
 /// **先验签再解析**：解析器面对的是不可信输入，虽然它本身也不该被喂坏 JSON 弄崩，但把
 /// 验证放在前面，语义上就少一整类「解析器 bug 即漏洞」的可能。
 pub fn fetch_catalog(endpoint: &str, pubkey: &str, host: &HostEnv) -> Result<PluginCatalog, AppError> {
-    if reqwest::Url::parse(endpoint).is_err() {
+    // 与 zip 的下载地址同一条规矩：只认 https，回环地址可以用 http。
+    if !url_is_allowed(endpoint) {
         return Err(with_detail(
-            app_error("marketEndpointInvalid", format!("清单地址不合法：{endpoint}")),
+            app_error(
+                "marketEndpointInvalid",
+                format!("清单地址不合法（只接受 https，回环地址可以用 http）：{endpoint}"),
+            ),
             "endpoint",
             endpoint.to_string(),
         ));
@@ -717,16 +721,16 @@ mod tests {
 
     #[test]
     fn only_https_and_loopback_http_are_allowed() {
-        assert!(release_url_is_allowed("https://github.com/a/b/releases/download/x/a.zip"));
-        assert!(release_url_is_allowed("http://127.0.0.1:8080/a.zip"), "本地测试要用");
-        assert!(release_url_is_allowed("http://localhost:8080/a.zip"));
+        assert!(url_is_allowed("https://github.com/a/b/releases/download/x/a.zip"));
+        assert!(url_is_allowed("http://127.0.0.1:8080/a.zip"), "本地测试要用");
+        assert!(url_is_allowed("http://localhost:8080/a.zip"));
 
-        assert!(!release_url_is_allowed("http://example.com/a.zip"), "明文外网地址不行");
-        assert!(!release_url_is_allowed("file:///C:/a.zip"));
-        assert!(!release_url_is_allowed("javascript:alert(1)"));
-        assert!(!release_url_is_allowed("data:application/zip;base64,AAAA"));
-        assert!(!release_url_is_allowed("/relative/a.zip"));
-        assert!(!release_url_is_allowed(""));
+        assert!(!url_is_allowed("http://example.com/a.zip"), "明文外网地址不行");
+        assert!(!url_is_allowed("file:///C:/a.zip"));
+        assert!(!url_is_allowed("javascript:alert(1)"));
+        assert!(!url_is_allowed("data:application/zip;base64,AAAA"));
+        assert!(!url_is_allowed("/relative/a.zip"));
+        assert!(!url_is_allowed(""));
     }
 
     #[test]
