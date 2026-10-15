@@ -37,10 +37,14 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const nsisDir = join(root, "src-tauri", "target", "release", "bundle", "nsis");
 const configPath = join(root, "src-tauri", "tauri.conf.json");
 
+/** 发布仓库。改了仓库就改这一行，或者用 `--repo` / `FLORAL_RELEASE_REPO` 覆盖。 */
+const DEFAULT_REPO = "rainbowinter/huajiangongzuoqu";
+
 const args = process.argv.slice(2);
 const repoArg = (() => {
   const index = args.findIndex((arg) => arg === "--repo");
-  return index >= 0 ? args[index + 1] : process.env.FLORAL_RELEASE_REPO;
+  if (index >= 0) return args[index + 1];
+  return process.env.FLORAL_RELEASE_REPO ?? DEFAULT_REPO;
 })();
 
 const config = JSON.parse(readFileSync(configPath, "utf8"));
