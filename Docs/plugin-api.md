@@ -788,3 +788,19 @@ Worker 隔离的是**宿主能力**：插件拿不到 `window`、`document`、Ta
 - Worker 里 `fetch` / `XMLHttpRequest` / `indexedDB` 仍然可用。沙箱限制的是插件
   对**花笺**的访问，不是对网络的访问。装插件前请自行审阅它的代码。
 - v1 插件没有这些保障，它与宿主同权限。
+
+---
+
+## 10. 发布到插件市场
+
+写好插件之后可以让用户从应用内的**插件市场**安装（右侧栏 → 插件 → 市场）。要点：
+
+- **只收 `apiVersion >= 2`**：v1 跑在主线程、没有沙箱，来自网络的代码不能是 v1。
+  清单层会筛一遍，安装时**再读一遍 zip 里的 `plugin.json` 复核**。
+- **`plugin.json` 里的 `permissions` 会逐条列给用户看**，用户点了确认才装。之后插件想多要
+  权限（更新一版多声明一个），应用会**重新列一遍**要求确认 —— 没确认过的权限不会生效。
+  权限名请照 `src/features/plugins/permissions.ts` 里的词汇表写，拼错了只会被忽略。
+- **zip 结构必须是「恰好一层顶层目录，名字等于插件名」**（`pdf-viewer/plugin.json`）。
+- 发布用 `npm run plugin -- --dir <插件目录> --repo <插件仓库>`。
+
+完整流程、清单格式与安全约定见 [`Docs/plugin-market.md`](./plugin-market.md)。

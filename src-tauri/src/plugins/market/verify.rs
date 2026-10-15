@@ -45,10 +45,25 @@ fn decode_base64_to_text(value: &str) -> Result<String, AppError> {
     String::from_utf8(bytes).map_err(|_| err("签名/公钥解码后不是 UTF-8".into()))
 }
 
+/// 解析公钥。
+///
+/// 失败时的提示写得很啰嗦，是因为**最常见的那种错法看不出错在哪**：把 `.pub` 文件的内容
+/// 又做了一次 base64（那是双层编码），解出来是一段普通的 ASCII 文本，`PublicKey::decode`
+/// 只会说一句 `Invalid encoding in minisign data` —— 只看这句话根本猜不到是编码层数错了。
+fn parse_public_key(pubkey_base64: &str) -> Result<PublicKey, AppError> {
+    let text = decode_base64_to_text(pubkey_base64)?;
+    PublicKey::decode(&text).map_err(|error| {
+        err(format!(
+            "公钥解析失败：{error}。\
+             `plugins.market.pubkey` 要**原样**抄 `tauri signer generate` 生成的 `.pub` 文件内容\
+             —— 那个文件本身就已经是 base64 了，不要再编码一次，也不要填私钥。"
+        ))
+    })
+}
+
 /// 校验一段字节确实由对应私钥签过。
 pub fn verify_signed(data: &[u8], signature_base64: &str, pubkey_base64: &str) -> Result<(), AppError> {
-    let public_key = PublicKey::decode(&decode_base64_to_text(pubkey_base64)?)
-        .map_err(|error| err(format!("公钥解析失败：{error}")))?;
+    let public_key = parse_public_key(pubkey_base64)?;
     let signature = Signature::decode(&decode_base64_to_text(signature_base64)?)
         .map_err(|error| err(format!("签名解析失败：{error}")))?;
 
@@ -122,5 +137,23 @@ mod tests {
         assert!(verify_signed(CATALOG.as_bytes(), "不是 base64", PUBKEY).is_err());
         assert!(verify_signed(CATALOG.as_bytes(), SIGNATURE, "不是 base64").is_err());
         assert!(verify_signed(CATALOG.as_bytes(), "", "").is_err());
+    }
+
+    #[test]
+    fn a_double_encoded_pubkey_explains_itself() {
+        // 最常见的配置错误：把 `.pub`（本身就是 base64）又编码了一次。解出来是一段正常的
+        // ASCII 文本，minisign 只会说「编码不对」—— 所以提示里必须点出「别再编码一次」。
+        use base64::Engine;
+        let double_encoded =
+            base64::engine::general_purpose::STANDARD.encode(PUBKEY.as_bytes());
+
+        let error = verify_signed(CATALOG.as_bytes(), SIGNATURE, &double_encoded).unwrap_err();
+
+        assert_eq!(error.code, "marketSignatureInvalid");
+        assert!(
+            error.message.contains("不要再编码一次"),
+            "提示要能直接指向病因，实际是：{}",
+            error.message
+        );
     }
 }

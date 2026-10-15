@@ -71,3 +71,7 @@ Docs/windows-install-chain-code-review.md
 ## 跑 `tauri dev` 时用 FLORAL_NOTEPAPER_CONFIG_DIR / FLORAL_NOTEPAPER_DATA_DIR
 ## 指向这里，避免污染已安装实例的 %APPDATA%\floral-notepaper 与 Documents\花笺
 .devdata/
+
+## 插件市场的产物（zip 与签名都可以重新生成）
+plugin-market/dist/
+plugin-market/*.sig

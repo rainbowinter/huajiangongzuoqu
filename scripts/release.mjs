@@ -30,11 +30,14 @@
  *   └── <ASCII 名>_x64-setup.exe
  * ```
  */
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveToken, tokenHelp, uploadReleaseAssets } from "./lib/github.mjs";
+import { assertPrivateKeyExists, readSignature, resolvePrivateKey, signFile } from "./lib/sign.mjs";
+import { makeZip } from "./lib/zip.mjs";
 
 /** 发布仓库。改了仓库就改这一行，或者用 `--repo` / `FLORAL_RELEASE_REPO` 覆盖。 */
 const DEFAULT_REPO = "rainbowinter/huajiangongzuoqu";
@@ -65,17 +68,8 @@ const assetBase = `${ASSET_SLUG}_${version}_x64-setup`;
 const uploadDir = join(root, "src-tauri", "target", "release", `upload-${version}`);
 
 /** 私钥：环境变量优先，否则用默认位置。 */
-const privateKey =
-  process.env.TAURI_SIGNING_PRIVATE_KEY?.trim() ||
-  join(homedir(), ".tauri", "floral-notepaper.key");
-
-if (!process.env.TAURI_SIGNING_PRIVATE_KEY && !existsSync(privateKey)) {
-  console.error(
-    `[release] 找不到签名私钥：${privateKey}\n` +
-      "[release] 用 `npx tauri signer generate -w <路径>` 生成，或用 TAURI_SIGNING_PRIVATE_KEY 指定。",
-  );
-  process.exit(1);
-}
+const privateKey = resolvePrivateKey({ fallback: join(homedir(), ".tauri", "floral-notepaper.key") });
+assertPrivateKeyExists(privateKey);
 
 console.log(`[release] 版本 ${version}，产品名 ${productName}`);
 console.log(`[release] 上传用名 ${assetBase}.exe[.zip]`);
@@ -119,35 +113,26 @@ const installer = join(uploadDir, `${assetBase}.exe`);
 copyFileSync(builtInstaller, installer);
 
 const zipPath = `${installer}.zip`;
-makeZip(installer, zipPath);
+// 在安装器所在目录里执行，好让 zip 内部的路径就是文件名本身（更新器按这个名字找安装器）。
+makeZip(installer, zipPath, { cwd: dirname(installer), quiet: true });
 console.log(`[release] 已打包 ${zipPath}`);
 
 // ---------------------------------------------------------------- 3. 签名
 
 console.log("[release] 签名中…");
-// 用 node 直接跑 CLI 的 JS 入口，不走 `npx`：Windows 上 `.cmd` 不经 shell 是启动不了的
-// （execFileSync 会以 `pid: 0` 失败），而把 shell 打开又要操心一整套引号转义。
-execFileSync(
-  process.execPath,
-  [
-    join(root, "node_modules", "@tauri-apps", "cli", "tauri.js"),
-    "signer",
-    "sign",
-    "-p",
-    signingEnv.TAURI_SIGNING_PRIVATE_KEY_PASSWORD,
-    "-f",
-    privateKey,
-    zipPath,
-  ],
-  { cwd: root, stdio: ["ignore", "ignore", "inherit"] },
-);
+signFile({
+  root,
+  privateKey,
+  password: signingEnv.TAURI_SIGNING_PRIVATE_KEY_PASSWORD,
+  file: zipPath,
+});
 
 const signaturePath = `${zipPath}.sig`;
 if (!existsSync(signaturePath)) {
   console.error(`[release] 签名文件没生成：${signaturePath}`);
   process.exit(1);
 }
-const signature = readFileSync(signaturePath, "utf8").trim();
+const signature = readSignature(signaturePath);
 
 // ------------------------------------------------------------ 4. latest.json
 
@@ -176,150 +161,36 @@ console.log(`[release] url 写的是：${assetUrl}`);
 
 // ---------------------------------------------------------------- 6. 上传
 
-/**
- * token 从哪来：环境变量优先，其次读 `~/.tauri/github-token.txt`。
- *
- * 留一个文件兜底是因为「设了环境变量但当前进程读不到」很常见（Windows 的 `setx` 只对
- * **之后新起**的进程生效，而外层应用早就启动了）。文件放在 `~/.tauri/` —— 和签名私钥
- * 同一个地方，**在仓库之外**，不会被提交进去。
- */
-const token = (() => {
-  const fromEnv =
-    process.env.FLORAL_RELEASE_TOKEN ?? process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? "";
-  if (fromEnv.trim()) return fromEnv.trim();
-
-  const tokenFile = process.env.FLORAL_RELEASE_TOKEN_FILE ?? join(homedir(), ".tauri", "github-token.txt");
-  if (existsSync(tokenFile)) {
-    try {
-      return readFileSync(tokenFile, "utf8").trim();
-    } catch {
-      return "";
-    }
-  }
-  return "";
-})();
+const token = resolveToken();
 
 if (args.includes("--upload")) {
   if (!token) {
-    console.error(
-      "\n[release] --upload 需要一个 GitHub token，但没找到。两种给法：\n" +
-        "[release]   1) 环境变量 FLORAL_RELEASE_TOKEN（或 GITHUB_TOKEN）\n" +
-        `[release]   2) 写进文件 ${join(homedir(), ".tauri", "github-token.txt")}（推荐，重启应用也还在）\n` +
-        "[release] token 用 fine-grained，只勾这个仓库的 Contents: Read and write。**别写进仓库。**",
-    );
+    console.error(`\n[release] --upload ${tokenHelp()}`);
     process.exit(1);
   }
-  await upload(token).catch((error) => {
-    console.error(`\n[release] 上传失败：${error.message}`);
-    process.exit(1);
-  });
+
+  // **必须发成正式 Release**（draft / prerelease 都为 false）：更新端点是
+  // `releases/latest/download/…`，草稿与预发布都不会被它指到。
+  await uploadReleaseAssets({
+    repo: repoArg,
+    tag: `v${version}`,
+    title: `${productName} ${version}`,
+    body: manifest.notes,
+    token,
+    draft: false,
+    prerelease: false,
+    files: uploadFiles.map((name) => ({ name, path: join(uploadDir, name) })),
+    log: (line) => console.log(line.replace("[github]", "[release]")),
+  })
+    .then((url) => {
+      console.log(`\n[release] 上传完成：${url}`);
+      console.log("[release] 装了这个版本之后的机器，下次发版就会自动收到提示。");
+    })
+    .catch((error) => {
+      console.error(`\n[release] 上传失败：${error.message}`);
+      process.exit(1);
+    });
 } else {
   console.log("\n[release] 没带 --upload，上面四个文件请手工拖进 GitHub Release。");
   console.log("[release] 想一条命令发完，设好 token 后加 --upload。");
-}
-
-/**
- * 建/更新 Release 并把四个产物传上去。
- *
- * 用 REST API 而不是 `gh`（本机没装）。要注意的都在这：
- *
- * * **必须发成正式 Release**（`draft: false` / `prerelease: false`）——
- *   更新端点是 `releases/latest/download/...`，草稿和预发布都不会被它指到。
- * * 同名资产已存在时要先删再传，否则 API 会 422。
- * * 二进制走 `uploads.github.com`，不是 `api.github.com`。
- */
-async function upload(token) {
-  const tag = `v${version}`;
-  const api = `https://api.github.com/repos/${repoArg}`;
-  const headers = {
-    Authorization: `Bearer ${token}`,
-    Accept: "application/vnd.github+json",
-    "X-GitHub-Api-Version": "2022-11-28",
-    "User-Agent": "floral-notepaper-release",
-  };
-
-  const request = async (url, options = {}) => {
-    const response = await fetch(url, { ...options, headers: { ...headers, ...options.headers } });
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      throw new Error(`${options.method ?? "GET"} ${url} → ${response.status} ${text.slice(0, 300)}`);
-    }
-    return response.status === 204 ? null : response.json();
-  };
-
-  // 释放可能已存在的同名资产（重复发布时）
-  let release = await fetch(`${api}/releases/tags/${tag}`, { headers }).then((r) =>
-    r.ok ? r.json() : null,
-  );
-
-  if (!release) {
-    console.log(`[release] 新建 Release ${tag}…`);
-    release = await request(`${api}/releases`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        tag_name: tag,
-        name: `${productName} ${version}`,
-        body: manifest.notes,
-        draft: false,
-        prerelease: false,
-      }),
-    });
-  } else {
-    console.log(`[release] Release ${tag} 已存在，复用（资产按名字覆盖）`);
-  }
-
-  const existing = new Map((release.assets ?? []).map((asset) => [asset.name, asset.id]));
-
-  for (const file of uploadFiles) {
-    const name = file;
-    if (existing.has(name)) {
-      console.log(`[release] 删除同名旧资产 ${name}`);
-      await request(`${api}/releases/assets/${existing.get(name)}`, { method: "DELETE" });
-    }
-
-    const body = readFileSync(join(uploadDir, file));
-    console.log(`[release] 上传 ${name}（${(body.length / 1048576).toFixed(1)} MB）…`);
-    await request(
-      `https://uploads.github.com/repos/${repoArg}/releases/${release.id}/assets?name=${encodeURIComponent(name)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/octet-stream", "Content-Length": String(body.length) },
-        body,
-      },
-    );
-  }
-
-  console.log(`\n[release] 上传完成：https://github.com/${repoArg}/releases/tag/${tag}`);
-  console.log("[release] 装了这个版本之后的机器，下次发版就会自动收到提示。");
-}
-
-/** 用 7-Zip（如果装了）或 PowerShell 的 Compress-Archive 打一个 zip。 */
-function makeZip(source, destination) {
-  const sevenZip = join(process.env["ProgramFiles"] ?? "C:/Program Files", "7-Zip", "7z.exe");
-
-  if (existsSync(sevenZip)) {
-    // 在目录里执行，好让 zip 内部的路径就是文件名本身（插件按这个名字找安装器）。
-    execFileSync(sevenZip, ["a", "-tzip", destination, source], {
-      cwd: dirname(source),
-      stdio: "ignore",
-    });
-    return;
-  }
-
-  if (process.platform !== "win32") {
-    execFileSync("zip", ["-j", "-q", destination, source], { stdio: "inherit" });
-    return;
-  }
-
-  mkdirSync(dirname(destination), { recursive: true });
-  execFileSync(
-    "powershell.exe",
-    [
-      "-NoProfile",
-      "-Command",
-      `Compress-Archive -Path '${source}' -DestinationPath '${destination}' -Force`,
-    ],
-    { stdio: "inherit" },
-  );
 }
