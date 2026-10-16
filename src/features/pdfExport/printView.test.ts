@@ -4,45 +4,39 @@ import { toGrayColor } from "./printView";
 /**
  * 「黑白」档靠它把每个颜色换成同明度的灰。
  *
- * 加权系数写错、或者把 `transparent` 也一起处理了，表现都很隐蔽（纸上只是「哪儿有点
- * 不对」），所以这里把边界钉死。
+ * ⚠️ 这里**不自己算灰度**（第一版就是，结果漏了一整类颜色，见 `toGrayColor` 的说明）。
+ * 输出的是 CSS 相对颜色语法，真正的换算交给浏览器 —— 所以这一组测的是
+ * 「喂进去什么、吐出来什么」，不是「灰值算得对不对」（那个在 `printbg.html` 里读像素验）。
  */
 describe("把颜色换成同明度的灰", () => {
-  test("纯色按 Rec.709 加权，不是简单取平均", () => {
-    // 0.2126 × 255 ≈ 54.2 —— 取平均的话会是 85，红纸会明显偏亮。
-    expect(toGrayColor("rgb(255, 0, 0)")).toBe("rgb(54, 54, 54)");
-    // 0.7152 × 255 ≈ 182.4 —— 同一亮度感受下，绿比红亮得多。
-    expect(toGrayColor("rgb(0, 255, 0)")).toBe("rgb(182, 182, 182)");
-    expect(toGrayColor("rgb(0, 0, 255)")).toBe("rgb(18, 18, 18)");
+  test("rgb 包成 oklch 相对色，取明度、彩度归零", () => {
+    expect(toGrayColor("rgb(255, 0, 0)")).toBe("oklch(from rgb(255, 0, 0) l 0 h)");
+    expect(toGrayColor("rgb(0, 0, 0)")).toBe("oklch(from rgb(0, 0, 0) l 0 h)");
   });
 
-  test("黑与白原样不动", () => {
-    expect(toGrayColor("rgb(0, 0, 0)")).toBe("rgb(0, 0, 0)");
-    expect(toGrayColor("rgb(255, 255, 255)")).toBe("rgb(255, 255, 255)");
+  test("⚠️ color-mix 算出来的 oklab 也要能处理 —— 这正是漏掉过的那一类", () => {
+    // Tailwind 4 的 `/透明度` 修饰符全都会编译成 color-mix(in oklab, …)，
+    // 计算样式给的就是这个形状。
+    expect(toGrayColor("oklab(0.627966 0.22488 0.125859 / 0.7)")).toBe(
+      "oklch(from oklab(0.627966 0.22488 0.125859 / 0.7) l 0 h)",
+    );
+    expect(toGrayColor("color(srgb 1 0 0 / 0.5)")).toBe("oklch(from color(srgb 1 0 0 / 0.5) l 0 h)");
+    expect(toGrayColor("hsl(0 100% 50%)")).toBe("oklch(from hsl(0 100% 50%) l 0 h)");
   });
 
-  test("本来就是灰的照旧", () => {
-    expect(toGrayColor("rgb(128, 128, 128)")).toBe("rgb(128, 128, 128)");
+  test("透明度由相对颜色语法自己保留，不用我们操心", () => {
+    // 外层不写 alpha ⇒ 沿用 `from` 那个颜色的 —— 所以 0.35 原样留在里面。
+    expect(toGrayColor("rgba(255, 0, 0, 0.35)")).toBe("oklch(from rgba(255, 0, 0, 0.35) l 0 h)");
   });
 
-  test("带透明度的保留透明度，只换 RGB", () => {
-    expect(toGrayColor("rgba(255, 0, 0, 0.35)")).toBe("rgba(54, 54, 54, 0.35)");
+  test("⚠️ transparent 不能动 —— 一动就成了实心黑方块", () => {
+    expect(toGrayColor("transparent")).toBeNull();
   });
 
-  test("⚠️ 全透明的不能动 —— 一动就成了实心黑方块", () => {
-    // `transparent` 在计算样式里就是 rgba(0,0,0,0)。
-    expect(toGrayColor("rgba(0, 0, 0, 0)")).toBeNull();
-  });
-
-  test("认不出来的原样返回 null，交给它自己去解析", () => {
+  test("不是颜色的原样返回 null", () => {
     expect(toGrayColor("currentColor")).toBeNull();
     expect(toGrayColor("none")).toBeNull();
-    expect(toGrayColor("color(display-p3 1 0 0)")).toBeNull();
     expect(toGrayColor("")).toBeNull();
-  });
-
-  test("空格分隔的新写法也认（rgb(255 0 0) / rgb(255 0 0 / 50%)）", () => {
-    expect(toGrayColor("rgb(255 0 0)")).toBe("rgb(54, 54, 54)");
-    expect(toGrayColor("rgb(255 0 0 / 0.5)")).toBe("rgba(54, 54, 54, 0.5)");
+    expect(toGrayColor("   ")).toBeNull();
   });
 });

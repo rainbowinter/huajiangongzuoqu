@@ -234,23 +234,35 @@ const PAPER_CSS = `
  */
 
 /**
- * 一个 CSS 颜色 → **同明度的灰**。认不出来（或本来就无所谓）的返回 `null`。
+ * 一个 CSS 颜色 → **同明度的灰**表达。不想动的返回 `null`。
  *
- * 亮度用 Rec.709 那套加权（`0.2126R + 0.7152G + 0.0722B`，与人眼对绿最敏感的
- * 事实一致）—— 直接对三个通道取平均会让红色和绿色看起来一个亮，那是错的。
+ * ## 为什么不自己算
  *
- * 抽成导出的纯函数是为了能单测：加权系数写错、或者把 `transparent` 也一起处理了
- *（会变成实心黑方块），错误的表现都很隐蔽。
+ * 第一版是按 Rec.709 加权（`0.2126R + 0.7152G + 0.0722B`）自己算的，**漏了一大类颜色**：
+ * 应用里到处是 Tailwind 4 的 `/透明度` 修饰符，它编译成 `color-mix(in oklab, …)`，
+ * 而计算样式给出的是 **`oklab(0.628 0.225 0.126 / 0.7)`** —— 根本不是 `rgb(...)`。
+ * 只认 `rgb()`/`rgba()` 的话，这些颜色会原样留在「黑白」档里（用户截图里那行粉字、
+ * 那个 `.csv` 小标签就是这么漏掉的）。
+ *
+ * 改成**让浏览器算**：CSS 相对颜色语法 `oklch(from X l 0 h)` —— 取 X 的感知明度 `l`、
+ * 彩度压成 0、色相随便（彩度是 0，留着不影响）。一行，任何颜色格式通吃
+ *（rgb / hsl / oklab / color(display-p3 …) 都行），alpha 也自动保留。
+ *
+ * 而且 `oklch` 的 `l` 是**感知明度**，比 Rec.709 那种线性加权更贴「看起来一样亮」：
+ * 纯红在 OKLCH 里 L ≈ 0.63，对应的灰是中等灰；按 Rec.709 算会得到 `rgb(54,54,54)`
+ * 那种近黑的红，明显偏暗。
+ *
+ * 抽成导出的纯函数是为了能单测：把 `transparent` 也一起处理了会变成实心黑方块，
+ * 那种错误在纸上很显眼、在代码里很隐蔽。
  */
 export function toGrayColor(color: string): string | null {
-  const match = /^rgba?\(([^)]+)\)$/.exec(color);
-  if (!match) return null; // currentColor、none 之类：让它自己去解析，别插手
-  const [r, g, b, a = 1] = match[1].split(/[,\s/]+/).filter(Boolean).map(Number);
-  if (!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b)) return null;
-  // 全透明的（`transparent` 会算成 rgba(0,0,0,0)）别动：一动就成了实心黑方块。
-  if (a <= 0) return null;
-  const y = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b);
-  return a >= 1 ? `rgb(${y}, ${y}, ${y})` : `rgba(${y}, ${y}, ${y}, ${a})`;
+  const value = color.trim();
+  // 这几个不是颜色值（或者不该碰）：`currentColor` 交给它自己解析；
+  // `transparent` 一动就成了实心黑方块。
+  if (!value || value === "transparent" || value === "currentColor" || value === "none") {
+    return null;
+  }
+  return `oklch(from ${value} l 0 h)`;
 }
 function grayOutTree(root: HTMLElement): void {
   const toGray = toGrayColor;
