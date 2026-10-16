@@ -15,6 +15,7 @@ import type { MarketController } from "../features/market/useMarket";
 import type { LocalConflict, PluginTransfer } from "../features/market/usePluginTransfer";
 import { describePermission, isPermission, unknownPermissions } from "../features/plugins/permissions";
 import type { PluginManifest } from "../features/plugins/types";
+import { Modal, ModalActions } from "./Modal";
 import { PluginIcon } from "./PluginIcon";
 
 /**
@@ -639,68 +640,5 @@ export function ConfirmUninstall({
         </button>
       </div>
     </Modal>
-  );
-}
-
-/** 与 `PluginPromptDialog` 用的是同一套模态观感（那里也是自己渲染的，见其注释）。 */
-function Modal({
-  title,
-  onCancel,
-  children,
-}: {
-  title: string;
-  onCancel: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      className="fixed inset-0 z-[9500] flex items-center justify-center bg-ink/20 backdrop-blur-[2px]"
-      // 点遮罩关掉，与提示框一致。确认框里没有任何「已经发生了一半」的状态，关掉是安全的。
-      onClick={onCancel}
-      role="presentation"
-    >
-      <div
-        className="w-[400px] max-h-[70vh] overflow-y-auto rounded-2xl bg-cloud/98 border border-paper-deep/40 shadow-xl p-5"
-        onClick={(event) => event.stopPropagation()}
-        role="dialog"
-        aria-label={title}
-      >
-        <h3 className="text-[13px] text-ink mb-3">{title}</h3>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function ModalActions({
-  busy,
-  confirmLabel,
-  onCancel,
-  onConfirm,
-}: {
-  busy: boolean;
-  confirmLabel: string;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <div className="flex items-center justify-end gap-2 mt-4">
-      <button
-        type="button"
-        disabled={busy}
-        onClick={onCancel}
-        className="px-3 h-7 rounded-lg text-[11px] text-ink-ghost hover:text-ink-soft hover:bg-paper-warm transition-colors cursor-pointer disabled:opacity-40"
-      >
-        取消
-      </button>
-      <button
-        type="button"
-        disabled={busy}
-        onClick={onConfirm}
-        className="px-3 h-7 rounded-lg text-[11px] text-bamboo bg-bamboo-mist/50 hover:bg-bamboo-mist transition-colors cursor-pointer disabled:opacity-40"
-      >
-        {busy ? "处理中…" : confirmLabel}
-      </button>
-    </div>
   );
 }

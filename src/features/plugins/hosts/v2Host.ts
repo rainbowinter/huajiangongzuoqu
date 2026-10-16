@@ -28,6 +28,11 @@ import {
   updateNote,
 } from "../../notes/api";
 import { openNoteInEditor } from "../../windows/api";
+import {
+  deleteWorkspaceCache,
+  readWorkspaceCache,
+  writeWorkspaceCache,
+} from "../../workspace/api";
 import { getActiveContentAccessor } from "../activeContent";
 import {
   listPluginAssets,
@@ -852,6 +857,15 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
     },
     categoriesList: () => listCategories(),
     categoriesCreate: (name) => createCategory(name),
+
+    // ---- 工作区缓存：跟着文件走的那份数据（批注这类）
+    //
+    // 位置由**宿主**算（文件在哪个工作区里就用那个工作区的 `__floral-notepaper__/`，
+    // 不在任何工作区里就用文件自己所在的目录），插件只说「我是谁」——`owner` 那一层
+    // 就是它的命名空间，与 `storage` 同一条规矩。插件因此既不知道也不需要知道路径。
+    cacheGet: (filePath) => readWorkspaceCache(filePath, owner),
+    cacheSet: (filePath, value) => writeWorkspaceCache(filePath, owner, value),
+    cacheDelete: (filePath) => deleteWorkspaceCache(filePath, owner),
 
     // ---- storage / settings / events
     storageGet: (key) => storageGet(owner, key),

@@ -241,6 +241,13 @@ pub fn list_dir(roots: &[PathBuf], raw: &str) -> Result<WorkspaceListing, AppErr
         let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
             continue;
         };
+        // 应用自己的缓存目录**不出现在界面上**（用户定的）：它由插件按需创建，里面
+        // 放的是批注这类旁挂数据，列在文件树里只会让人以为那是自己放的东西。
+        // ⚠️ 它**不是**点开头的，`list_subdirs` 里那条 `.` 规则挡不住它 —— 两处的
+        // 名字必须与 `workspace_cache::CACHE_DIR_NAME` 一致。
+        if name == super::workspace_cache::CACHE_DIR_NAME {
+            continue;
+        }
         // 单个条目读元数据失败（权限不足、文件刚被删）不应让整次列举失败。
         let Ok(metadata) = item.metadata() else {
             continue;
@@ -514,6 +521,27 @@ mod tests {
 
         assert_eq!(names, vec!["zeta", "alpha.md", "Beta.txt"]);
         assert!(!listing.truncated);
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn hides_the_app_own_cache_directory() {
+        let root = temp_dir("hides-cache");
+        // 名字**手写**在这里，不从 `workspace_cache::CACHE_DIR_NAME` 取：这个目录名是
+        // 与用户之间的约定（文档里写着它），改名就该让测试红一次。
+        fs::create_dir_all(root.join("__floral-notepaper__")).unwrap();
+        fs::create_dir_all(root.join("normal")).unwrap();
+
+        let listing = list_dir(&roots_of(&[&root]), &root.to_string_lossy()).unwrap();
+        let names: Vec<&str> = listing.entries.iter().map(|e| e.name.as_str()).collect();
+
+        assert_eq!(
+            names,
+            vec!["normal"],
+            "`__floral-notepaper__` 是应用自己的缓存目录，不该出现在文件树里 —— 它是插件写的\
+             旁挂数据，列出来只会让人以为那是自己放的东西"
+        );
 
         fs::remove_dir_all(&root).ok();
     }

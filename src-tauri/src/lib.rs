@@ -10,7 +10,12 @@ pub mod updater;
 use locales::Locale;
 use services::notes::{default_store, AppConfig, AppError, Note, NoteMetadata, SaveNoteRequest};
 use services::workspace;
-use std::{env, fs, io::Write, path::PathBuf};
+use services::workspace_cache;
+use std::{
+    env, fs,
+    io::Write,
+    path::{Path, PathBuf},
+};
 use tauri::{AppHandle, Emitter, Manager};
 
 #[tauri::command]
@@ -377,10 +382,63 @@ fn workspace_add_folder(app: AppHandle, path: String) -> Result<AppConfig, AppEr
     Ok(saved)
 }
 
+// ---------------------------------------------------------------- 工作区缓存
+
+/// 读一份插件写在某文件旁边的数据（`__floral-notepaper__/<插件>/…`）。没有就返回 `null`。
+#[tauri::command]
+fn workspace_cache_read(
+    file: String,
+    plugin: String,
+) -> Result<Option<serde_json::Value>, AppError> {
+    let roots = cache_roots()?;
+    workspace_cache::read(&roots, Path::new(file.trim()), &plugin)
+}
+
+/// 写一份插件数据。整份重写、原子落盘。
+#[tauri::command]
+fn workspace_cache_write(
+    file: String,
+    plugin: String,
+    value: serde_json::Value,
+) -> Result<(), AppError> {
+    let roots = cache_roots()?;
+    workspace_cache::write(&roots, Path::new(file.trim()), &plugin, &value)
+}
+
+/// 删掉某文件上某个插件的缓存。文件本来就不在时不算错。
+#[tauri::command]
+fn workspace_cache_remove(file: String, plugin: String) -> Result<bool, AppError> {
+    let roots = cache_roots()?;
+    workspace_cache::remove(&roots, Path::new(file.trim()), &plugin)
+}
+
+/// 数一下某个工作文件夹里的缓存有多少（「移除工作文件夹」那个确认框要显示）。
+#[tauri::command]
+fn workspace_cache_info(path: String) -> Result<workspace_cache::CacheInfo, AppError> {
+    Ok(workspace_cache::info(Path::new(path.trim())))
+}
+
+/// 把某个工作文件夹里的缓存整个删掉。用户点了「一起删掉」才调它。
+#[tauri::command]
+fn workspace_cache_clear(path: String) -> Result<workspace_cache::CacheInfo, AppError> {
+    workspace_cache::clear(Path::new(path.trim()))
+}
+
+/// 当前的工作区根（已规范化）。缓存要按「文件落在哪个工作区里」定位。
+fn cache_roots() -> Result<Vec<PathBuf>, AppError> {
+    let store = default_store()?;
+    let config = store.load_config()?;
+    Ok(workspace::roots_from_config(&config.workspace_folders))
+}
+
 /// 移除一个工作文件夹。
 ///
 /// 这里**刻意不调用 `normalize_root`**：目录可能已经被删除或挪走，而那正是用户想要
 /// 把它移出列表的场景；此时按存在性校验会拒绝移除，把用户卡死。
+///
+/// ⚠️ 这里**不动** `__floral-notepaper__` 里那份缓存：要不要连缓存一起清是用户的选择，
+/// 由界面先问一句、再单独调 `workspace_cache_clear`。把「移出列表」与「删数据」绑成
+/// 一个动作，迟早会有人只是想换个地方挂、结果把批注一起删了。
 #[tauri::command]
 fn workspace_remove_folder(app: AppHandle, path: String) -> Result<AppConfig, AppError> {
     let target = path.trim().to_string();
@@ -694,6 +752,11 @@ pub fn run() {
             workspace_write_file,
             workspace_add_folder,
             workspace_remove_folder,
+            workspace_cache_read,
+            workspace_cache_write,
+            workspace_cache_remove,
+            workspace_cache_info,
+            workspace_cache_clear,
             workspace_delete_file,
             workspace_move_entry,
             workspace_list_subdirs,

@@ -76,3 +76,44 @@ export function addWorkspaceFolder(path: string): Promise<AppConfig> {
 export function removeWorkspaceFolder(path: string): Promise<AppConfig> {
   return invoke("workspace_remove_folder", { path });
 }
+
+// ---------------------------------------------------------------- 工作区缓存
+//
+// `__floral-notepaper__/` —— 插件把**与某个文件相关**的数据放在那个文件旁边。位置由宿主
+// 算（文件在哪个工作区里就用那个工作区的根，不在任何工作区里就用文件自己所在的目录），
+// 插件只说「我是谁」。规矩见 `Docs/workspace-cache.md`。
+
+/** 读某文件上某个插件的数据。没写过返回 `null`。 */
+export function readWorkspaceCache(file: string, plugin: string): Promise<unknown | null> {
+  return invoke("workspace_cache_read", { file, plugin });
+}
+
+/** 写一份数据（整份覆盖）。 */
+export function writeWorkspaceCache(
+  file: string,
+  plugin: string,
+  value: unknown,
+): Promise<void> {
+  return invoke("workspace_cache_write", { file, plugin, value });
+}
+
+/** 删掉某文件上某个插件的数据；本来就没有时返回 `false`（不算错）。 */
+export function deleteWorkspaceCache(file: string, plugin: string): Promise<boolean> {
+  return invoke("workspace_cache_remove", { file, plugin });
+}
+
+/** 某个工作文件夹里的缓存有多少（「移除工作文件夹」那个确认框要显示）。 */
+export interface WorkspaceCacheInfo {
+  exists: boolean;
+  files: number;
+  bytes: number;
+}
+
+export function workspaceCacheInfo(path: string): Promise<WorkspaceCacheInfo> {
+  return invoke("workspace_cache_info", { path });
+}
+
+/** 把某个工作文件夹里的缓存整个删掉。返回删之前数到的那份信息。 */
+export function clearWorkspaceCache(path: string): Promise<WorkspaceCacheInfo> {
+  return invoke("workspace_cache_clear", { path });
+}

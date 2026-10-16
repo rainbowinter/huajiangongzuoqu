@@ -288,6 +288,11 @@ export interface PluginHostBridge {
   categoriesCreate(name: string): Promise<void>;
 
   // ---- storage / settings / events
+  // ---- 工作区缓存（`__floral-notepaper__/`）：**跟文件走**的数据，比如批注
+  cacheGet(filePath: string): Promise<unknown>;
+  cacheSet(filePath: string, value: unknown): Promise<void>;
+  cacheDelete(filePath: string): Promise<boolean>;
+
   storageGet(key: string): Promise<unknown>;
   storageSet(key: string, value: unknown): Promise<void>;
   storageDelete(key: string): Promise<void>;
@@ -741,6 +746,35 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
       await ctx.bridge.categoriesCreate(asString(args[0], "categories.create", "name"));
       return undefined;
     },
+  },
+
+  // ---- workspace.cache（跟着文件走的缓存）
+  //
+  // 与下面的 `storage.*` 是两件事：`storage` 是**每个插件一份**、存在应用数据目录里；
+  // 这里存的是**与某个文件相关**的数据（批注这类），落在那个文件旁边的
+  // `__floral-notepaper__/` 里，文件被拷走时数据跟着走。
+  "workspace.cacheGet": {
+    permission: "workspace:cache",
+    timeoutMs: TIMEOUTS.io,
+    handler: (ctx, args) =>
+      ctx.bridge.cacheGet(asString(args[0], "workspace.cacheGet", "filePath")),
+  },
+  "workspace.cacheSet": {
+    permission: "workspace:cache",
+    timeoutMs: TIMEOUTS.io,
+    handler: async (ctx, args) => {
+      await ctx.bridge.cacheSet(
+        asString(args[0], "workspace.cacheSet", "filePath"),
+        args[1] ?? null,
+      );
+      return undefined;
+    },
+  },
+  "workspace.cacheDelete": {
+    permission: "workspace:cache",
+    timeoutMs: TIMEOUTS.io,
+    handler: (ctx, args) =>
+      ctx.bridge.cacheDelete(asString(args[0], "workspace.cacheDelete", "filePath")),
   },
 
   // ---- storage

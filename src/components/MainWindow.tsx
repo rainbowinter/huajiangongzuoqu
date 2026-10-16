@@ -86,9 +86,15 @@ import {
 } from "../features/settings/api";
 import type { AppConfig, ViewMode } from "../features/settings/types";
 import { normalizeTileColor } from "../features/settings/tileColor";
+// `formatSize` 虽然住在市场模块里，但它就是个「字节数 → 人能读的大小」的纯格式化函数，
+// 与市场没有关系 —— 与其再抄第三份，不如把它当公共工具用。
+import { formatSize } from "../features/market/presentation";
 import {
   addWorkspaceFolder,
+  clearWorkspaceCache,
   removeWorkspaceFolder,
+  workspaceCacheInfo,
+  type WorkspaceCacheInfo,
   type WorkspaceEntry,
 } from "../features/workspace/api";
 import {
@@ -108,6 +114,7 @@ import { ActivityBar, FolderIcon, NotesIcon, type ActivityBarItem } from "./Acti
 import { BackgroundLayer } from "./BackgroundLayer";
 import { ExplorerItem } from "./ExplorerItem";
 import { FilePreview, TablePreview } from "./FilePreview";
+import { Modal } from "./Modal";
 import { WorkspaceTree, folderName, shortenPath } from "./WorkspaceTree";
 import { POPUP_VIEWPORT_MARGIN, useViewportPopupPosition } from "./popupPosition";
 import { disposeListener } from "./listeners";
@@ -762,6 +769,11 @@ export function MainWindow({
   const settingsLoadedRef = useRef(false);
   const [activeExplorer, setActiveExplorer] = useState<string>(EXPLORER_NOTES);
   const [workspaceFolders, setWorkspaceFolders] = useState<string[]>([]);
+  /** 移除一个有缓存的工作文件夹时，等用户在确认框上选「保留还是删掉」。 */
+  const [pendingFolderRemoval, setPendingFolderRemoval] = useState<{
+    path: string;
+    info: WorkspaceCacheInfo;
+  } | null>(null);
   const [savedDataDir, setSavedDataDir] = useState<string | null>(initialConfig?.dataDir ?? null);
 
   /**
@@ -2044,15 +2056,53 @@ export function MainWindow({
     }
   }, []);
 
-  const handleRemoveWorkspaceFolder = useCallback(async (path: string) => {
-    try {
-      const config = await removeWorkspaceFolder(path);
-      setWorkspaceFolders(config.workspaceFolders ?? []);
-      setActiveExplorer((current) => (current === path ? EXPLORER_NOTES : current));
-    } catch (error) {
-      showToast(getErrorMessage(error));
-    }
-  }, []);
+  /**
+   * 真正把文件夹从列表里摘掉。`clearCache` 表示用户刚才在确认框里选了「一起删掉」。
+   *
+   * 两件事**分开做**：先把缓存删掉再摘路径？不 —— 反过来的话，删缓存失败（被占用、
+   * 只读）就会把用户卡在一个「想移除却移除不掉」的状态里。移除是用户的本意，删缓存
+   * 是附带动作，附带动作失败只提示一句，不该拦住本意。
+   */
+  const commitRemoveWorkspaceFolder = useCallback(
+    async (path: string, clearCache: boolean) => {
+      try {
+        const config = await removeWorkspaceFolder(path);
+        setWorkspaceFolders(config.workspaceFolders ?? []);
+        setActiveExplorer((current) => (current === path ? EXPLORER_NOTES : current));
+
+        if (clearCache) {
+          try {
+            const cleared = await clearWorkspaceCache(path);
+            showToast(`已清理 ${cleared.files} 个缓存文件`, "info");
+          } catch (error) {
+            showToast(`工作文件夹已移除，但缓存没删掉：${getErrorMessage(error)}`);
+          }
+        }
+      } catch (error) {
+        showToast(getErrorMessage(error));
+      }
+    },
+    [],
+  );
+
+  /**
+   * 移除工作文件夹。**有缓存时先问一句**（用户定的）。
+   *
+   * 问的是「要不要连 `__floral-notepaper__` 一起删」：那里面是插件写的旁挂数据（批注这类），
+   * 删了就没了；而不删的话它就静静躺在那个文件夹里，下次再挂上来就还在。没有缓存时
+   * 不必打扰用户，直接移除。
+   */
+  const handleRemoveWorkspaceFolder = useCallback(
+    async (path: string) => {
+      const info = await workspaceCacheInfo(path).catch(() => null);
+      if (info?.exists && info.files > 0) {
+        setPendingFolderRemoval({ path, info });
+        return;
+      }
+      await commitRemoveWorkspaceFolder(path, false);
+    },
+    [commitRemoveWorkspaceFolder],
+  );
 
   /**
    * 复用既有的「外部文件」通道：它已经处理好读取、编辑、自动保存与外部改动轮询。
@@ -5329,6 +5379,64 @@ export function MainWindow({
           onClose={() => setFindReplaceOpen(false)}
         />
       )}
+      {/* 移除工作文件夹时的确认框。**只有那个文件夹里确实有缓存才出现** ——
+          没有缓存可删的时候多问一句纯属打扰。 */}
+      {pendingFolderRemoval ? (
+        <Modal
+          title={t("main.workspace.removeWithCache.title", {
+            defaultValue: "移除这个工作文件夹",
+          })}
+          onCancel={() => setPendingFolderRemoval(null)}
+        >
+          <p className="text-[11px] text-ink-ghost leading-relaxed mb-2">
+            {t("main.workspace.removeWithCache.body", {
+              path: pendingFolderRemoval.path,
+              count: pendingFolderRemoval.info.files,
+              size: formatSize(pendingFolderRemoval.info.bytes),
+              defaultValue:
+                "{{path}} 里有一个花笺自己的缓存文件夹（__floral-notepaper__），共 {{count}} 个文件、{{size}}。里面是插件写下的数据（比如 PDF 的批注）。",
+            })}
+          </p>
+          <p className="text-[11px] text-ink-ghost leading-relaxed">
+            {t("main.workspace.removeWithCache.hint", {
+              defaultValue:
+                "只移除的话，那个文件夹原样留着 —— 以后再把目录挂回来，批注还在。",
+            })}
+          </p>
+          <div className="flex items-center justify-end gap-2 mt-4">
+            <button
+              type="button"
+              onClick={() => setPendingFolderRemoval(null)}
+              className="px-3 h-7 rounded-lg text-[11px] text-ink-ghost hover:text-ink-soft hover:bg-paper-warm transition-colors cursor-pointer"
+            >
+              {t("common.cancel", { defaultValue: "取消" })}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const target = pendingFolderRemoval.path;
+                setPendingFolderRemoval(null);
+                void commitRemoveWorkspaceFolder(target, false);
+              }}
+              className="px-3 h-7 rounded-lg text-[11px] text-bamboo bg-bamboo-mist/50 hover:bg-bamboo-mist transition-colors cursor-pointer"
+            >
+              {t("main.workspace.removeWithCache.keep", { defaultValue: "只移除，保留缓存" })}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const target = pendingFolderRemoval.path;
+                setPendingFolderRemoval(null);
+                void commitRemoveWorkspaceFolder(target, true);
+              }}
+              className="px-3 h-7 rounded-lg text-[11px] text-rust bg-rust-mist/50 hover:bg-rust-mist transition-colors cursor-pointer"
+            >
+              {t("main.workspace.removeWithCache.clear", { defaultValue: "一起删掉" })}
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
       {openPopover && activePopover && (
         <div
           ref={popoverRef}
