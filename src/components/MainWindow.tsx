@@ -41,6 +41,7 @@ import { pluginOwningPath } from "../features/plugins/pluginPaths";
 import { runStartupAutoUpdatesQuietly } from "../features/market/autoUpdate";
 import type { EditorFileInfo } from "../features/plugins/protocol";
 import {
+  listDocumentActions,
   listEditorGutters,
   listNoteMenuItems,
   listDecorations,
@@ -48,6 +49,7 @@ import {
   listPopovers,
   listToolbarButtons,
   notifyContentChanged,
+  subscribeDocumentActions,
   subscribeEditorGutters,
   subscribeNoteMenuItems,
   subscribeDecorations,
@@ -55,13 +57,14 @@ import {
   subscribePopovers,
   subscribeToolbarButtons,
 } from "../features/plugins/registry";
-import type { PluginDecoration, PluginPopover } from "../features/plugins/registry";
+import type { PluginDecoration, PluginDocumentAction, PluginPopover } from "../features/plugins/registry";
 import { sanitizePluginHtml } from "../features/plugins/sanitizeHtml";
 import {
   getDecorationItems,
   getGutterLines,
   getPanelHtml,
   getPopoverHtml,
+  panelFileKeyOf,
   pluginStoresRevision,
   subscribePluginStores,
 } from "../features/plugins/stores";
@@ -97,6 +100,8 @@ import {
   type WorkspaceCacheInfo,
   type WorkspaceEntry,
 } from "../features/workspace/api";
+import { postActiveViewCommand } from "../features/plugins/activeView";
+import { documentActionVisible, documentContextOf } from "../features/workspace/documentContext";
 import {
   hasPreviewPaneKind,
   isEditableKind,
@@ -232,9 +237,8 @@ function clampPreviewZoom(value: number): number {
   return Math.min(PREVIEW_ZOOM_MAX, Math.max(PREVIEW_ZOOM_MIN, rounded));
 }
 
-/** 「另存为」支持的格式。 */
+/** 「导出」支持的格式。顶上那一行给它们各配一个直连按钮（不再套一层下拉）。 */
 type ExportFormat = "md" | "pdf";
-const EXPORT_FORMATS: readonly ExportFormat[] = ["md", "pdf"];
 
 interface NoteMenuState {
   x: number;
@@ -796,13 +800,11 @@ export function MainWindow({
   const [deleteExiting, setDeleteExiting] = useState(false);
   /** 整个主窗口是否钉在最前（**不是**再开一个磁贴窗）。 */
   const [windowPinned, setWindowPinned] = useState(false);
-  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   /**
    * 「导出 PDF」面板。内容在**打开那一刻**就定下来：面板开着的时候用户还能在背后改笔记，
    * 但我们导的是他点下那一刻看到的那一份。
    */
   const [pdfPanel, setPdfPanel] = useState<{ title: string; bodyHtml: string } | null>(null);
-  const exportMenuRef = useRef<HTMLDivElement>(null);
   const [categories, setCategories] = useState<string[]>([]);
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   const [activeCategory, setActiveCategory] = useState<string>("");
@@ -1198,12 +1200,55 @@ export function MainWindow({
   /** 插件可以给某个格式单独指定字体；留空就用上面的默认。 */
   const editorFontFamily = selectedFileType?.font;
 
-  /**
-   * 工具栏要按当前文件的格式重新编排。通用的（侧栏切换、撤销、重做、删除、另存为）
-   * 每个文件都保留 —— 不适用时禁用而不是消失，位置稳定才不会每次换文件都要重新找。
-   */
   /** 笔记文档（非外部文件）。插入图片要往笔记的 images 目录写文件，只对笔记成立。 */
   const isNoteDocument = selectedExternalFile === null;
+
+  /**
+   * 顶部那一行按**当前打开的是什么**编排。
+   *
+   * 那一行放的是**文档级动作**（导出、删除、开右侧栏的插件面板）；插件视图自己那排
+   * （`view.toolbar`：翻页、缩放、标注工具）是**视图内的小工具**，两者不是一回事。
+   * 「属于哪一类」的判据抽在 `documentContextOf` 里，好单独测 —— 它判错只表现为
+   * 「按钮多一个少一个」，不报错、不崩，肉眼在代码里很难看出来。
+   *
+   * 取舍：**文件专属的按钮按上下文整组换**（插入图片只对笔记成立、导出 PDF 对 PDF 不成立），
+   * 而**通用按钮保留原位、不适用时禁用**，位置稳定才不会每次换文件都要重新找。
+   * 只有【完全没有可编辑正文】的上下文（PDF、图片、说明文档）才让通用按钮一并让位 ——
+   * 那时候一排全灰的按钮比没有更难看。
+   */
+  const documentContext = documentContextOf({
+    docView: docView !== null,
+    isNoteDocument,
+    fileKind: selectedFileType?.kind ?? null,
+  });
+
+  /** 当前上下文有没有一段可编辑的正文（撤销/重做只对它们成立）。 */
+  const hasEditableBody =
+    documentContext === "note" ||
+    documentContext === "markdown" ||
+    documentContext === "table" ||
+    documentContext === "code" ||
+    documentContext === "text";
+
+  /** 「导出 PDF」：要有一段能渲染成文字的正文，且能抓得到预览 HTML。 */
+  const canExportPdf =
+    documentContext === "note" || documentContext === "markdown" || documentContext === "table";
+
+  /** 「另存为 Markdown」：只有 Markdown 形态的内容导出成 .md 才有意义。 */
+  const canExportMarkdown = documentContext === "note" || documentContext === "markdown";
+
+  /**
+   * 只读说明文档把正文顶掉了，顶上这一行整体让它一让 —— 这时候连选中都还留在
+   * 背后那篇笔记上，任何按钮点下去都是作用在别的东西上。
+   */
+  const toolbarIdle = documentContext === "doc";
+
+  /**
+   * 右侧栏那块插件面板按它分桶存内容（见 `stores.ts` 的 `setPanelHtml`）。
+   * **必须与 `v2Host` 写的一侧用同一个函数算**，所以走 `panelFileKeyOf` 而不是在这儿
+   * 再写一遍 `path ?? id`。
+   */
+  const panelFileKey = panelFileKeyOf({ path: activeFilePath, noteId: selectedId });
 
   /** 没有行旁注时，正文的左边距 —— 对应容器原本的 `px-5`。 */
   const EDITOR_BASE_PADDING = 20;
@@ -1668,6 +1713,13 @@ export function MainWindow({
     subscribeToolbarButtons,
     listToolbarButtons,
     listToolbarButtons,
+  );
+
+  /** 插件的**文档动作**（顶上那一行）。过滤见 `documentActionVisible`。 */
+  const pluginDocumentActions = useSyncExternalStore(
+    subscribeDocumentActions,
+    listDocumentActions,
+    listDocumentActions,
   );
 
   /**
@@ -2721,6 +2773,25 @@ export function MainWindow({
     [togglePanel],
   );
 
+  /**
+   * 点一条插件文档动作。
+   *
+   * 两条路可以同时声明，各有各的用途：`viewCommand` 发给**当前那个沙箱视图**（视图插件
+   * 真正的逻辑住在帧里 —— 「导出批注」要拿 pdf-lib 重写整份 PDF，Worker 侧够不到画布与
+   * 文字层）；`run` 在插件自己的 Worker 沙箱里跑。先发命令、再跑 run，顺序固定，免得
+   * 作者在两处各写一半时还要猜先后。
+   */
+  const handleDocumentAction = useCallback(
+    (action: PluginDocumentAction) => {
+      if (action.viewCommand) postActiveViewCommand(action.viewCommand);
+      if (!action.run) return;
+      void Promise.resolve()
+        .then(() => action.run?.())
+        .catch((error: unknown) => showToast(getErrorMessage(error)));
+    },
+    [],
+  );
+
   const handleImportNote = async () => {
     try {
       const saved = await saveCurrentNote();
@@ -3586,26 +3657,6 @@ export function MainWindow({
     [content, title, t],
   );
 
-  /**
-   * 导出下拉：点到菜单外面才收起。
-   *
-   * ⚠️ 这里必须判断事件是否落在菜单内。早先的写法是无条件关闭，于是在菜单项上
-   * 按下鼠标的瞬间菜单就被卸载了，随之而来的 `click` 再也派发不到那个按钮上——
-   * 两个格式都点不动，症状是「另存为 PDF 没反应」。
-   */
-  useEffect(() => {
-    if (!exportMenuOpen) return;
-    // 参数用 DOM 的 `Event`：本文件顶部的 `MouseEvent` 是 React 的合成事件类型，
-    // 两者不兼容。
-    const close = (event: Event) => {
-      const target = event.target as Node | null;
-      if (target && exportMenuRef.current?.contains(target)) return;
-      setExportMenuOpen(false);
-    };
-    document.addEventListener("mousedown", close, true);
-    return () => document.removeEventListener("mousedown", close, true);
-  }, [exportMenuOpen]);
-
   const toggleMaximize = () => {
     void toggleMaximizeCurrentWindow().then(() => isCurrentWindowMaximized().then(setIsMaximized));
   };
@@ -4450,9 +4501,13 @@ export function MainWindow({
           <div className="flex-1 flex flex-col min-w-0">
             {/* 允许换行：插件多了之后（样式/统计/目录…）这一行放不下。原来固定 h-10
                 且不换行，按钮会被压到逐字竖排，插件页签还会和视图切换叠在一起。 */}
-            <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 px-4 py-1 min-h-10 border-b border-paper-deep/20 shrink-0 bg-paper/20">
+            <div
+              className={`flex flex-wrap items-center gap-x-1 gap-y-0.5 px-4 py-1 border-b border-paper-deep/20 shrink-0 bg-paper/20 ${
+                toolbarIdle ? "hidden" : "min-h-10"
+              }`}
+            >
               <div className="flex flex-wrap items-center gap-1 min-w-0">
-                {isNoteDocument ? (
+                {documentContext === "note" ? (
                   <button
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={async () => {
@@ -4502,69 +4557,73 @@ export function MainWindow({
                   </button>
                 ) : null}
 
-                <button
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={handleUndo}
-                  disabled={!canUndoNow}
-                  className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                  title={t("main.editor.undo", { defaultValue: "撤销（Ctrl+Z）" })}
-                  aria-label={t("main.editor.undoLabel", { defaultValue: "撤销" })}
-                >
-                  <svg
-                    data-testid="main-editor-undo-icon"
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M9 14 4 9l5-5" />
-                    <path d="M4 9h10a6 6 0 0 1 0 12h-1" />
-                  </svg>
-                </button>
+                {hasEditableBody ? (
+                  <>
+                    <button
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={handleUndo}
+                      disabled={!canUndoNow}
+                      className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                      title={t("main.editor.undo", { defaultValue: "撤销（Ctrl+Z）" })}
+                      aria-label={t("main.editor.undoLabel", { defaultValue: "撤销" })}
+                    >
+                      <svg
+                        data-testid="main-editor-undo-icon"
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M9 14 4 9l5-5" />
+                        <path d="M4 9h10a6 6 0 0 1 0 12h-1" />
+                      </svg>
+                    </button>
 
-                <button
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={handleRedo}
-                  disabled={!canRedoNow}
-                  className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                  title={t("main.editor.redo", { defaultValue: "重做（Ctrl+Y）" })}
-                  aria-label={t("main.editor.redoLabel", { defaultValue: "重做" })}
-                >
-                  <svg
-                    data-testid="main-editor-redo-icon"
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                    style={{ transform: "scaleX(-1)" }}
-                  >
-                    <path d="M9 14 4 9l5-5" />
-                    <path d="M4 9h10a6 6 0 0 1 0 12h-1" />
-                  </svg>
-                </button>
+                    <button
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={handleRedo}
+                      disabled={!canRedoNow}
+                      className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                      title={t("main.editor.redo", { defaultValue: "重做（Ctrl+Y）" })}
+                      aria-label={t("main.editor.redoLabel", { defaultValue: "重做" })}
+                    >
+                      <svg
+                        data-testid="main-editor-redo-icon"
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                        style={{ transform: "scaleX(-1)" }}
+                      >
+                        <path d="M9 14 4 9l5-5" />
+                        <path d="M4 9h10a6 6 0 0 1 0 12h-1" />
+                      </svg>
+                    </button>
+                  </>
+                ) : null}
 
-                <div className="relative">
+                {/*
+                  导出是**两个直连按钮**，不是一层下拉。
+                  原来「另存为 PDF」藏在「另存为…」的第二项里 —— 用户报过「在一排图标里
+                  根本找不到导出 PDF」。只留一项的下拉没有意义，拆开各点各的。
+                */}
+                {canExportMarkdown ? (
                   <button
-                    onClick={() => setExportMenuOpen((open) => !open)}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => void handleExport("md")}
                     disabled={!selectedId}
-                    className={`w-7 h-7 flex items-center justify-center rounded-lg transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
-                      exportMenuOpen
-                        ? "text-bamboo bg-bamboo-mist/50"
-                        : "text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/40"
-                    }`}
-                    title={t("main.editor.saveAs", { defaultValue: "另存为…" })}
-                    aria-haspopup="menu"
-                    aria-expanded={exportMenuOpen}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/40 transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                    title={t("main.editor.saveAsMarkdown", { defaultValue: "另存为 Markdown" })}
                   >
                     <svg
                       width="14"
@@ -4581,32 +4640,43 @@ export function MainWindow({
                       <line x1="12" y1="15" x2="12" y2="3" />
                     </svg>
                   </button>
-                  {exportMenuOpen ? (
-                    <div
-                      ref={exportMenuRef}
-                      role="menu"
-                      className="absolute left-0 top-8 z-50 min-w-[168px] py-1.5 bg-cloud/95 backdrop-blur-sm border border-paper-deep/50 rounded-lg shadow-lg animate-menu-enter"
-                    >
-                      {EXPORT_FORMATS.map((format) => (
-                        <button
-                          key={format}
-                          role="menuitem"
-                          onClick={() => {
-                            setExportMenuOpen(false);
-                            void handleExport(format);
-                          }}
-                          className="w-full text-left px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer"
-                        >
-                          {format === "md"
-                            ? t("main.editor.saveAsMarkdown", { defaultValue: "另存为 Markdown" })
-                            : t("main.editor.saveAsPdf", { defaultValue: "另存为 PDF" })}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
+                ) : null}
 
-                {deleteConfirm ? (
+                {canExportPdf ? (
+                  <button
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => void handleExport("pdf")}
+                    disabled={!selectedId}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/40 transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                    title={t("main.editor.exportPdf", { defaultValue: "导出 PDF（预览并调纸张、边距…）" })}
+                    aria-label={t("main.editor.exportPdfLabel", { defaultValue: "导出 PDF" })}
+                  >
+                    {/* 打印机的形状：导出 PDF 与「打印」是同一件事的两条出口。 */}
+                    <svg
+                      data-testid="main-editor-export-pdf-icon"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M6 9V3h12v6" />
+                      <path d="M6 18H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2" />
+                      <rect x="6" y="14" width="12" height="7" rx="1" />
+                    </svg>
+                  </button>
+                ) : null}
+
+                {/*
+                  删除**只在笔记里**有。它走的是 `notes_delete`（按笔记 id 删），对工作区里
+                  打开的外部文件根本不成立 —— 那些文件该在左侧文件树里删。以前这按钮对外部
+                  文件也是亮着的，点下去只会弹一个「找不到」。
+                */}
+                {documentContext === "note" && deleteConfirm ? (
                   <div
                     className={`flex items-center gap-1 ml-1 ${deleteExiting ? "animate-delete-confirm-exit" : "animate-delete-confirm"}`}
                   >
@@ -4641,7 +4711,9 @@ export function MainWindow({
                       {t("common.cancel", { defaultValue: "取消" })}
                     </button>
                   </div>
-                ) : (
+                ) : null}
+
+                {documentContext === "note" && !deleteConfirm ? (
                   <button
                     onClick={() => setDeleteConfirm(true)}
                     disabled={!selectedId}
@@ -4662,7 +4734,7 @@ export function MainWindow({
                       <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                     </svg>
                   </button>
-                )}
+                ) : null}
 
                 {/* 插件贡献的独立面板页签（目录、统计…）。原先挂在标题栏上，但它们
                     本质上和这一行的其他按钮一样，都是针对当前这份内容的操作。 */}
@@ -4680,6 +4752,28 @@ export function MainWindow({
                     {panel.title}
                   </button>
                 ))}
+
+                {/* 插件贡献的**文档级动作**（`ui.registerDocumentAction`）。按当前文档
+                    过滤 —— 给 PDF 做的「导出批注」不该在打开一篇笔记时冒出来。 */}
+                {pluginDocumentActions
+                  .filter((action) =>
+                    documentActionVisible(action, {
+                      context: documentContext,
+                      typeId: selectedFileType?.id ?? null,
+                    }),
+                  )
+                  .map((action) => (
+                    <button
+                      key={action.id}
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => handleDocumentAction(action)}
+                      className="px-2.5 h-7 shrink-0 whitespace-nowrap flex items-center justify-center rounded-lg text-[11px] text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/40 transition-all cursor-pointer"
+                      title={`${action.title}（插件 ${action.plugin}）`}
+                    >
+                      {action.icon ?? action.title}
+                    </button>
+                  ))}
               </div>
 
               {/* 用 ml-auto 而不是父级的 justify-between：父级一旦换行，justify-between
@@ -5365,9 +5459,13 @@ export function MainWindow({
                           // v2 面板的 HTML 来自沙箱 Worker，必须消毒后再注入主世界——
                           // 否则插件一句 onerror 就能在宿主权限下执行，沙箱会被完全绕过。
                           // v1 面板维持原样（可信遗留）。
+                          //
+                          // 取自**当前这份文件**的那个桶（`panelFileKeyOf` 与 v2Host 写的一侧
+                          // 是同一个函数）。切回一篇看过的笔记时拿到的还是上次那一串 ——
+                          // React 见字符串没变就不碰这棵子树，展开的层级与滚动位置都还在。
                           dangerouslySetInnerHTML={{
                             __html: panel.sandboxed
-                              ? sanitizePluginHtml(getPanelHtml(panel.id))
+                              ? sanitizePluginHtml(getPanelHtml(panel.id, panelFileKey))
                               : panel.render(),
                           }}
                           onClick={(event) => panel.onClick?.(event.target as HTMLElement)}

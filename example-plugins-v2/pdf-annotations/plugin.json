@@ -7,5 +7,5 @@
   "author": "花笺",
   "icon": "icon.svg",
   "requires": ["pdf-viewer"],
-  "permissions": ["files:view", "workspace:cache"]
+  "permissions": ["files:view", "workspace:cache", "ui:document-action"]
 }

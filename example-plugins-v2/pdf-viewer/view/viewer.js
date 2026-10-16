@@ -103,6 +103,8 @@
     "--ink-ghost": "--color-ink-ghost",
     "--line": "--color-paper-deep",
     "--shadow": "--color-shadow-deep",
+    // 强调色：标注的**选中框**用它。不映射的话它会一直用样式表里的兜底值，不跟主题走。
+    "--accent": "--color-bamboo",
   };
 
   const state = {

@@ -9,6 +9,7 @@ import {
   viewToolbarIcons,
 } from "../features/plugins/viewAssets";
 import { readPluginAsset } from "../features/plugins/api";
+import { setActiveViewCommandSink } from "../features/plugins/activeView";
 import { sanitizeSvg } from "../features/plugins/sanitizeSvg";
 import { readThemeTokens } from "../features/plugins/themeTokens";
 import { getErrorMessage, readExternalFileBytes, saveExternalFileBytes } from "../features/notes/api";
@@ -161,6 +162,20 @@ export function PluginFileView({ path, type }: PluginFileViewProps) {
   const toolbarItems = viewToolbarFor(type);
   const toolbarIcons = useToolbarIcons(type);
   const extensionOwners = viewDataPlugins(type);
+
+  /**
+   * 把「往视图里发命令」这个口子交给宿主顶上那一行。
+   *
+   * 文档级动作（「导出批注」这种）在**主窗口顶部**，而它的实现在帧里，只有这里拿得到
+   * `post`。挂载时就交出去、卸载时收回 —— 不收的话那个口子会指向一个已经拆掉的 iframe，
+   * 点按钮静默无反应。
+   */
+  useEffect(() => {
+    setActiveViewCommandSink((commandId, value) => {
+      apiRef.current?.post({ t: "command", id: commandId, value });
+    });
+    return () => setActiveViewCommandSink(null);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

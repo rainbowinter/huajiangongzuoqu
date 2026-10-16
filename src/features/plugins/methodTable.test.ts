@@ -23,6 +23,7 @@ function fakeBridge(overrides: Partial<PluginHostBridge> = {}): PluginHostBridge
     registerEditorMenuItem: vi.fn(() => "reg-4"),
     registerNoteMenuItem: vi.fn(() => "reg-5"),
     registerToolbarButton: vi.fn(() => "reg-6"),
+    registerDocumentAction: vi.fn(() => "reg-doc-action"),
     registerPopover: vi.fn(() => "reg-popover"),
     registerDecorations: vi.fn(() => "reg-decorations"),
     registerSelectionTransformer: vi.fn(() => "reg-7"),
@@ -274,6 +275,78 @@ describe("权限门", () => {
       id: "bare",
       title: "最小",
       renderToken: "\u0000h:2",
+    });
+  });
+
+  test("ui.registerDocumentAction 受 ui:document-action 门控", async () => {
+    const contribution = { id: "export-pdf", title: "导出", viewCommand: "export-pdf" };
+    const parsed = {
+      id: "export-pdf",
+      title: "导出",
+      viewCommand: "export-pdf",
+    };
+
+    const denied = fakeBridge();
+    await expect(
+      dispatchPluginCall(context([], [], denied), "ui.registerDocumentAction", [contribution]),
+    ).rejects.toBeInstanceOf(PermissionError);
+    expect(denied.registerDocumentAction).not.toHaveBeenCalled();
+
+    const allowed = fakeBridge();
+    await dispatchPluginCall(
+      context(["ui:document-action"], ["ui:document-action"], allowed),
+      "ui.registerDocumentAction",
+      [contribution],
+    );
+    expect(allowed.registerDocumentAction).toHaveBeenCalledWith(parsed);
+  });
+
+  test("ui.registerDocumentAction 透传 run / icon / 两个过滤器", async () => {
+    const bridge = fakeBridge();
+    const ctx = context(["ui:document-action"], ["ui:document-action"], bridge);
+
+    await dispatchPluginCall(ctx, "ui.registerDocumentAction", [
+      {
+        id: "full",
+        title: "全字段",
+        icon: "导出",
+        run: "\u0000h:0",
+        contexts: ["view", "markdown"],
+        typeIds: ["pdf-viewer:pdf"],
+      },
+    ]);
+    expect(bridge.registerDocumentAction).toHaveBeenLastCalledWith({
+      id: "full",
+      title: "全字段",
+      icon: "导出",
+      runToken: "\u0000h:0",
+      contexts: ["view", "markdown"],
+      typeIds: ["pdf-viewer:pdf"],
+    });
+
+    // 两个回调都不给 = 点下去什么都不发生，不如不出现 ⇒ 直接报错。
+    await expect(
+      dispatchPluginCall(ctx, "ui.registerDocumentAction", [{ id: "dead", title: "空按钮" }]),
+    ).rejects.toMatchObject({ code: "invalidArgument" });
+
+    // 认不出的上下文词直接丢；全丢光了当作「不限」，而不是「哪都不显示」。
+    await dispatchPluginCall(ctx, "ui.registerDocumentAction", [
+      { id: "typo", title: "拼错了", run: "\u0000h:1", contexts: ["nope", "markdown"] },
+    ]);
+    expect(bridge.registerDocumentAction).toHaveBeenLastCalledWith({
+      id: "typo",
+      title: "拼错了",
+      runToken: "\u0000h:1",
+      contexts: ["markdown"],
+    });
+
+    await dispatchPluginCall(ctx, "ui.registerDocumentAction", [
+      { id: "all-typo", title: "全拼错", run: "\u0000h:2", contexts: ["nope"] },
+    ]);
+    expect(bridge.registerDocumentAction).toHaveBeenLastCalledWith({
+      id: "all-typo",
+      title: "全拼错",
+      runToken: "\u0000h:2",
     });
   });
 

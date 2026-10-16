@@ -4,6 +4,7 @@ import { clearPluginLogs, listPluginLogs } from "../logs";
 import {
   clearAllPlugins,
   listDecorations,
+  listDocumentActions,
   listEditorGutters,
   listPluginCommands,
   listPopovers,
@@ -337,7 +338,7 @@ describe("镜像里的文件身份", () => {
       file: { path: "/tmp/a.py", typeId: "python", kind: "code", language: "python" },
     });
 
-    await waitFor(() => expect(getPanelHtml("demo:probe")).toContain("FILE=python/python"));
+    await waitFor(() => expect(getPanelHtml("demo:probe", "/tmp/a.py")).toContain("FILE=python/python"));
     await host.dispose();
   });
 
@@ -350,13 +351,103 @@ describe("镜像里的文件身份", () => {
       content: "同样的正文",
       file: { path: "/tmp/a.md", typeId: "markdown", kind: "markdown", language: null },
     });
-    await waitFor(() => expect(getPanelHtml("demo:probe")).toContain("FILE=markdown/none"));
+    await waitFor(() => expect(getPanelHtml("demo:probe", "/tmp/a.md")).toContain("FILE=markdown/none"));
 
     // **内容一字不改**，只把文件换掉。
     host.updateMirror({
       file: { path: "/tmp/b.py", typeId: "python", kind: "code", language: "python" },
     });
-    await waitFor(() => expect(getPanelHtml("demo:probe")).toContain("FILE=python/python"));
+    await waitFor(() => expect(getPanelHtml("demo:probe", "/tmp/b.py")).toContain("FILE=python/python"));
+
+    await host.dispose();
+  });
+
+  test("面板内容按文件分开存，切回来还是原来那一份", async () => {
+    // 这是「切文件不丢面板状态」的地基：右侧栏里展开的层级、滚动位置、没提交的搜索词
+    // 都活在 DOM 上，而 DOM 只在字符串**变了**的时候才被重建。切回来如果拿到的是
+    // 「照着这篇重渲染出来的新串」，那些状态就全没了。
+    //
+    // ⚠️ 这条约定建立在「插件 render() 是纯的」上面，所以这里**不能**用上面那个
+    // `PROBE_PLUGIN`：它故意往 HTML 里编了渲染次数（`R=n`），天生不纯。用一个只报
+    // 文件身份的探针才量得准。
+    const PURE_PROBE = `
+      floral.register({
+        onLoad(api) {
+          api.ui.registerPanel({
+            id: "pure",
+            title: "纯探针",
+            render() {
+              const file = api.editor.getFileSync();
+              return "<p>FILE=" + (file ? file.typeId + "/" + (file.language ?? "none") : "none") + "</p>";
+            },
+          });
+        },
+      });
+    `;
+    const host = await createV2PluginHost({
+      manifest: manifest({ permissions: PROBE_PERMISSIONS, grantedPermissions: PROBE_PERMISSIONS }),
+      code: PURE_PROBE,
+      allowInProcess: true,
+    });
+
+    host.updateMirror({
+      content: "甲",
+      file: { path: "/tmp/a.md", typeId: "markdown", kind: "markdown", language: null },
+    });
+    await waitFor(() => expect(getPanelHtml("demo:pure", "/tmp/a.md")).toContain("FILE=markdown"));
+    const aFirst = getPanelHtml("demo:pure", "/tmp/a.md");
+
+    host.updateMirror({
+      content: "乙",
+      file: { path: "/tmp/b.py", typeId: "python", kind: "code", language: "python" },
+    });
+    await waitFor(() => expect(getPanelHtml("demo:pure", "/tmp/b.py")).toContain("FILE=python"));
+    // 写 B 不该把 A 那份挤掉。
+    expect(getPanelHtml("demo:pure", "/tmp/a.md")).toBe(aFirst);
+
+    host.updateMirror({
+      content: "甲",
+      file: { path: "/tmp/a.md", typeId: "markdown", kind: "markdown", language: null },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    // 同一份内容 ⇒ 重渲染出同一串 ⇒ React 不会碰那棵 DOM。
+    expect(getPanelHtml("demo:pure", "/tmp/a.md")).toBe(aFirst);
+
+    await host.dispose();
+  });
+
+  test("桶数有上限，超了淘汰最久没用的那份", async () => {
+    // 不设上限的话，开一整天就是「开过多少篇就留多少份 HTML」。
+    const PURE_PROBE = `
+      floral.register({
+        onLoad(api) {
+          api.ui.registerPanel({
+            id: "pure",
+            title: "纯探针",
+            render() { return "<p>X</p>"; },
+          });
+        },
+      });
+    `;
+    const host = await createV2PluginHost({
+      manifest: manifest({ permissions: PROBE_PERMISSIONS, grantedPermissions: PROBE_PERMISSIONS }),
+      code: PURE_PROBE,
+      allowInProcess: true,
+    });
+
+    // 上限 16：开 18 篇，最早那两篇该被挤掉。
+    for (let i = 0; i < 18; i += 1) {
+      host.updateMirror({
+        content: `第 ${i} 篇`,
+        file: { path: `/tmp/f${i}.md`, typeId: "markdown", kind: "markdown", language: null },
+      });
+      await waitFor(() => expect(getPanelHtml("demo:pure", `/tmp/f${i}.md`)).toBe("<p>X</p>"));
+    }
+
+    expect(getPanelHtml("demo:pure", "/tmp/f0.md")).toBe("");
+    expect(getPanelHtml("demo:pure", "/tmp/f1.md")).toBe("");
+    // 最近用过的还在 —— 淘汰的是最久没用的，不是最新的。
+    expect(getPanelHtml("demo:pure", "/tmp/f17.md")).toBe("<p>X</p>");
 
     await host.dispose();
   });
@@ -372,14 +463,14 @@ describe("镜像里的文件身份", () => {
       language: "python",
     };
     host.updateMirror({ content: "x = 1", file: { ...identity } });
-    await waitFor(() => expect(getPanelHtml("demo:probe")).toContain("FILE=python/python"));
+    await waitFor(() => expect(getPanelHtml("demo:probe", "/tmp/a.py")).toContain("FILE=python/python"));
 
     // 换个内容等价的新对象。渲染次数编码在 HTML 里，所以「HTML 没变」就等于
     // 「没有重渲染」—— 不必知道次数的具体值。
-    const before = getPanelHtml("demo:probe");
+    const before = getPanelHtml("demo:probe", "/tmp/a.py");
     host.updateMirror({ file: { ...identity } });
     await new Promise((resolve) => setTimeout(resolve, 40));
-    expect(getPanelHtml("demo:probe")).toBe(before);
+    expect(getPanelHtml("demo:probe", "/tmp/a.py")).toBe(before);
 
     await host.dispose();
   });
@@ -393,8 +484,8 @@ describe("镜像里的文件身份", () => {
     });
 
     // 路径与正文同级：未授权就不该看到任何一个。
-    await waitFor(() => expect(getPanelHtml("demo:probe")).toContain("FILE=none"));
-    expect(getPanelHtml("demo:probe")).not.toContain("secret.py");
+    await waitFor(() => expect(getPanelHtml("demo:probe", "/tmp/secret.py")).toContain("FILE=none"));
+    expect(getPanelHtml("demo:probe", "/tmp/secret.py")).not.toContain("secret.py");
 
     await host.dispose();
   });
@@ -956,7 +1047,7 @@ describe("镜像的下发门槛", () => {
     // `granted.includes("editor:read")`，于是只声明 editor:write 的插件调得动
     // editor.getContent()，镜像里却是空正文 + file: null，症状是「插件看得见接口、
     // 看到的却是空的」。
-    await waitFor(() => expect(getPanelHtml("demo:probe")).toBe("MIRROR:正文|code"));
+    await waitFor(() => expect(getPanelHtml("demo:probe", "/tmp/a.css")).toBe("MIRROR:正文|code"));
 
     await host.dispose();
   });
@@ -974,7 +1065,96 @@ describe("镜像的下发门槛", () => {
       file: { path: "/tmp/a.css", typeId: "css", kind: "code", language: "css" },
     });
 
-    await waitFor(() => expect(getPanelHtml("demo:probe")).toBe("MIRROR:|null"));
+    await waitFor(() => expect(getPanelHtml("demo:probe", "/tmp/a.css")).toBe("MIRROR:|null"));
+
+    await host.dispose();
+  });
+});
+
+describe("插件文档动作（顶上那一行）", () => {
+  const ACTION_PLUGIN = `
+    floral.register({
+      onLoad(api) {
+        api.ui.registerDocumentAction({
+          id: "export-annotations",
+          title: "导出批注",
+          icon: "导出",
+          viewCommand: "export-pdf",
+          contexts: ["view"],
+          typeIds: ["pdf-viewer:pdf"],
+        });
+        api.ui.registerDocumentAction({
+          id: "everywhere",
+          title: "哪儿都在",
+          run() {},
+        });
+      },
+    });
+  `;
+
+  const ACTION_PERMISSIONS = ["ui:document-action"];
+
+  test("注册后带归属 id，两个回调与过滤器都落到宿主侧", async () => {
+    const host = await createV2PluginHost({
+      manifest: manifest({ permissions: ACTION_PERMISSIONS, grantedPermissions: ACTION_PERMISSIONS }),
+      code: ACTION_PLUGIN,
+      allowInProcess: true,
+    });
+
+    await waitFor(() => expect(listDocumentActions()).toHaveLength(2));
+    // 注册顺序即显示顺序。
+    expect(listDocumentActions()[0]).toMatchObject({
+      id: "demo:export-annotations",
+      title: "导出批注",
+      icon: "导出",
+      plugin: "demo",
+      contexts: ["view"],
+      typeIds: ["pdf-viewer:pdf"],
+      viewCommand: "export-pdf",
+    });
+    // 只给 run 的那条不该被硬塞一个 viewCommand 进去。
+    expect(listDocumentActions()[1]).toMatchObject({ id: "demo:everywhere", plugin: "demo" });
+    expect(listDocumentActions()[1]?.viewCommand).toBeUndefined();
+
+    await host.dispose();
+    // 卸载要连带清干净 —— 留着的话顶上那一行会多出一个点了没反应的按钮。
+    expect(listDocumentActions()).toHaveLength(0);
+  });
+
+  test("没有 ui:document-action 权限时注册不了", async () => {
+    const host = await createV2PluginHost({
+      manifest: manifest({ permissions: [], grantedPermissions: [] }),
+      code: ACTION_PLUGIN,
+      allowInProcess: true,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(listDocumentActions()).toHaveLength(0);
+
+    await host.dispose();
+  });
+
+  test("run() 会真的被调用，抛错不炸宿主", async () => {
+    const code = `
+      floral.register({
+        onLoad(api) {
+          api.ui.registerDocumentAction({
+            id: "boom",
+            title: "炸",
+            run() { throw new Error("炸了"); },
+          });
+        },
+      });
+    `;
+    const host = await createV2PluginHost({
+      manifest: manifest({ permissions: ACTION_PERMISSIONS, grantedPermissions: ACTION_PERMISSIONS }),
+      code,
+      allowInProcess: true,
+    });
+
+    await waitFor(() => expect(listDocumentActions()).toHaveLength(1));
+    // 宿主侧拿到的是**活闭包**，直接调就行（界面就是这么调的）。
+    await expect(listDocumentActions()[0]?.run?.()).rejects.toThrow();
 
     await host.dispose();
   });

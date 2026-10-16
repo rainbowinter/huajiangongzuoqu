@@ -39,6 +39,13 @@
     pages: [],
     /** 正在拖拽的那个（还没落下来）。 */
     draft: null,
+    /**
+     * 选中的那条标注。**指针模式下**点一下选中，`Delete` / `Backspace` 删掉。
+     *
+     * 选中态与图钉的展开是**同一件事**（见 `.anno-pin-wrap.is-selected` 那条规则）：
+     * 一处状态、一处解释，不必再维护一个「气泡是不是开着」的类。
+     */
+    selectedId: null,
     /** 正在写字的图钉：{ page, at, id | null }。 */
     editing: null,
     saveTimer: 0,
@@ -185,18 +192,44 @@
       }
 
       if (mark.kind === "ink") {
-        const points = mark.points
-          .map(([x, y]) => pdf.toPage(index, x, y))
-          .filter(Boolean)
-          .map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`)
-          .join(" ");
-        if (!points) continue;
+        const view = mark.points.map(([x, y]) => pdf.toPage(index, x, y)).filter(Boolean);
+        if (view.length < 2) continue;
+        const points = view.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+
+        // 透明的粗线，**只为点得中**：真正那条只有一两像素宽，按不准。
+        const hit = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+        hit.setAttribute("class", "anno-ink-hit");
+        hit.setAttribute("points", points);
+        hit.dataset.markId = mark.id;
+        hit.addEventListener("click", (event) => {
+          event.stopPropagation();
+          select(mark.id);
+        });
+
         const line = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+        line.setAttribute("class", "anno-ink-line");
         line.setAttribute("points", points);
         line.setAttribute("stroke", mark.color);
         // 线宽跟着缩放走：按视口尺寸算一个大约 1.5pt 的粗细。
         line.setAttribute("stroke-width", String(Math.max(1, inkWidth(index))));
-        ink.append(line);
+        if (mark.id === state.selectedId) line.classList.add("is-selected");
+
+        ink.append(hit, line);
+
+        // 选中时画一圈虚线包围盒 —— 自由笔没有「框」，不给点提示就看不出选没选中。
+        if (mark.id === state.selectedId) {
+          const xs = view.map(([x]) => x);
+          const ys = view.map(([, y]) => y);
+          const pad = 3;
+          const box = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+          box.setAttribute("class", "anno-ink-box");
+          box.setAttribute("x", String(Math.min(...xs) - pad));
+          box.setAttribute("y", String(Math.min(...ys) - pad));
+          box.setAttribute("width", String(Math.max(...xs) - Math.min(...xs) + pad * 2));
+          box.setAttribute("height", String(Math.max(...ys) - Math.min(...ys) + pad * 2));
+          ink.append(box);
+        }
+
         hasInk = true;
         continue;
       }
@@ -205,6 +238,7 @@
         const node = document.createElement("div");
         node.className = `anno anno-${mark.kind}`;
         node.dataset.markId = mark.id;
+        if (mark.id === state.selectedId) node.classList.add("is-selected");
         node.style.cssText = positionCss(box);
         if (mark.kind === "text") {
           // 一行一条矩形，接缝处会露出细细的白线，稍微放大一点盖住。
@@ -213,7 +247,11 @@
           node.style.background = colorWithAlpha(mark.color, 0.28);
           node.style.border = `1.5px solid ${colorWithAlpha(mark.color, 0.85)}`;
         }
-        node.append(deleteButton(mark.id));
+        // 点一下选中（多矩形标注的每一块都能点，选中的都是**整条**）。
+        node.addEventListener("click", (event) => {
+          event.stopPropagation();
+          select(mark.id);
+        });
         layer.append(node);
       }
     }
@@ -247,18 +285,43 @@
     ].join(";");
   }
 
-  function deleteButton(id) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "anno-del";
-    button.title = "删掉这个标注";
-    button.textContent = "×";
-    button.addEventListener("pointerdown", (event) => {
-      // 别让这一下冒到页面上（那会开始画一个新的）。
-      event.stopPropagation();
-      removeMark(id);
-    });
-    return button;
+  /**
+   * 选中 / 取消选中某条标注。
+   *
+   * 只重画**受影响的那两页**：标注通常只有几条，但一页一页全量重建在长文档上依然白费。
+   * 找不到旧页（没建好）时就全量重画，宁可多画一次也别让选中态留在屏幕上。
+   */
+  function select(id) {
+    const next = typeof id === "string" ? id : null;
+    if (state.selectedId === next) return;
+    const pages = new Set();
+    for (const mark of state.marks) {
+      if (mark.id === state.selectedId || mark.id === next) pages.add(mark.page);
+    }
+    state.selectedId = next;
+    if (pages.size === 0) return;
+    for (const index of pages) {
+      const page = pageOf(index);
+      if (page) renderPage(index, page.element);
+    }
+  }
+
+  function clearSelection() {
+    select(null);
+  }
+
+  /**
+   * 删掉选中的那条。**删除唯一的一条路** —— 屏幕上的 × 已经去掉了。
+   *
+   * 为什么不留 ×：它只能挂在悬停时出现的那一小块上，触屏按不到，而且多矩形标注
+   * （文字选区）每一行都会冒出一个 ×，看着像有十来个可以删的东西，其实点哪个都删整条。
+   * 改成「选中 + 删除键」之后，选中的是哪一条屏幕上写得清清楚楚。
+   */
+  function removeSelected() {
+    const id = state.selectedId;
+    if (!id) return;
+    state.selectedId = null;
+    removeMark(id);
   }
 
   function pinElement(mark) {
@@ -269,11 +332,12 @@
     wrap.className = "anno anno-pin-wrap";
     wrap.dataset.markId = mark.id;
     wrap.style.cssText = `left:${at[0].toFixed(1)}px;top:${at[1].toFixed(1)}px;width:0;height:0;position:absolute`;
+    if (mark.id === state.selectedId) wrap.classList.add("is-selected");
     // 提示挂在 **wrap** 上：那个原来专门用来吃事件的 `.anno-pin-hit` 其实是死代码 ——
     // 圆点转 45° 之后外接框比它大，整个把它盖住了（实测 elementFromPoint 七个点全落在
     // 圆点上），所以 hit 上的 `title` 从来弹不出来。`title` 会顺着祖先找，挂在 wrap
-    // 上则圆点、× 上悬停都能弹。
-    wrap.title = "点一下看批注，× 删掉";
+    // 上则圆点和那张卡片上悬停都能弹。
+    wrap.title = "移上去看批注 · 点一下选中 · 双击编辑";
 
     const dot = document.createElement("div");
     dot.className = "anno-pin";
@@ -282,23 +346,38 @@
     const note = document.createElement("div");
     note.className = "anno-pin-note";
     note.textContent = mark.note || "（空的批注）";
-    // 纸右边三分之一的图钉，文字往左展开 —— 不然那条悬浮批注整个跑到纸外面去了。
+    // 底色就用图钉自己的颜色 —— 卡片是从图钉里「长」出来的，颜色得连着。
+    note.style.background = mark.color;
+    // 纸右边三分之一的图钉，卡片往左展开 —— 不然那 220px 整个跑到纸外面去了。
     const page = pageOf(mark.page);
     if (page && page.element.clientWidth && at[0] > page.element.clientWidth * 0.62) {
       note.classList.add("from-right");
     }
 
-    // 点一下把批注文字钉住（再点收起）。悬停只是路过看一眼，钉住才能一边看字
-    // 一边选文字 / 滚页面 —— 触屏上更是只有这条路（`title` 里答应过的就是这件事）。
+    // 点一下 = 选中（与矩形 / 自由笔一致）。悬停本来就会把卡片浮出来，选中是把它**钉住**，
+    // 好一边读批注一边选正文、滚页面；触屏上更是只有这条路。
     wrap.addEventListener("click", (event) => {
-      // × 有它自己的 pointerdown（那一下就把这条标注删了），别把它当成「点图钉」。
-      if (event.target instanceof Element && event.target.closest(".anno-del")) return;
       event.stopPropagation();
-      note.classList.toggle("is-open");
+      select(mark.id);
     });
 
-    wrap.append(dot, note, deleteButton(mark.id));
+    // 双击卡片 = 就地改这段文字。矩形 / 圆形 / 自由笔 / 文字选区没有文字内容，
+    // 双击它们什么都不做 —— 免得误触。
+    note.addEventListener("dblclick", (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      editPin(mark);
+    });
+
+    wrap.append(dot, note);
     return wrap;
+  }
+
+  /** 就地改一颗既有图钉的文字。 */
+  function editPin(mark) {
+    const local = pdf.toPage(mark.page, mark.at[0], mark.at[1]);
+    if (!local) return;
+    openEditor(mark.page, mark.at, { x: local[0], y: local[1] }, mark);
   }
 
   function removeMark(id) {
@@ -373,6 +452,15 @@
       if (state.tool !== "text") return;
       // 选区在 mouseup 之后才定型，挪到下一个任务里读。
       setTimeout(commitSelection, 0);
+    });
+
+    // 指针模式下点空白处 = 取消选中。挂在**页面**上（标注层不吃事件），点到标注时
+    // 那一条自己的 click 会先 `stopPropagation`，走不到这儿。
+    element.addEventListener("click", (event) => {
+      if (state.tool !== "pointer") return;
+      const node = event.target instanceof Element ? event.target.closest("[data-mark-id]") : null;
+      if (node) return;
+      clearSelection();
     });
   }
 
@@ -496,7 +584,14 @@
     openEditor(index, at, local);
   }
 
-  function openEditor(index, at, local) {
+  /**
+   * 打开写字框。
+   *
+   * `existing` 给了就是**改那一颗**（双击卡片进来的），不给就是新钉一颗。
+   * 原先这里只会 `push` 一条新的，没有任何读回既有图钉的路径 —— 图钉写错了字只能
+   * 删掉重钉。
+   */
+  function openEditor(index, at, local, existing) {
     const page = pageOf(index);
     if (!page) return;
     const layer = layerOf(page.element);
@@ -504,11 +599,21 @@
 
     const editor = document.createElement("div");
     editor.className = "anno-editor";
-    editor.style.cssText = `left:${(local.x + 10).toFixed(1)}px;top:${(local.y + 10).toFixed(1)}px`;
+    // 改既有图钉时**开在图钉原地**（不是新钉那种偏开的 +10），读起来就是「那张卡片
+    // 变成了可以打字的样子」；底色也接上那颗图钉的颜色。
+    const offset = existing ? 0 : 10;
+    editor.style.cssText = `left:${(local.x + offset).toFixed(1)}px;top:${(local.y + offset).toFixed(1)}px`;
 
     const input = document.createElement("input");
     input.type = "text";
     input.placeholder = "写点什么，回车保存";
+    if (existing) {
+      input.value = existing.note ?? "";
+      editor.style.background = existing.color;
+      editor.style.borderColor = `color-mix(in srgb, ${existing.color} 60%, #1a1a18)`;
+      // 底色现在是那颗图钉的浅色，输入框再压一层白，字才读得清。
+      input.style.background = "rgb(255 255 255 / 0.72)";
+    }
 
     const save = document.createElement("button");
     save.type = "button";
@@ -527,15 +632,22 @@
     const commit = () => {
       const text = input.value.trim();
       close();
-      if (!text) return;
-      state.marks.push({
-        id: makeId(),
-        page: index,
-        kind: "pin",
-        color: state.color,
-        at,
-        note: text,
-      });
+      // 空文字 = 把这条批注的文字清掉。清不掉（用户其实想删）时可以选中按删除键。
+      if (!text && !existing) return;
+      if (existing) {
+        existing.note = text;
+        // 选中的还是它 —— 改完文字接着就能再双击改，或按删除键删掉。
+        state.selectedId = existing.id;
+      } else {
+        state.marks.push({
+          id: makeId(),
+          page: index,
+          kind: "pin",
+          color: state.color,
+          at,
+          note: text,
+        });
+      }
       renderPage(index, page.element);
       scheduleSave();
     };
@@ -560,6 +672,29 @@
     input.focus();
   }
 
+  // ---------------------------------------------------------------- 键盘
+
+  /**
+   * 删除键删掉选中的那条；`Escape` 取消选中。
+   *
+   * ⚠️ **在写字框里按键时一律不管**。不判的话「在输入框里按退格改错字」会变成「把选中的
+   * 那条标注删了」—— 打错一个字、想删掉它，结果批注没了，还查不出是谁删的。
+   */
+  document.addEventListener("keydown", (event) => {
+    const target = event.target;
+    if (target instanceof Element && target.closest(".anno-editor")) return;
+
+    if (event.key === "Escape") {
+      clearSelection();
+      return;
+    }
+    if (event.key !== "Delete" && event.key !== "Backspace") return;
+    if (state.editing || !state.selectedId) return;
+    // 别让 Backspace 顺带触发浏览器自己的「后退」。
+    event.preventDefault();
+    removeSelected();
+  });
+
   // ---------------------------------------------------------------- 工具栏
 
   function updateToolbar() {
@@ -577,6 +712,8 @@
         document.querySelectorAll(".anno-editor").forEach((node) => node.remove());
         state.editing = null;
       }
+      // 选中也一并清掉：画笔模式下标注根本点不到，留一圈选中提示只会让人以为还能操作。
+      state.selectedId = null;
       render();
       updateToolbar();
       return;

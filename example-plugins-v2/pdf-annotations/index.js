@@ -65,16 +65,32 @@ floral.register({
             { value: "#ff9ec4", label: "粉", color: "#ff9ec4" },
           ],
         },
-        // 「另存为带批注的 PDF」：把标注写成 PDF 自己的注释对象，原文件一个字不动。
-        { kind: "separator" },
-        {
-          kind: "button",
-          id: "export-pdf",
-          label: "导出",
-          title: "另存为带批注的 PDF（原文件不动）",
-          icon: "icons/export.svg",
-        },
+        // 「导出批注」**不在这排** —— 它是文档级动作，在主窗口顶上那一行，
+        // 见下面的 `registerDocumentAction`。
       ],
+    });
+
+    /**
+     * 「另存为带批注的 PDF」：把标注写成 PDF 自己的注释对象，原文件一个字不动。
+     *
+     * 🔑 **放在主窗口顶上那一行**（`ui.registerDocumentAction`），不是这一排视图小工具里。
+     * 分界线是「这是对这一份文档做的事，还是对这一屏画面做的事」—— 翻页、缩放、选标注
+     * 工具都是后者，导出是前者，跟「另存为」「打印」是一类。
+     *
+     * ⚠️ 真正的活要在**帧里**干（`view/annotate.js` 的 `exportAnnotatedPdf` ——
+     * 它拿得到 pdf-lib、原文件字节、和所有标注的坐标），而这段代码跑在 **Worker** 里，
+     * 够不到那些东西。所以这里只声称一条命令 id，宿主点到时把 `{t:"command", id}` 转给
+     * 当前那个视图帧 —— 与 `view.toolbar` 控件收到的是同一条消息，`annotate.js` 里那句
+     * `if (message.id === "export-pdf")` 原样能用。
+     *
+     * `typeIds` 指名道姓：这条命令只有 pdf-viewer 那个视图认得。没它的话，将来多一个别的
+     * 视图插件，打开它也会冒出这个按钮，点下去却什么都发不出去。
+     */
+    api.ui.registerDocumentAction({
+      id: "export-pdf",
+      title: "导出批注",
+      typeIds: ["pdf-viewer:pdf"],
+      viewCommand: "export-pdf",
     });
   },
 });

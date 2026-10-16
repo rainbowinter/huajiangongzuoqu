@@ -108,6 +108,7 @@ v2 插件**默认没有任何权限**。清单里没声明的权限一律不生�
 | `ui:statusbar`                         | `ui.registerStatusBarItem`                                          |
 | `ui:menus`                             | 编辑器 / 笔记列表右键菜单项                                         |
 | `ui:toolbar`                           | 工具栏按钮                                                          |
+| `ui:document-action`                   | 主窗口顶上那一行的文档级动作（`ui.registerDocumentAction`）          |
 | `ui:popover`                           | 工具栏浮层：按钮 + 下拉面板（`ui.registerPopover`）                 |
 | `ui:gutter`                            | 编辑器左侧的行旁注（`ui.registerGutter`）                           |
 | `ui:decorations`                       | 行内装饰：贴着正文某个字符叠的小控件（`ui.registerDecorations`）    |
@@ -261,7 +262,7 @@ api.ui.registerCommand({
 api.ui.registerPanel({
   id: "demo",
   title: "面板标题",
-  standalone: true,                 // true 时出现在标题栏，可单独打开
+  standalone: true,                 // true 时在主窗口顶上那一行出一个页签，点开进右侧栏
   width: 360,
   render() { return "<p>HTML 字符串</p>"; },
   onClick(ref) { /* 见下 */ },
@@ -274,7 +275,8 @@ api.ui.registerStatusBarItem({
 
 api.ui.registerEditorMenuItem({ id, title, run });
 api.ui.registerNoteMenuItem({ id, title, run(noteId) });   // 带笔记 id
-api.ui.registerToolbarButton({ id, title, icon, run });
+api.ui.registerToolbarButton({ id, title, icon, run });    // 编辑器格式按钮那一排
+api.ui.registerDocumentAction({ id, title, contexts, typeIds, run, viewCommand }); // 顶部那一行
 
 api.ui.registerStyle({             // 注入 CSS，需要 ui:style 权限
   id: "demo.theme",
@@ -284,11 +286,21 @@ api.ui.registerStyle({             // 注入 CSS，需要 ui:style 权限
 api.ui.dispose(registrationId);     // 上面的方法都返回注册 id，可单独撤销
 ```
 
-**面板的 `render()` 请返回一个稳定的字符串。** 宿主在正文变化时会重新拉取面板 HTML；
-返回值与上次**逐字符相同**时，整条更新链路会被短路 —— React 不重渲染、DOM 不重建，
-于是用户在面板里的**滚动位置不会被打字打断**。反过来说，面板里尽量别放「当前文件名」
-这类每敲一个字就变的内容：一变就重排、滚回顶部。`example-plugins-v2/math-symbols/`
-就是按这个约定写的（HTML 算一次后缓存成常量）。
+**面板的 `render()` 请返回一个稳定的字符串**，也就是**纯函数**：同一份文件、同一份内容
+就该给出同一个字符串。
+
+宿主按**「面板 × 文件」**分开存这份 HTML，面板 HTML 与上次**逐字符相同**时整条更新链路
+被短路 —— React 不重渲染、DOM 不重建。于是两个好处：
+
+- 用户在面板里的**滚动位置不会被打字打断**；
+- **切到别的文件再切回来，展开的层级、滚动位置、还没提交的搜索词都还在**（它们活在
+  DOM 上，DOM 没被重建就还在）。
+
+反过来说，面板里**别放**「当前文件名 / 时间戳 / 随机 id / 自增计数」这类每渲染一次就变的
+东西：一变就重排、滚回顶部，切回来也会被当成「内容变了」而丢掉状态。
+`example-plugins-v2/math-symbols/` 就是按这个约定写的（HTML 算一次后缓存成常量）。
+
+面板内容按文件缓存，**每个面板最多留 16 份**，超出淘汰最久没用过的那个。
 
 **关于 `registerStyle`**：注入的样式**不做消毒**，这与面板 HTML 的处理不同 —— 面板走
 `dangerouslySetInnerHTML`，一句 `onerror` 就能在主世界执行代码，所以必须清洗；而 CSS
@@ -429,6 +441,64 @@ api.ui.registerPopover({
 
 完整可运行的样例见 `example-plugins-v2/popover-demo/`（两个分类的字符盘：点标签换页走
 「返回新 HTML」，点格子插字符）。
+
+#### `api.ui.registerDocumentAction()` —— 主窗口顶部的文档级动作
+
+```js
+api.ui.registerDocumentAction({
+  id: "export-annotations",
+  title: "导出批注",
+  icon: "导出", // 可选，按钮上显示的文字
+  typeIds: ["pdf-viewer:pdf"], // 只在打开这种文件时出现
+  viewCommand: "export-pdf", // 转发给当前视图帧的命令 id
+});
+
+api.ui.registerDocumentAction({
+  id: "lint-note",
+  title: "检查",
+  contexts: ["note", "markdown"], // 只在笔记 / Markdown 里出现
+  run() {
+    /* 在插件自己的 Worker 沙箱里跑 */
+  },
+});
+```
+
+需要 `ui:document-action` 权限。
+
+**放在哪儿、和 `registerToolbarButton` 的分工**：`registerToolbarButton` 是塞进
+**编辑器那排格式按钮**（粗体、斜体旁边），只有打开笔记 / Markdown 时才在；这个是
+**主窗口顶上那一行** —— 「插入图片 / 撤销 / 另存为 / 删除」旁边，和「打开右侧栏插件面板」
+的页签同一层。
+
+⚠️ **也别和 `view.toolbar` 搞混**（见 `kind: "view"` 那一节）。分界线是：
+
+| | 放什么 | 例子 |
+| --- | --- | --- |
+| `view.toolbar` | **视图内部的小工具**，渲染在预览区里面、iframe 上面 | PDF 的翻页、缩放、标注工具 |
+| `ui.registerDocumentAction` | **文档级动作**，渲染在主窗口顶部那一行 | 导出批注、打印、导出 PDF、检查这份笔记 |
+
+一句话：**「这是对这一份文档做的事，还是对这一屏画面做的事」**。
+
+**什么时候出现**：顶上那一行按当前打开的东西编排，所以这个按钮也得会挑场合 —— 给 PDF
+做的动作不该在打开一篇笔记时冒出来。两个过滤器，**省略 / 空数组 = 不限**，都填就是取与：
+
+- `contexts`：`"note"`（笔记）、`"doc"`（只读说明文档），以及文件类型的 `kind`
+  （`markdown` / `code` / `text` / `table` / `image` / `media` / `view` / `none` / `custom`）。
+- `typeIds`：精确到某个插件注册的文件类型 id（带插件名前缀）。笔记没有类型 id，所以只按
+  `typeIds` 过滤的动作在笔记里一律不出现。
+
+认不出的词会被**丢掉**（写错一个只让那条不显示，不会让插件加载失败）；全丢光了当作
+「不限」。
+
+**两个回调，二选一或都给**：
+
+- `run()` 在插件自己的 **Worker 沙箱**里跑 —— 适合「读笔记正文做点什么」这类。
+- `viewCommand: "<命令 id>"` 会被转发给**当前那个沙箱视图帧**（`{ t: "command", id }`，
+  与 `view.toolbar` 控件收到的是同一条消息）。视图类插件的真身住在帧里（拿得到画布、
+  pdf.js、文字层），`run()` 够不到它 —— 「导出批注」要拿 pdf-lib 重写整份 PDF，就只有
+  这条路。`example-plugins-v2/pdf-annotations/` 就是这么把「导出」挪到顶上那一行的。
+
+一个都没有的话，注册会**直接报错**：点下去什么也不发生的按钮不如不出现。
 
 ### `api.files` — 文件类型
 

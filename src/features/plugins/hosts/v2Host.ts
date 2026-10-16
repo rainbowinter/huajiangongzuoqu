@@ -60,6 +60,7 @@ import {
   dispatchPluginCall,
   methodDescriptors,
   type CommandContribution,
+  type DocumentActionContribution,
   type MenuContribution,
   type GutterContribution,
   type DecorationContribution,
@@ -90,6 +91,7 @@ import {
   registerEditorMenuItem,
   registerNoteMenuItem,
   registerDecoration,
+  registerDocumentAction,
   registerPluginPanel,
   registerPopover,
   registerSelectionTransformer,
@@ -103,6 +105,7 @@ import {
   clearDecorationItems,
   clearPanelHtml,
   clearPopoverHtml,
+  panelFileKeyOf,
   removeStatusBarItemId,
   setGutterLines,
   setDecorationItems,
@@ -354,21 +357,37 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
 
   // ------------------------------------------------------------- 贡献点
 
+  /**
+   * 重新问插件要一份面板内容，落到**当前这份文件**的桶里。
+   *
+   * 桶按文件分（见 `stores.ts` 的 `setPanelHtml`）：切文件时不覆盖别的那份，切回来才能
+   * 拿到原来那一串、让 React 别去重建 DOM，面板里的滚动与展开层级才留得住。
+   *
+   * `render()` 是异步的，中途用户可能又切走了。所以**返回时再对一次文件名**：对不上就
+   * 说明有一份更新的请求在路上了，这一份写进去只会把新文件的内容塞进旧桶里。
+   */
   const refreshPanel = (record: PanelRecord): void => {
+    const startedFor = panelFileKeyOf({ path: mirror.file?.path, noteId: mirror.activeNoteId });
+    const stillCurrent = (): boolean =>
+      panelFileKeyOf({ path: mirror.file?.path, noteId: mirror.activeNoteId }) === startedFor;
+
     void invokeHandler(record.contribution.renderToken, [])
       .then((html) => {
-        if (typeof html === "string") {
-          setPanelHtml(record.cacheKey, html);
-        } else if (html != null) {
-          log("warn", `面板 ${record.contribution.id} 的 render() 没有返回字符串`);
-          setPanelHtml(record.cacheKey, "");
+        if (typeof html !== "string") {
+          if (html != null) log("warn", `面板 ${record.contribution.id} 的 render() 没有返回字符串`);
+          if (stillCurrent()) setPanelHtml(record.cacheKey, startedFor, "");
+          return;
         }
+        if (!stillCurrent()) return;
+        setPanelHtml(record.cacheKey, startedFor, html);
       })
       .catch((error: unknown) => {
         const serialized = serializeError(error);
         log("error", `面板渲染失败：${serialized.message}`);
+        if (!stillCurrent()) return;
         setPanelHtml(
           record.cacheKey,
+          startedFor,
           `<p style="padding:12px;color:#b4552d;font-size:12px;">面板渲染失败：${serialized.message}</p>`,
         );
       });
@@ -625,6 +644,26 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
           plugin: owner,
           ...(contribution.icon ? { icon: contribution.icon } : {}),
           run: () => invokeHandler(contribution.runToken, []).then(() => undefined),
+        }),
+      );
+    },
+
+    registerDocumentAction(contribution: DocumentActionContribution) {
+      // 两个回调都可能缺：`viewCommand` 那条要在帧里跑，`run` 那条在 worker 里跑。
+      // 宿主这边统一收成一个 `run`，谁在什么线程由闭包自己决定 —— 界面上不必知道。
+      const run = contribution.runToken
+        ? () => invokeHandler(contribution.runToken as string, []).then(() => undefined)
+        : undefined;
+      return registrations.add(
+        registerDocumentAction({
+          id: `${owner}:${contribution.id}`,
+          title: contribution.title,
+          plugin: owner,
+          contexts: contribution.contexts ?? [],
+          typeIds: contribution.typeIds ?? [],
+          ...(contribution.icon ? { icon: contribution.icon } : {}),
+          ...(contribution.viewCommand ? { viewCommand: contribution.viewCommand } : {}),
+          ...(run ? { run } : {}),
         }),
       );
     },

@@ -18,6 +18,7 @@ import { PermissionError, checkPermission, type Permission } from "./permissions
 import type { CodeThemePreference } from "../markdown/codeThemes";
 import type { FontFaceOverride } from "../fonts/fontFace";
 import { parseViewToolbar, type FileViewSpec, type ViewToolbarItem } from "../workspace/fileTypes";
+import { isDocumentContext, type DocumentContext } from "../workspace/documentContext";
 
 export interface CommandContribution {
   id: string;
@@ -66,6 +67,44 @@ export interface ToolbarContribution {
   title: string;
   icon?: string;
   runToken: string;
+}
+
+/**
+ * 文档动作：主窗口**顶上那一行**的一个按钮。
+ *
+ * ## 与 `ui.registerToolbarButton` 的分工
+ *
+ * 那个是**往编辑器那排格式按钮里塞**（粗体、斜体旁边），只有打开笔记 / Markdown 时才在。
+ * 这个是**文档级动作**（导出、打印、另存、跑一遍校验），放在主窗口顶部那一行 —— 也就是
+ * 「插入图片 / 撤销 / 另存为 / 删除」旁边，和「打开右侧栏插件面板」的页签同一层。
+ *
+ * ⚠️ 别和 `view.toolbar` 搞混：那是**视图内部的小工具**（PDF 的翻页、缩放、标注工具），
+ * 渲染在预览区里面、iframe 上面。分界线是**「这是对这一份文档做的事，还是对这一屏画面做
+ * 的事」**。详见 `Docs/plugin-api.md`。
+ *
+ * ## 什么时候出现
+ *
+ * 顶上那一行按当前打开的东西编排（`documentContext.ts`），所以这个按钮也得会挑场合：
+ * 给 PDF 做的「导出批注」不该在打开一篇笔记时冒出来。
+ */
+export interface DocumentActionContribution {
+  id: string;
+  title: string;
+  /** 按钮上显示的文字字形；不给就只显示 title。 */
+  icon?: string;
+  /** 在插件沙箱里跑的处理函数。与 `viewCommand` 二选一（或都给）。 */
+  runToken?: string;
+  /**
+   * 把这条命令转发给**当前那个沙箱视图**（`{t:"command", id}`）。
+   *
+   * 为什么需要它：视图类插件真正的逻辑住在帧里（拿得到画布、pdf.js、选区），worker 侧的
+   * `run()` 够不到 —— 「导出批注」这种动作只有帧里的代码做得了。给一个命令 id 就行。
+   */
+  viewCommand?: string;
+  /** 只在这些文档上下文里出现（`note` / `markdown` / `view`…）。空 = 不限。 */
+  contexts?: readonly DocumentContext[];
+  /** 只在这些文件类型 id 里出现（带插件名前缀）。空 = 不限。 */
+  typeIds?: readonly string[];
 }
 
 /**
@@ -303,6 +342,7 @@ export interface PluginHostBridge {
   registerEditorMenuItem(contribution: MenuContribution): string;
   registerNoteMenuItem(contribution: MenuContribution): string;
   registerToolbarButton(contribution: ToolbarContribution): string;
+  registerDocumentAction(contribution: DocumentActionContribution): string;
   registerPopover(contribution: PopoverContribution): string;
   registerDecorations(contribution: DecorationContribution): string;
   registerSelectionTransformer(contribution: SelectionTransformerContribution): string;
@@ -550,6 +590,32 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
         title: asString(record.title, "ui.registerToolbarButton", "title"),
         runToken: requireToken(record, "run", "ui.registerToolbarButton"),
         ...(icon ? { icon } : {}),
+      });
+    },
+  },
+  "ui.registerDocumentAction": {
+    permission: "ui:document-action",
+    handler: (ctx, args) => {
+      const method = "ui.registerDocumentAction";
+      const record = asRecord(args[0], method);
+      const icon = asOptionalString(record.icon);
+      // 函数是可选的（转发命令那种就不带 run），但**一个都没有**就等于点下去什么都不
+      // 发生 —— 那种按钮不如不出现。
+      const runToken = asOptionalString(record.run);
+      const viewCommand = asOptionalString(record.viewCommand);
+      if (!runToken && !viewCommand) {
+        throw invalidArgument(method, "run 与 viewCommand 至少要有一个");
+      }
+      const contexts = asDocumentContexts(record.contexts);
+      const typeIds = asStringList(record.typeIds);
+      return ctx.bridge.registerDocumentAction({
+        id: asString(record.id, method, "id"),
+        title: asString(record.title, method, "title"),
+        ...(icon ? { icon } : {}),
+        ...(runToken ? { runToken } : {}),
+        ...(viewCommand ? { viewCommand } : {}),
+        ...(contexts ? { contexts } : {}),
+        ...(typeIds ? { typeIds } : {}),
       });
     },
   },
@@ -974,6 +1040,35 @@ function menuContribution(args: unknown[], method: string): MenuContribution {
     title: asString(record.title, method, "title"),
     runToken: requireToken(record, "run", method),
   };
+}
+
+/** 文档动作最多声明多少个过滤词 —— 手滑写个几千条也不该拖慢每一帧的工具栏。 */
+const MAX_DOCUMENT_ACTION_FILTER = 32;
+
+/**
+ * 解析插件给的文档上下文清单。
+ *
+ * 认不出的词**直接丢**，既不报错也不当成 `doc` 之类猜一个：写错一个词只该让那一条不
+ * 显示，不该让整个插件加载失败。**全丢光了返回 `undefined`（= 不限）而不是空数组** ——
+ * 空数组的意思是「哪都不显示」，那不是作者想要的，更像我们把它写坏了。
+ */
+function asDocumentContexts(value: unknown): DocumentContext[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const kept = value.filter(isDocumentContext);
+  return kept.length > 0 ? kept : undefined;
+}
+
+/** 解析插件给的字符串清单（去空、去重、限量）。不是数组就返回 `undefined`。 */
+function asStringList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const kept: string[] = [];
+  for (const entry of value.slice(0, MAX_DOCUMENT_ACTION_FILTER)) {
+    if (typeof entry !== "string") continue;
+    const text = entry.trim();
+    if (!text || kept.includes(text)) continue;
+    kept.push(text);
+  }
+  return kept.length > 0 ? kept : undefined;
 }
 
 /**

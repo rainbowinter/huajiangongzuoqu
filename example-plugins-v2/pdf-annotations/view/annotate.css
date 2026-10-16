@@ -50,31 +50,19 @@ body[data-anno-tool="pin"] .page {
   border-radius: 50%;
 }
 
-/* 悬停时描一圈，好让人看清「这一块是个可以点掉的东西」。 */
+/* 悬停时描一圈，好让人看清「这一块是个可以点的东西」。 */
 body[data-anno-tool="pointer"] .anno:hover {
   outline: 1px solid color-mix(in srgb, currentColor 45%, transparent);
 }
 
-.anno-del {
-  position: absolute;
-  top: -8px;
-  right: -8px;
-  display: none;
-  width: 16px;
-  height: 16px;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: 50%;
-  background: #c0392b;
-  color: #fff;
-  font: 11px/1 system-ui, sans-serif;
-  cursor: pointer;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
-}
-
-body[data-anno-tool="pointer"] .anno:hover .anno-del {
-  display: flex;
+/*
+ * 选中的那一条。**删除键删的就是它**，所以它得比「悬停」明显得多 ——
+ * 悬停是路过时的一圈细线，选中是实打实的一圈粗框 + 一圈外发光。
+ */
+.anno.is-selected {
+  outline: 2px solid var(--accent, #6b8f71);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent, #6b8f71) 22%, transparent);
 }
 
 /* 自由笔：整页一张 svg，折线自己带描边。 */
@@ -82,12 +70,41 @@ body[data-anno-tool="pointer"] .anno:hover .anno-del {
   position: absolute;
   inset: 0;
   overflow: visible;
+  /* 整张 svg 铺满一页，绝不能接管点击 —— 否则整页文字都选不中了。下面只放命中层。 */
+  pointer-events: none;
 }
 
 .anno-ink polyline {
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+/*
+ * 自由笔的命中层：一条**透明的粗线**，只为点得中。
+ * 真正那条线只有一两像素宽，按不准；而整张 svg 又不能吃事件（会挡住选字）。
+ */
+.anno-ink-hit {
+  stroke: transparent;
+  pointer-events: none;
+}
+
+body[data-anno-tool="pointer"] .anno-ink-hit {
+  /* `stroke` 不要求看得见 —— 透明的描边照样接得到点击。 */
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.anno-ink-line.is-selected {
+  filter: drop-shadow(0 0 2px var(--accent, #6b8f71))
+    drop-shadow(0 0 3px var(--accent, #6b8f71));
+}
+
+.anno-ink-box {
+  fill: none;
+  stroke: var(--accent, #6b8f71);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
 }
 
 /* 正在拖拽的那个：虚线预览，让人知道还没落下。 */
@@ -98,6 +115,13 @@ body[data-anno-tool="pointer"] .anno:hover .anno-del {
 }
 
 /* ---------------------------------------------------------------- 图钉批注 */
+/*
+ * 一颗小圆点；悬停 / 选中时它缩掉，同时从它那个点「长」出一张同色的圆角小卡片。
+ *
+ * 为什么不做成一整个元素变宽变高：卡片是 `width: max-content`（不这么写会缩成一竖条，
+ * 见下），而 `max-content` **不可动画**，硬过渡只会在中途跳一下。改成「圆点缩小淡出 +
+ * 卡片从同一个原点放大淡入」，看上去就是那个点长成了卡片，而且两边都能顺滑过渡。
+ */
 
 .anno-pin {
   width: 18px;
@@ -107,51 +131,79 @@ body[data-anno-tool="pointer"] .anno:hover .anno-del {
   transform: rotate(-45deg);
   border: 1.5px solid rgb(255 255 255 / 0.9);
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
+  transition:
+    transform 0.16s ease-out,
+    opacity 0.16s ease-out;
 }
 
-/* 图钉的批注文字：平时藏着，悬停 / 点开才浮出来（见本段末尾那条规则）。 */
+/*
+ * 图钉的批注文字：一张跟着图钉颜色走的圆角小卡片。
+ *
+ * ⚠️ `width: max-content` 不能省。这张卡挂在一个 **0×0** 的 wrap 上（图钉的定位点就是
+ * 一个点），绝对定位元素在不给宽度时会去「适应可用空间」—— 可用空间是 0，于是它一路
+ * 收缩到 min-content：一行一个字，整条批注变成 27px 宽的一竖条。
+ * 先用 max-content 量出真实文字宽度，再让 max-width 去截。
+ */
 .anno-pin-note {
   position: absolute;
   left: 14px;
   top: 10px;
-  /*
-   * ⚠️ `width: max-content` 不能省。这个框挂在一个 **0×0** 的 wrap 上（图钉的定位点就是
-   * 一个点），绝对定位元素在不给宽度时会去「适应可用空间」—— 可用空间是 0，于是它一路
-   * 收缩到 min-content：一行一个字，整条批注变成 27px 宽的一竖条。
-   * 先用 max-content 量出真实文字宽度，再让 max-width 去截。
-   */
   width: max-content;
   max-width: 220px;
   padding: 5px 8px;
   border-radius: 8px;
-  background: #1d1d1b;
-  color: #f2efe9;
+  border: 1.5px solid color-mix(in srgb, #1a1a18 22%, transparent);
+  /* 底色由 js 按**这颗图钉自己的颜色**贴上来（浅黄/浅绿/浅蓝/浅粉），所以文字要深色。 */
+  color: #1a1a18;
   font: 11px/1.5 "HarmonyOS Sans SC", system-ui, sans-serif;
   white-space: pre-wrap;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.18);
+  cursor: text;
+
+  /*
+   * 卡片相对 wrap 原点在 (14, 10)，所以把 `transform-origin` 挪到那个点上 ——
+   * 缩放时是**从图钉那儿长出来**，而不是从卡片自己的左上角。
+   */
+  transform-origin: -14px -10px;
+  transform: scale(0.12);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.12s;
+  transition:
+    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.14s ease-out;
   z-index: 3;
 }
 
-/* 图钉太靠右边时改从左边展开，免得批注整个甩到纸外面去（js 里贴的类）。 */
+/* 图钉太靠右边时改从左边展开，免得卡片整个甩到纸外面去（js 里贴的类）。 */
 .anno-pin-note.from-right {
   left: auto;
   right: 14px;
+  /* 原点跟着换到另一边，不然会从卡片右下角反向长出来。 */
+  transform-origin: calc(100% + 14px) -10px;
 }
 
 /*
- * 悬停把批注文字浮出来；点一下则**钉住**（再点收起）—— 想一边看字一边选文字、滚页面
- * 时用得上，触屏上也只有这条路。
+ * 展开：悬停路过看一眼，或者**选中**把它钉住 —— 想一边读批注一边选正文 / 滚页面、
+ * 双击改文字，都得靠选中的这一份。触屏上更是只有这条路。
  *
  * ⚠️ 选择器必须挂在 **wrap** 上，别去细化到里面某一个子元素。这里踩过一次：原来写的是
  * `.anno-pin-hit:hover + .anno-pin-note`，而 wrap 里 hit 与 note 之间还夹着那个圆点
  * （`.anno-pin`），`+` 永远匹配不上 ——「图钉只有一个黄点、怎么也不出字」就是这么来的。
- * 挂在 wrap 上还有个好处：圆点和那个 × 上悬停都算（它们都是 wrap 的子元素）。
+ * 挂在 wrap 上还有个好处：圆点、卡片、任何子元素上悬停都算。
  */
 body[data-anno-tool="pointer"] .anno-pin-wrap:hover .anno-pin-note,
-.anno-pin-note.is-open {
+.anno-pin-wrap.is-selected .anno-pin-note {
+  transform: none;
   opacity: 1;
+  /* 展开后才吃得到事件（双击进编辑就落在这上面）。 */
+  pointer-events: auto;
+}
+
+/* 卡片展开时把圆点收掉 —— 视觉上就是那个点长成了这张卡片。 */
+body[data-anno-tool="pointer"] .anno-pin-wrap:hover .anno-pin,
+.anno-pin-wrap.is-selected .anno-pin {
+  transform: rotate(-45deg) scale(0.4);
+  opacity: 0;
 }
 
 /* 写字那个小框。 */

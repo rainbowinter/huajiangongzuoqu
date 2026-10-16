@@ -12,6 +12,7 @@
  */
 
 import type { ViewToolbarItem } from "../workspace/fileTypes";
+import type { DocumentContext } from "../workspace/documentContext";
 
 /**
  * ⚠️ **本模块持有全局状态，改动它必须整页刷新，不能做局部热替换。**
@@ -314,6 +315,29 @@ export interface PluginToolbarButton {
 }
 
 /**
+ * 宿主侧的一条**文档动作** —— 主窗口顶上那一行的一个按钮。
+ *
+ * 与 `PluginToolbarButton` 的区别不在于长相，而在于**它出现在哪儿、什么时候出现**：
+ * 那个是编辑器格式按钮那一排（只在笔记里），这个是文档级那一行，而且要按当前文档
+ * 过滤 —— 给 PDF 做的动作不该在打开一篇笔记时冒出来。
+ *
+ * `contexts` / `typeIds` 都是**空数组 = 不限**（不是「哪都不显示」）。判定在
+ * `documentActionVisible`（`features/workspace/documentContext.ts`）。
+ */
+export interface PluginDocumentAction {
+  id: string;
+  title: string;
+  icon?: string;
+  plugin: string;
+  contexts: readonly DocumentContext[];
+  typeIds: readonly string[];
+  /** 在插件的 worker 沙箱里跑。与 `viewCommand` 二选一（或都给）。 */
+  run?: () => void | Promise<void>;
+  /** 转发给当前那个沙箱视图的命令 id。 */
+  viewCommand?: string;
+}
+
+/**
  * 工具栏浮层在宿主侧的形态。
  *
  * 与 `PluginToolbarButton` 一样，条目里带的是**活的闭包**（`refresh` / `onClick`），
@@ -354,6 +378,7 @@ export interface PluginDecoration {
 const editorMenuItems = new OwnedRegistry<PluginMenuItem>();
 const noteMenuItems = new OwnedRegistry<PluginNoteMenuItem>();
 const toolbarButtons = new OwnedRegistry<PluginToolbarButton>();
+const documentActions = new OwnedRegistry<PluginDocumentAction>();
 const popovers = new OwnedRegistry<PluginPopover>();
 const decorations = new OwnedRegistry<PluginDecoration>();
 
@@ -391,6 +416,18 @@ export function listToolbarButtons(): readonly PluginToolbarButton[] {
 
 export function subscribeToolbarButtons(listener: () => void): () => void {
   return toolbarButtons.subscribe(listener);
+}
+
+export function registerDocumentAction(action: PluginDocumentAction): Disposable {
+  return documentActions.register(action.plugin, action);
+}
+
+export function listDocumentActions(): readonly PluginDocumentAction[] {
+  return documentActions.list();
+}
+
+export function subscribeDocumentActions(listener: () => void): () => void {
+  return documentActions.subscribe(listener);
 }
 
 export function registerDecoration(decoration: PluginDecoration): Disposable {
@@ -480,6 +517,7 @@ export function unregisterPlugin(name: string): void {
   editorMenuItems.removeOwner(name);
   noteMenuItems.removeOwner(name);
   toolbarButtons.removeOwner(name);
+  documentActions.removeOwner(name);
   popovers.removeOwner(name);
   editorGutters.removeOwner(name);
   decorations.removeOwner(name);
@@ -496,6 +534,7 @@ export function clearAllPlugins(): void {
   editorMenuItems.clear();
   noteMenuItems.clear();
   toolbarButtons.clear();
+  documentActions.clear();
   popovers.clear();
   // ⚠️ 行旁注与行内装饰**必须在这里清**。
   //
@@ -520,6 +559,7 @@ export function pluginRegistrySizes(): Record<string, number> {
     editorMenuItems: editorMenuItems.size,
     noteMenuItems: noteMenuItems.size,
     toolbarButtons: toolbarButtons.size,
+    documentActions: documentActions.size,
     popovers: popovers.size,
     viewExtensions: viewExtensions.size,
     plugins: plugins.size,
