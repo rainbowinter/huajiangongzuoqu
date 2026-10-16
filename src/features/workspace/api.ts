@@ -77,6 +77,16 @@ export function removeWorkspaceFolder(path: string): Promise<AppConfig> {
   return invoke("workspace_remove_folder", { path });
 }
 
+/**
+ * 给一个工作文件夹换图标（`icon` 传空串 = 恢复默认），返回更新后的配置。
+ *
+ * 只影响活动栏那一列的观感 —— 图标是给用户自己认路用的（几个都叫 `src` / `styles`
+ * 的时候，光看名字分不清）。
+ */
+export function setWorkspaceIcon(path: string, icon: string): Promise<AppConfig> {
+  return invoke("workspace_set_icon", { path, icon });
+}
+
 // ---------------------------------------------------------------- 工作区缓存
 //
 // `__floral-notepaper__/` —— 插件把**与某个文件相关**的数据放在那个文件旁边。位置由宿主

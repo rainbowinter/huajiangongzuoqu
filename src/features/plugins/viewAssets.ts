@@ -110,7 +110,14 @@ export function viewToolbarIcons(type: FileType): ToolbarIconRequest[] {
   const requests: ToolbarIconRequest[] = [];
 
   for (const { item, owner } of toolbarEntries(type)) {
-    if (!owner || item.kind === "separator" || item.kind === "readout" || item.kind === "input") {
+    if (
+      !owner ||
+      item.kind === "separator" ||
+      item.kind === "readout" ||
+      item.kind === "input" ||
+      // 取色控件是宿主自己画的色块，没有图标要读。
+      item.kind === "color"
+    ) {
       continue;
     }
     if (item.icon) requests.push({ key: toolbarIconKey(item.id), owner, path: item.icon });

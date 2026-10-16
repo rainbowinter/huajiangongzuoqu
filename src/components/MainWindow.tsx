@@ -97,6 +97,7 @@ import {
   addWorkspaceFolder,
   clearWorkspaceCache,
   removeWorkspaceFolder,
+  setWorkspaceIcon,
   workspaceCacheInfo,
   type WorkspaceCacheInfo,
   type WorkspaceEntry,
@@ -121,7 +122,8 @@ import {
   splitHighlightedHtml,
 } from "../features/markdown/highlight";
 import { setCodeThemeOverride } from "../features/markdown/codeThemes";
-import { ActivityBar, FolderIcon, NotesIcon, type ActivityBarItem } from "./ActivityBar";
+import { ActivityBar, NotesIcon, type ActivityBarItem } from "./ActivityBar";
+import { WorkspaceIcon } from "./WorkspaceIcons";
 import { BackgroundLayer } from "./BackgroundLayer";
 import { ExplorerItem } from "./ExplorerItem";
 import { FilePreview, TablePreview } from "./FilePreview";
@@ -2152,6 +2154,22 @@ export function MainWindow({
    * 删了就没了；而不删的话它就静静躺在那个文件夹里，下次再挂上来就还在。没有缓存时
    * 不必打扰用户，直接移除。
    */
+  /**
+   * 给一个工作文件夹换图标。纯粹是观感，所以失败也只是弹个 toast —— 配置没有变化，
+   * 那一格继续用原来的图标。
+   */
+  const handleSetWorkspaceIcon = useCallback(
+    async (path: string, icon: string) => {
+      try {
+        const config = await setWorkspaceIcon(path, icon);
+        setSettingsConfig(config);
+      } catch (error) {
+        showToast(getErrorMessage(error));
+      }
+    },
+    [t],
+  );
+
   const handleRemoveWorkspaceFolder = useCallback(
     async (path: string) => {
       const info = await workspaceCacheInfo(path).catch(() => null);
@@ -2211,11 +2229,14 @@ export function MainWindow({
       ...workspaceFolders.map((folder) => ({
         id: folder,
         title: folder,
-        icon: <FolderIcon />,
+        // 图标是用户自己挑的（右键那一格就能换）。没挑过、或者存的 id 现在认不出来了，
+        // `WorkspaceIcon` 自己会回落到文件夹图标。
+        icon: <WorkspaceIcon id={settingsConfig?.workspaceIcons?.[folder]} />,
+        iconId: settingsConfig?.workspaceIcons?.[folder],
         removable: true,
       })),
     ],
-    [workspaceFolders, t],
+    [workspaceFolders, settingsConfig?.workspaceIcons, t],
   );
 
   useEffect(() => {
@@ -3996,6 +4017,7 @@ export function MainWindow({
             onAdd={() => void handleAddWorkspaceFolder()}
             addTitle={t("main.explorer.addFolder", { defaultValue: "添加工作文件夹" })}
             onRemove={(id) => void handleRemoveWorkspaceFolder(id)}
+            onSetIcon={(id, icon) => void handleSetWorkspaceIcon(id, icon)}
           />
           <div
             className={`sidebar ${

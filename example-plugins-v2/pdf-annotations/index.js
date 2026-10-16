@@ -53,18 +53,10 @@ floral.register({
             { value: "pin", label: "图钉批注", icon: "icons/pin.svg" },
           ],
         },
-        {
-          kind: "menu",
-          id: "color",
-          label: "颜色",
-          title: "标注颜色",
-          options: [
-            { value: "#ffd400", label: "黄", color: "#ffd400" },
-            { value: "#9bd67c", label: "绿", color: "#9bd67c" },
-            { value: "#7cc7ff", label: "蓝", color: "#7cc7ff" },
-            { value: "#ff9ec4", label: "粉", color: "#ff9ec4" },
-          ],
-        },
+        // 「任意取色」：宿主画一个小色块，点开**系统调色盘**。
+        // 以前是四个固定色的下拉；颜色这东西是想调就调的，不该被四个色框住。
+        // （`menu` + 带 `color` 的选项那种仍然保留 —— 几个常用色一眼看全、点一下就好。）
+        { kind: "color", id: "color", title: "标注颜色" },
         // 「导出批注」**不在这排** —— 它是文档级动作，在主窗口顶上那一行，
         // 见下面的 `registerDocumentAction`。
       ],

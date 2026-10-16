@@ -171,6 +171,17 @@ export type ViewToolbarItem =
       icon?: string;
       options: ViewToolbarOption[];
     }
+  /**
+   * 任意颜色：一个色块按钮，**点开系统调色盘**。值是任意 `#rrggbb`。
+   *
+   * 与「`menu` + 带 `color` 的选项」的分工：那一种是**几个固定色**（列成色块，
+   * 一眼看全、点一下就好）；这一种是**要什么色自己挑**。两者都留着 ——
+   * 常用的四色用前者更顺手，想微调用后者。
+   *
+   * ⚠️ 宿主把它画成「自绘色块 + 一个完全透明的原生 `<input type="color">` 盖在上面」
+   * （和编辑器里那些色块同一招）：原生色块在十几像素下撑不满，只剩一条横线。
+   */
+  | { kind: "color"; id: string; title?: string }
   /** 竖线分隔。 */
   | { kind: "separator" };
 
@@ -310,6 +321,12 @@ export function parseViewToolbar(raw: unknown): ViewToolbarItem[] | undefined {
         ...(placeholder ? { placeholder } : {}),
         ...(width ? { width } : {}),
       });
+      continue;
+    }
+
+    if (record.kind === "color") {
+      seen.add(id);
+      items.push({ kind: "color", id, ...(title ? { title } : {}) });
       continue;
     }
 

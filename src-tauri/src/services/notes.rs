@@ -87,6 +87,13 @@ pub struct AppConfig {
     /// 判据见 `services::workspace`。
     #[serde(default)]
     pub workspace_folders: Vec<String>,
+    /// 每个工作文件夹选的那枚图标：**路径 → 图标 id**。
+    ///
+    /// 只是观感，所以**不做校验也不做事**：键对应不上任何文件夹就自然失效（前端读不到
+    /// 就回落到默认的文件夹图标），没有条目就是默认。用 `BTreeMap` 是为了序列化出来的
+    /// 顺序稳定 —— 配置文件的 diff 才不会因为哈希顺序变来变去。
+    #[serde(default)]
+    pub workspace_icons: std::collections::BTreeMap<String, String>,
     #[serde(default = "default_remember_surface_size")]
     pub remember_surface_size: bool,
     #[serde(default = "default_tile_ctrl_close")]
@@ -1115,6 +1122,7 @@ impl NoteStore {
             quote_color: String::new(),
             caption_color: String::new(),
             workspace_folders: Vec::new(),
+            workspace_icons: Default::default(),
             remember_surface_size: default_remember_surface_size(),
             tile_ctrl_close: default_tile_ctrl_close(),
             tile_double_click_to_edit: false,
@@ -1878,6 +1886,7 @@ mod tests {
             quote_color: String::new(),
             caption_color: String::new(),
             workspace_folders: Vec::new(),
+            workspace_icons: Default::default(),
             remember_surface_size: true,
             tile_ctrl_close: true,
             tile_double_click_to_edit: true,

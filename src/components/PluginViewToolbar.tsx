@@ -78,6 +78,50 @@ function ToolbarInput({
   );
 }
 
+/** 只认 `#rrggbb`。给原生 `<input type="color">` 喂别的形状它当场报警告。 */
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+/**
+ * 任意取色：自绘的色块 + 一个**完全透明**的原生 `<input type="color">` 盖在上面。
+ *
+ * 为什么不直接把 `<input type="color">` 当色块用：它在十几像素下撑不满 —— UA 内部那块
+ * 色板有自己的最小尺寸与内边距，缩到这里只剩一条横线。自绘之后尺寸完全归我们管，
+ * 只借它的「点开系统调色盘」这一个能力。（编辑器里那些行内色块用的是同一招。）
+ *
+ * 值走 `state.values[id]`，改完发 `{ id, value }` —— 与 `input` / `menu` 同一条命令通道，
+ * 视图那边不必为它单开一种消息。
+ */
+function ToolbarColor({
+  item,
+  value,
+  onCommand,
+}: {
+  item: Extract<ViewToolbarItem, { kind: "color" }>;
+  value: string;
+  onCommand: (id: string, value?: string) => void;
+}) {
+  const color = HEX_COLOR.test(value) ? value : "#ffd400";
+
+  return (
+    <label
+      title={item.title ?? item.id}
+      className={`view-toolbar-button relative w-6 h-6 flex items-center justify-center rounded transition-all cursor-pointer ${BUTTON_IDLE}`}
+    >
+      <span
+        className="w-3.5 h-3.5 rounded-[3px] border border-paper-deep/70"
+        style={{ background: color }}
+      />
+      <input
+        type="color"
+        value={color}
+        aria-label={item.title ?? item.id}
+        onChange={(event) => onCommand(item.id, event.target.value)}
+        className="absolute inset-0 h-full w-full opacity-0 cursor-pointer"
+      />
+    </label>
+  );
+}
+
 /**
  * 按钮 + 下拉。
  *
@@ -301,6 +345,17 @@ export function PluginViewToolbar({ items, state, onCommand, icons }: PluginView
         if (item.kind === "input") {
           return (
             <ToolbarInput
+              key={item.id}
+              item={item}
+              value={state.values[item.id] ?? ""}
+              onCommand={onCommand}
+            />
+          );
+        }
+
+        if (item.kind === "color") {
+          return (
+            <ToolbarColor
               key={item.id}
               item={item}
               value={state.values[item.id] ?? ""}

@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { POPUP_VIEWPORT_MARGIN, useViewportPopupPosition } from "./popupPosition";
+import { DEFAULT_WORKSPACE_ICON, WORKSPACE_ICONS, WorkspaceIcon } from "./WorkspaceIcons";
 
 /**
  * 最左侧的图标栏。
@@ -21,6 +22,11 @@ export interface ActivityBarItem {
    * 由调用方对工作文件夹显式打开。
    */
   removable?: boolean;
+  /**
+   * 这一格选的图标 id（见 `WorkspaceIcons.tsx`）。右键菜单里拿它标出当前选中的那个。
+   * 只对工作文件夹有意义；笔记那一格没有。
+   */
+  iconId?: string;
 }
 
 interface ActivityBarProps {
@@ -31,6 +37,12 @@ interface ActivityBarProps {
   addTitle: string;
   /** 「从侧栏移除」的执行方；不传就完全不弹右键菜单。 */
   onRemove?: (id: string) => void;
+  /**
+   * 「换图标」的执行方。传空串代表**恢复默认**。
+   *
+   * 与 `onRemove` 分开：将来可能只有其中之一可用（比如某一格不允许移除但仍可换图标）。
+   */
+  onSetIcon?: (id: string, icon: string) => void;
 }
 
 interface BarMenu {
@@ -46,10 +58,17 @@ export function ActivityBar({
   onAdd,
   addTitle,
   onRemove,
+  onSetIcon,
 }: ActivityBarProps) {
   const { t } = useTranslation();
   const [menu, setMenu] = useState<BarMenu | null>(null);
   const { popupRef, popupPosition } = useViewportPopupPosition(menu);
+
+  /** 右键的那一格（菜单里的选项都只对它生效）。 */
+  const menuTarget = items.find((item) => item.id === menu?.id);
+
+  /** 那一格现在用的是哪枚图标（认不出/没设过都当默认）。 */
+  const menuIconId = menuTarget?.iconId ?? DEFAULT_WORKSPACE_ICON;
 
   /**
    * 点别处 / 按 Esc 收起菜单。
@@ -97,7 +116,9 @@ export function ActivityBar({
               aria-pressed={active}
               onClick={() => onSelect(item.id)}
               onContextMenu={(event) => {
-                if (!onRemove || !item.removable) return;
+                // 这一格有没有菜单可弹：能移除、或者能换图标。
+                const canRemove = Boolean(onRemove) && item.removable === true;
+                if (!canRemove && !onSetIcon) return;
                 // 右键不切换视图：只弹菜单。顺手切过去会让「移除」这个词的宾语变得含糊
                 // —— 到底是右键的那一格，还是现在已经跳过去的那一格？
                 event.preventDefault();
@@ -150,17 +171,56 @@ export function ActivityBar({
           }}
           onMouseDown={(event) => event.stopPropagation()}
         >
-          <button
-            type="button"
-            onClick={() => {
-              const target = menu.id;
-              setMenu(null);
-              onRemove?.(target);
-            }}
-            className="context-menu-item w-full flex items-center px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer"
-          >
-            {t("main.workspace.remove", { defaultValue: "从侧栏移除（不删除文件）" })}
-          </button>
+          {/* 换图标。几格都叫 src / styles 的时候，光看名字分不清 —— 这是给眼睛用的路标。
+              选「文件夹」就是恢复默认，所以那一格发空串（配置里不留冗余条目）。 */}
+          {onSetIcon ? (
+            <>
+              <div className="px-3 pt-0.5 pb-1 text-[10px] text-ink-ghost">
+                {t("main.explorer.chooseIcon", { defaultValue: "图标" })}
+              </div>
+              <div className="grid grid-cols-8 gap-0.5 px-2 pb-1.5">
+                {WORKSPACE_ICONS.map((spec) => {
+                  const active = menuIconId === spec.id;
+                  return (
+                    <button
+                      key={spec.id}
+                      type="button"
+                      title={t(`main.explorer.icons.${spec.id}`, { defaultValue: spec.label })}
+                      aria-label={t(`main.explorer.icons.${spec.id}`, { defaultValue: spec.label })}
+                      aria-pressed={active}
+                      onClick={() =>
+                        onSetIcon(
+                          menu.id,
+                          spec.id === DEFAULT_WORKSPACE_ICON ? "" : spec.id,
+                        )
+                      }
+                      className={`w-6 h-6 flex items-center justify-center rounded-lg transition-colors cursor-pointer ${
+                        active
+                          ? "text-bamboo bg-bamboo-mist"
+                          : "text-ink-ghost hover:text-ink-soft hover:bg-paper-warm"
+                      }`}
+                    >
+                      <WorkspaceIcon id={spec.id} size={14} />
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="border-t border-paper-deep/20 mb-1" />
+            </>
+          ) : null}
+          {onRemove && menuTarget?.removable ? (
+            <button
+              type="button"
+              onClick={() => {
+                const target = menu.id;
+                setMenu(null);
+                onRemove(target);
+              }}
+              className="context-menu-item w-full flex items-center px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer"
+            >
+              {t("main.workspace.remove", { defaultValue: "从侧栏移除（不删除文件）" })}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>

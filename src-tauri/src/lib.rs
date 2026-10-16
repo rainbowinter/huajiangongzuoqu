@@ -528,6 +528,50 @@ fn workspace_remove_folder(app: AppHandle, path: String) -> Result<AppConfig, Ap
     Ok(saved)
 }
 
+/// 图标 id 的**形状**校验：小写字母、数字、连字符，1–32 个字符。
+///
+/// 只认形状、不认名单（名单在前端 `WorkspaceIcons.tsx` 那一份）—— 见 `workspace_set_icon`
+/// 的说明。抽成独立函数是为了能直接测：命令本身要 `AppHandle`，单测里造不出来。
+fn is_valid_icon_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 32
+        && id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// 给一个工作文件夹换图标（`icon` 传空 = 恢复默认）。
+///
+/// 只认形状不认名单：id 限 `[a-z0-9-]{1,32}`，**不在宿主里维护一份图标名单** ——
+/// 那样 Rust 与前端各存一份、迟早对不上。前端认不出这个 id 就画回默认图标，
+/// 所以「存了个已经删掉的图标名」最多是回到默认，不会出别的岔子。
+#[tauri::command]
+fn workspace_set_icon(app: AppHandle, path: String, icon: String) -> Result<AppConfig, AppError> {
+    let target = path.trim().to_string();
+    let wanted = icon.trim().to_ascii_lowercase();
+
+    if !wanted.is_empty() && !is_valid_icon_id(&wanted) {
+        return Err(AppError {
+            code: "workspaceIconInvalid".into(),
+            message: format!("图标名不合法：{icon}"),
+            details: Default::default(),
+        });
+    }
+
+    let store = default_store()?;
+    let mut config = store.load_config()?;
+
+    if wanted.is_empty() {
+        config.workspace_icons.remove(&target);
+    } else {
+        config.workspace_icons.insert(target, wanted);
+    }
+
+    let saved = store.save_config(config)?;
+    let _ = app.emit("config-changed", &saved);
+    Ok(saved)
+}
+
 #[tauri::command]
 fn global_shortcut_check(
     app: AppHandle,
@@ -836,6 +880,7 @@ pub fn run() {
             workspace_write_file,
             workspace_add_folder,
             workspace_remove_folder,
+            workspace_set_icon,
             workspace_cache_read,
             workspace_cache_write,
             workspace_cache_remove,
@@ -880,7 +925,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::single_instance_disabled_from;
+    use super::{is_valid_icon_id, single_instance_disabled_from};
 
     #[test]
     fn single_instance_disabled_only_for_explicit_flag() {
@@ -892,5 +937,21 @@ mod tests {
         assert!(!single_instance_disabled_from(Some("0")));
         assert!(!single_instance_disabled_from(Some("true")));
         assert!(!single_instance_disabled_from(Some("yes")));
+    }
+
+    #[test]
+    fn icon_ids_are_shape_checked_only() {
+        assert!(is_valid_icon_id("folder"));
+        assert!(is_valid_icon_id("code-2"));
+
+        // 空串**不合法** —— 调用方用「空」表示恢复默认，所以那一条在调用点就分流了，
+        // 永远走不到这个判定。
+        assert!(!is_valid_icon_id(""));
+        // 大写、空格、路径分隔符、超长都不收：这个值会原样存进配置、再交给前端去查表，
+        // 宽松没有好处。
+        assert!(!is_valid_icon_id("Folder"));
+        assert!(!is_valid_icon_id("a b"));
+        assert!(!is_valid_icon_id("../etc"));
+        assert!(!is_valid_icon_id(&"a".repeat(33)));
     }
 }
