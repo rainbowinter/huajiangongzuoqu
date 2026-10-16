@@ -243,6 +243,10 @@
     applyMode();
     await paintVisible();
     updateState();
+    // 布局落地之后再补一次（见 `scheduleRepaint` 的说明）：上面那次可能是按「还没有尺寸的
+    // 滚动区」算的 —— 打开文档时面板可能正在展开，那一格当时还是 0 高。
+    lastScrollerHeight = 0;
+    requestAnimationFrame(scheduleRepaint);
     // 页面刚重建过，位置全变了 —— 扩展插件（批注那类）得把自己的图层重摆一遍。
     notifyPages();
   }
@@ -253,6 +257,30 @@
    * 单页模式要单独走：藏起来的页 `getBoundingClientRect()` 全是 0，会被当成「在视口里」，
    * 于是每换一次缩放就把整份文档重画一遍。
    */
+  /**
+   * 视口尺寸一变，就把「现在应该在视野里」的页补画一遍。
+   *
+   * ⚠️ 这条是为**刚打开时第二页空白**准备的：打开文档那一刻滚动区可能还没有尺寸（面板正在
+   * 展开、或那一格当时还是 0 高）。那时 `paintVisible` 与交叉观察器都按「高度 0」算，
+   * 第二页落在「视野」之外，谁都不会画它 —— 而根元素后来变大时，IntersectionObserver
+   * **不会再报一次**（它只在交叉状态**变化**时报，而它眼里那页从来就没进过视野）。
+   * 用户滚轮缩放一下走的是整页重建，于是看着像「缩放一下就好了」。
+   *
+   * 只认真实的高度变化 + 防抖：`getBoundingClientRect` 是每页一次，长文档上不能白量。
+   */
+  let lastScrollerHeight = 0;
+  let repaintTimer = 0;
+  function scheduleRepaint() {
+    const height = scroller.clientHeight;
+    if (height === 0 || height === lastScrollerHeight) return;
+    lastScrollerHeight = height;
+    if (repaintTimer) clearTimeout(repaintTimer);
+    repaintTimer = setTimeout(() => {
+      repaintTimer = 0;
+      void paintVisible();
+    }, 120);
+  }
+
   async function paintVisible() {
     if (state.single) {
       await paint(state.page);
@@ -587,6 +615,8 @@
   };
 
   scroller.addEventListener("scroll", trackCurrentPage, { passive: true });
+  // 窗口尺寸变化、面板展开/收起 —— 都算「视口变了」。
+  new ResizeObserver(scheduleRepaint).observe(scroller);
 
   // Ctrl/⌘ + 滚轮缩放：PDF 阅读器里人人都在用的手势。
   scroller.addEventListener(

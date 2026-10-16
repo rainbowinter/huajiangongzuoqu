@@ -26,6 +26,16 @@ export function printPdf(path: string, settings: PdfExportSettings): Promise<voi
   return invoke("print_pdf", { path, settings: toPrintSettings(settings) });
 }
 
+/**
+ * 弹**系统自己的**打印对话框（Windows 那个窗口）。
+ *
+ * 不是浏览器内嵌的打印预览 —— 那个把预览塞在应用窗口里，还要用户自己去找
+ * 「使用系统对话框打印…」那行小字。走打印机驱动，输出由驱动决定。
+ */
+export function printWithSystemDialog(): Promise<void> {
+  return invoke("print_with_dialog");
+}
+
 export interface PdfExportInput {
   title: string;
   /** 笔记原文，仅在拿不到渲染结果时才用（快速便签窗口）。 */
@@ -73,10 +83,10 @@ export async function exportNoteAsPdf(input: PdfExportInput): Promise<boolean> {
 }
 
 /**
- * 「用系统打印机」：摆好纸，交给系统打印对话框。
+ * 「用系统打印机」：摆好纸，弹**系统自己的**打印对话框。
  *
- * 同一个窗口里 `window.print()` 会打印**整个界面**，所以打印 CSS 把除了这张纸以外的
- * 东西全部隐藏（`visibility: hidden`，见 `printView.ts`）。
+ * 这条路不经过我们自己的分页纸 —— 走的是打印机驱动，页边距与分页由驱动那一侧说了算。
+ * 所以只要把「标题 + 正文」摆进一个只用于打印的层里就行。
  */
 export async function printNoteWithSystemPrinter(input: PdfExportInput): Promise<void> {
   const settings = input.settings ?? loadPdfSettings();
@@ -85,7 +95,7 @@ export async function printNoteWithSystemPrinter(input: PdfExportInput): Promise
   try {
     await view.settled;
     await waitForPrintable(view.element);
-    window.print();
+    await printWithSystemDialog();
   } finally {
     setTimeout(() => view.cleanup(), 500);
   }

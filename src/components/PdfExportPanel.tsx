@@ -16,7 +16,7 @@ import {
   type PaperId,
   type PdfExportSettings,
 } from "../features/pdfExport/settings";
-import { printPdf } from "../features/pdfExport/api";
+import { printPdf, printWithSystemDialog } from "../features/pdfExport/api";
 import { showToast } from "./Toast";
 
 /**
@@ -163,16 +163,15 @@ export function PdfExportPanel({ title, bodyHtml, onClose, topInset = 44 }: PdfE
       view.toSheet();
       await view.settled;
       await waitForPrintable(view.element);
-      // ⚠️ 放回面板要等**打完**再说：`window.print()` 在不同版本上有的同步有的异步，
-      // 抢在它前面把纸挪走，印出来的就是半截文档。`afterprint` 是准的，那个 60 秒的
-      // 兜底只管「事件没来」的情况（打印被取消时有的版本不发）。
-      const restore = () => view.toEmbedded();
-      window.addEventListener("afterprint", restore, { once: true });
-      window.print();
-      setTimeout(() => {
-        window.removeEventListener("afterprint", restore);
-        view.toEmbedded();
-      }, 60_000);
+      // 先把纸摆好再弹系统对话框：那个对话框是**真的窗口**，点打印时读的就是此刻的页面。
+      try {
+        await printWithSystemDialog();
+      } catch (error) {
+        // 拿不到原生命令（老系统 / 非 Windows）就退回浏览器自带那条 —— 至少还能打。
+        console.warn("[pdf-export] 系统打印对话框打不开，退回 window.print()", error);
+        window.print();
+      }
+      view.toEmbedded();
     } finally {
       setBusy(false);
     }
@@ -248,7 +247,7 @@ export function PdfExportPanel({ title, bodyHtml, onClose, topInset = 44 }: PdfE
         {/* 设置在**左**边（用户的习惯），预览在右。 */}
         <aside className="w-[252px] shrink-0 overflow-y-auto bg-cloud/95 border-r border-paper-deep/50 px-4 py-3">
           <Section title={t("pdfExport.scale", { defaultValue: "缩放" })}>
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap items-center gap-1">
               {SCALE_CHOICES.map((choice) => (
                 <Choice
                   key={choice}
@@ -258,6 +257,15 @@ export function PdfExportPanel({ title, bodyHtml, onClose, topInset = 44 }: PdfE
                   {Math.round(choice * 100)}%
                 </Choice>
               ))}
+              {/* 自定义：直接填百分比。用输入框是为了能填 85 这种值 —— 档位不可能穷举。 */}
+              <span className="inline-flex items-center gap-0.5 ml-0.5">
+                <NumberInput
+                  value={Math.round(settings.scale * 100)}
+                  width="w-12"
+                  onChange={(percent) => patch({ scale: percent / 100 })}
+                />
+                <span className="text-[10px] text-ink-ghost">%</span>
+              </span>
             </div>
           </Section>
 
@@ -504,10 +512,13 @@ function MarginInput({
 function NumberInput({
   value,
   suffix,
+  width,
   onChange,
 }: {
   value: number;
   suffix?: string;
+  /** 覆盖输入框宽度（默认铺满所在的那一格）。 */
+  width?: string;
   onChange: (value: number) => void;
 }) {
   // 数字框里打字时会有「空串」「半个数字」这种中间态，直接回写会被 clamp 打断输入。
@@ -527,7 +538,7 @@ function NumberInput({
         onKeyDown={(event) => {
           if (event.key === "Enter") event.currentTarget.blur();
         }}
-        className="w-full h-6 rounded bg-paper-warm px-1.5 text-center text-[11px] text-ink-soft tabular-nums focus:outline-none focus:ring-1 focus:ring-bamboo/40"
+        className={`h-6 rounded bg-paper-warm px-1.5 text-center text-[11px] text-ink-soft tabular-nums focus:outline-none focus:ring-1 focus:ring-bamboo/40 ${width ?? "w-full"}`}
       />
       {suffix ? (
         <span className="absolute right-1 text-[9px] text-ink-ghost pointer-events-none">

@@ -138,6 +138,46 @@ pub fn plan(settings: &PdfPrintSettings) -> PrintPlan {
     }
 }
 
+/// 打开**原生的**系统打印对话框（Windows 自己的那个窗口，不是浏览器内嵌的打印预览）。
+///
+/// 浏览器内嵌的预览把「打印预览」塞在应用窗口里，还要用户自己去找「使用系统对话框打印…」
+/// 那行小字。`ICoreWebView2_16::ShowPrintUI(SYSTEM)` 直接弹系统那个窗口。
+///
+/// ⚠️ 它和 `PrintToPdf` 是两回事：这条走的是**打印机驱动**，输出由驱动决定（就像用户按了
+/// Ctrl+P 再选系统对话框）。要「一份确定的 PDF」请用 `print_pdf`。
+#[tauri::command(async)]
+pub fn print_with_dialog(window: tauri::WebviewWindow) -> Result<(), AppError> {
+    #[cfg(windows)]
+    {
+        let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+        window
+            .with_webview(move |webview| {
+                let outcome = (|| -> windows::core::Result<()> {
+                    let core = unsafe { webview.controller().CoreWebView2()? };
+                    let view = core.cast::<ICoreWebView2_16>()?;
+                    unsafe {
+                        view.ShowPrintUI(COREWEBVIEW2_PRINT_DIALOG_KIND_SYSTEM)?;
+                    }
+                    Ok(())
+                })();
+                let _ = tx.send(outcome.map_err(|error| error.to_string()));
+            })
+            .map_err(|e| err("pdfPrintFailed", format!("拿不到这个窗口的打印接口：{e}")))?;
+
+        // 弹对话框本身是立刻返回的，这里只等「有没有弹出来」。
+        match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(message)) => Err(err("pdfPrintFailed", message)),
+            Err(_) => Err(err("pdfPrintTimeout", "等系统打印对话框超时了")),
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = &window;
+        Err(err("pdfPrintUnsupported", "这个平台请用浏览器自带的打印"))
+    }
+}
+
 /// 生成 PDF 并写到 `path`。
 ///
 /// ⚠️ 这个命令**必须**是 `async`：`with_webview` 的闭包在主线程上跑，同步命令也在主线程上
@@ -177,6 +217,13 @@ pub fn print_pdf(
         ))
     }
 }
+
+#[cfg(windows)]
+use webview2_com::Microsoft::Web::WebView2::Win32::{
+    ICoreWebView2_16, COREWEBVIEW2_PRINT_DIALOG_KIND_SYSTEM,
+};
+#[cfg(windows)]
+use windows::core::Interface as _;
 
 #[cfg(windows)]
 mod windows_impl {

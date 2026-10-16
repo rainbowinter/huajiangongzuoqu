@@ -11,14 +11,28 @@
  * （那边 `rename_all = "camelCase"`），改一边就得改另一边。
  */
 
-export type PaperId = "a4" | "a5" | "letter";
-
-/** 纸张尺寸（英寸）—— WebView2 的 `SetPageWidth/Height` 收的就是英寸。 */
-export const PAPERS: Record<PaperId, { label: string; width: number; height: number }> = {
-  a4: { label: "A4", width: 8.27, height: 11.69 },
+/**
+ * 纸张尺寸（英寸）—— WebView2 的 `SetPageWidth/Height` 收的就是英寸。
+ *
+ * 大致对齐 Windows/Edge 打印对话框里那一列常用规格（用户截过图），按尺寸从小到大排。
+ * 英寸值取到两位小数就够：差 0.01 英寸是 0.25 毫米，肉眼与打印机都看不出来。
+ */
+export const PAPERS = {
+  a6: { label: "A6", width: 4.13, height: 5.83 },
+  statement: { label: "Statement", width: 5.5, height: 8.5 },
   a5: { label: "A5", width: 5.83, height: 8.27 },
+  b5: { label: "B5 (JIS)", width: 7.17, height: 10.12 },
+  executive: { label: "Executive", width: 7.25, height: 10.5 },
+  a4: { label: "A4", width: 8.27, height: 11.69 },
   letter: { label: "Letter", width: 8.5, height: 11 },
-};
+  legal: { label: "Legal", width: 8.5, height: 14 },
+  b4: { label: "B4 (JIS)", width: 10.12, height: 14.33 },
+  a3: { label: "A3", width: 11.69, height: 16.54 },
+  tabloid: { label: "Tabloid", width: 11, height: 17 },
+} as const satisfies Record<string, { label: string; width: number; height: number }>;
+
+/** 纸张的代号。从上面那张表推出来，加纸时只改一处。 */
+export type PaperId = keyof typeof PAPERS;
 
 /** 纸张按毫米报给界面（预览要按 mm 排版）。1 英寸 = 25.4 毫米。 */
 export function paperSizeMm(paper: PaperId, landscape: boolean): { width: number; height: number } {
@@ -130,8 +144,7 @@ export function savePdfSettings(settings: PdfExportSettings): void {
 /** 逐项挑选 + clamp。导出的东西最终会变成打印参数，不能让 NaN / 负数混进去。 */
 export function normalizePdfSettings(raw: Partial<PdfExportSettings>): PdfExportSettings {
   const defaults = DEFAULT_PDF_SETTINGS;
-  const paper: PaperId =
-    raw.paper && raw.paper in PAPERS ? (raw.paper as PaperId) : defaults.paper;
+  const paper: PaperId = raw.paper && raw.paper in PAPERS ? (raw.paper as PaperId) : defaults.paper;
   const margin = raw.marginMm ?? defaults.marginMm;
   const title = raw.title ?? defaults.title;
 
