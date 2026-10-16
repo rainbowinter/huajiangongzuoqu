@@ -1,0 +1,466 @@
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import { getErrorMessage } from "../features/notes/api";
+import {
+  mountPrintView,
+  waitForPrintable,
+  type PrintView,
+} from "../features/pdfExport/printView";
+import {
+  PAPERS,
+  SCALE_CHOICES,
+  loadPdfSettings,
+  normalizePdfSettings,
+  pdfFileName,
+  savePdfSettings,
+  type PaperId,
+  type PdfExportSettings,
+} from "../features/pdfExport/settings";
+import { printPdf } from "../features/pdfExport/api";
+import { showToast } from "./Toast";
+
+/**
+ * 「导出 PDF」那个界面。
+ *
+ * 左边是**真的会打出来的那一份**（同一份 DOM，见 `features/pdfExport/printView.ts`），
+ * 右边是设置。做完就两条路：保存为 PDF（后端 WebView2 直接写文件）或交给系统打印对话框。
+ *
+ * ⚠️ 打印之前要把预览挪出面板（`view.toSheet()`）。预览框是 `overflow: auto` 的，
+ * 不挪走的话长文档只会打出被裁掉的第一屏 —— 这条踩过，注释留在 `printView.ts` 里。
+ */
+
+interface PdfExportPanelProps {
+  title: string;
+  /** 已经渲染好的正文 HTML（预览区抠出来的，或 Markdown 转的）。 */
+  bodyHtml: string;
+  onClose: () => void;
+}
+
+export function PdfExportPanel({ title, bodyHtml, onClose }: PdfExportPanelProps) {
+  const { t } = useTranslation();
+  const [settings, setSettings] = useState<PdfExportSettings>(() => {
+    const remembered = loadPdfSettings();
+    // 页眉默认写笔记标题 —— 但用户改过就尊重他改的，别每次都盖回去。
+    return remembered.headerTitle
+      ? remembered
+      : { ...remembered, headerTitle: title };
+  });
+  const [busy, setBusy] = useState(false);
+
+  const previewRef = useRef<HTMLDivElement>(null);
+  const viewRef = useRef<PrintView | null>(null);
+
+  // 摆一次纸，之后改设置只是就地重排。
+  useEffect(() => {
+    const parent = previewRef.current;
+    if (!parent) return;
+    const view = mountPrintView(title, bodyHtml, settings, { parent, embedded: true });
+    viewRef.current = view;
+    return () => {
+      view.cleanup();
+      viewRef.current = null;
+    };
+    // 只在开面板时摆一次：`settings` 的后续变化走下面那个 effect 的 `update`。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title, bodyHtml]);
+
+  useEffect(() => {
+    viewRef.current?.update(settings);
+    savePdfSettings(settings);
+  }, [settings]);
+
+  const patch = useCallback((next: Partial<PdfExportSettings>) => {
+    setSettings((current) => normalizePdfSettings({ ...current, ...next }));
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    const view = viewRef.current;
+    if (!view) return;
+    setBusy(true);
+    let moved = false;
+    try {
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const path = await save({
+        defaultPath: pdfFileName(title),
+        filters: [{ name: "PDF", extensions: ["pdf"] }],
+      });
+      if (typeof path !== "string") return;
+
+      // 到这里才动 DOM：用户取消对话框的话，界面不该有任何变化。
+      view.toSheet();
+      moved = true;
+      await waitForPrintable(view.element);
+      await printPdf(path, settings);
+      showToast(t("pdfExport.saved", { path, defaultValue: "已保存到 {{path}}" }));
+      onClose();
+    } catch (error) {
+      showToast(
+        t("pdfExport.failed", {
+          message: getErrorMessage(error),
+          defaultValue: "导出失败：{{message}}",
+        }),
+      );
+      // 失败了就把纸放回面板里 —— 那张铺满屏幕的纸会让用户以为界面卡死了。
+      if (moved) view.toEmbedded();
+    } finally {
+      setBusy(false);
+    }
+  }, [onClose, settings, t, title]);
+
+  const handleSystemPrinter = useCallback(async () => {
+    const view = viewRef.current;
+    if (!view) return;
+    setBusy(true);
+    try {
+      view.toSheet();
+      await waitForPrintable(view.element);
+      // ⚠️ 放回面板要等**打完**再说：`window.print()` 在不同版本上有的同步有的异步，
+      // 抢在它前面把纸挪走，印出来的就是半截文档。`afterprint` 是准的，那个 60 秒的
+      // 兜底只管「事件没来」的情况（打印被取消时有的版本不发）。
+      const restore = () => view.toEmbedded();
+      window.addEventListener("afterprint", restore, { once: true });
+      window.print();
+      setTimeout(() => {
+        window.removeEventListener("afterprint", restore);
+        view.toEmbedded();
+      }, 60_000);
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [busy, onClose]);
+
+  return (
+    <div className="fixed inset-0 z-[9500] flex flex-col bg-ink/25 backdrop-blur-[2px]">
+      <div className="flex items-center gap-3 h-12 px-4 shrink-0 bg-cloud/95 border-b border-paper-deep/50">
+        <span className="text-[13px] text-ink">{t("pdfExport.title", { defaultValue: "导出 PDF" })}</span>
+        <span className="text-[11px] text-ink-ghost truncate">{title}</span>
+        <span className="flex-1" />
+        <span className="text-[11px] text-ink-ghost">
+          {busy ? t("pdfExport.saving", { defaultValue: "正在生成…" }) : ""}
+        </span>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onClose}
+          className="px-3 h-7 rounded-lg text-[11px] text-ink-ghost hover:text-ink-soft hover:bg-paper-warm transition-colors cursor-pointer disabled:opacity-40"
+        >
+          {t("common.cancel", { defaultValue: "取消" })}
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void handleSystemPrinter()}
+          className="px-3 h-7 rounded-lg text-[11px] text-ink-soft hover:bg-paper-warm transition-colors cursor-pointer disabled:opacity-40"
+        >
+          {t("pdfExport.systemPrinter", { defaultValue: "用系统打印机…" })}
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void handleSave()}
+          className="px-3 h-7 rounded-lg text-[11px] text-bamboo bg-bamboo-mist/50 hover:bg-bamboo-mist transition-colors cursor-pointer disabled:opacity-40"
+        >
+          {t("pdfExport.save", { defaultValue: "保存为 PDF" })}
+        </button>
+      </div>
+
+      <div className="flex flex-1 min-h-0">
+        <div className="flex-1 min-w-0 flex flex-col">
+          <div className="flex items-center gap-2 px-4 py-1.5 text-[10px] text-white/70 bg-[#5f5d59]">
+            <span className="uppercase tracking-wide">
+              {t("pdfExport.preview", { defaultValue: "预览" })}
+            </span>
+            <span className="opacity-80">
+              {t("pdfExport.previewNote", {
+                defaultValue: "分页线是按纸张高度估的，真正的分页等生成时才定。",
+              })}
+            </span>
+          </div>
+          <div ref={previewRef} className="flex-1 min-h-0 overflow-auto bg-[#6f6d68] p-6" />
+        </div>
+
+        <aside className="w-[252px] shrink-0 overflow-y-auto bg-cloud/95 border-l border-paper-deep/50 px-4 py-3">
+          <Section title={t("pdfExport.scale", { defaultValue: "缩放" })}>
+            <div className="flex flex-wrap gap-1">
+              {SCALE_CHOICES.map((choice) => (
+                <Choice
+                  key={choice}
+                  active={settings.scale === choice}
+                  onClick={() => patch({ scale: choice })}
+                >
+                  {Math.round(choice * 100)}%
+                </Choice>
+              ))}
+            </div>
+          </Section>
+
+          <Section title={t("pdfExport.paper", { defaultValue: "纸张" })}>
+            <div className="flex flex-wrap gap-1">
+              {(Object.keys(PAPERS) as PaperId[]).map((id) => (
+                <Choice
+                  key={id}
+                  active={settings.paper === id}
+                  onClick={() => patch({ paper: id })}
+                >
+                  {PAPERS[id].label}
+                </Choice>
+              ))}
+              <Choice
+                active={settings.landscape}
+                onClick={() => patch({ landscape: !settings.landscape })}
+              >
+                {t("pdfExport.landscape", { defaultValue: "横向" })}
+              </Choice>
+            </div>
+          </Section>
+
+          <Section title={t("pdfExport.margins", { defaultValue: "页边距（毫米）" })}>
+            <div className="grid grid-cols-4 gap-1">
+              <MarginInput
+                label={t("pdfExport.marginTop", { defaultValue: "上" })}
+                value={settings.marginMm.top}
+                onChange={(top) => patch({ marginMm: { ...settings.marginMm, top } })}
+              />
+              <MarginInput
+                label={t("pdfExport.marginRight", { defaultValue: "右" })}
+                value={settings.marginMm.right}
+                onChange={(right) => patch({ marginMm: { ...settings.marginMm, right } })}
+              />
+              <MarginInput
+                label={t("pdfExport.marginBottom", { defaultValue: "下" })}
+                value={settings.marginMm.bottom}
+                onChange={(bottom) => patch({ marginMm: { ...settings.marginMm, bottom } })}
+              />
+              <MarginInput
+                label={t("pdfExport.marginLeft", { defaultValue: "左" })}
+                value={settings.marginMm.left}
+                onChange={(left) => patch({ marginMm: { ...settings.marginMm, left } })}
+              />
+            </div>
+          </Section>
+
+          <Section title={t("pdfExport.headerFooter", { defaultValue: "页眉页脚" })}>
+            <Toggle
+              checked={settings.headerFooter}
+              onChange={(headerFooter) => patch({ headerFooter })}
+              label={t("pdfExport.headerFooter", { defaultValue: "页眉页脚" })}
+            />
+            <p className="text-[10px] text-ink-ghost leading-relaxed mt-1">
+              {t("pdfExport.headerHint", {
+                defaultValue: "页眉写标题、页脚带页码；页码由浏览器绘制，文案改不了",
+              })}
+            </p>
+            <div className="mt-2 space-y-1">
+              <TextInput
+                placeholder={t("pdfExport.headerText", { defaultValue: "页眉文字" })}
+                value={settings.headerTitle}
+                onChange={(headerTitle) => patch({ headerTitle })}
+              />
+              <TextInput
+                placeholder={t("pdfExport.footerText", { defaultValue: "页脚文字" })}
+                value={settings.footerText}
+                onChange={(footerText) => patch({ footerText })}
+              />
+            </div>
+          </Section>
+
+          <Section title={t("pdfExport.titleStyle", { defaultValue: "标题" })}>
+            <div className="flex items-center gap-1">
+              <NumberInput
+                value={settings.title.sizePt}
+                suffix="pt"
+                onChange={(sizePt) => patch({ title: { ...settings.title, sizePt } })}
+              />
+              <Choice
+                active={settings.title.align === "left"}
+                onClick={() => patch({ title: { ...settings.title, align: "left" } })}
+              >
+                {t("pdfExport.alignLeft", { defaultValue: "左" })}
+              </Choice>
+              <Choice
+                active={settings.title.align === "center"}
+                onClick={() => patch({ title: { ...settings.title, align: "center" } })}
+              >
+                {t("pdfExport.alignCenter", { defaultValue: "居中" })}
+              </Choice>
+            </div>
+            <div className="mt-2">
+              <Toggle
+                checked={settings.title.rule}
+                onChange={(rule) => patch({ title: { ...settings.title, rule } })}
+                label={t("pdfExport.titleRule", { defaultValue: "标题下加一条横线" })}
+              />
+            </div>
+          </Section>
+
+          <Section title={t("pdfExport.color", { defaultValue: "颜色" })}>
+            <div className="flex gap-1">
+              <Choice active={settings.colorMode === "as-is"} onClick={() => patch({ colorMode: "as-is" })}>
+                {t("pdfExport.colorAsIs", { defaultValue: "原样" })}
+              </Choice>
+              <Choice active={settings.colorMode === "light"} onClick={() => patch({ colorMode: "light" })}>
+                {t("pdfExport.colorLight", { defaultValue: "白底" })}
+              </Choice>
+              <Choice active={settings.colorMode === "mono"} onClick={() => patch({ colorMode: "mono" })}>
+                {t("pdfExport.colorMono", { defaultValue: "黑白" })}
+              </Choice>
+            </div>
+            <p className="text-[10px] text-ink-ghost leading-relaxed mt-1">
+              {t("pdfExport.colorHint", {
+                defaultValue: "「原样」= 现在看到什么就打什么（跟着主题，深色主题就是深色纸）",
+              })}
+            </p>
+            <div className="mt-2">
+              <Toggle
+                checked={settings.backgrounds}
+                onChange={(backgrounds) => patch({ backgrounds })}
+                label={t("pdfExport.backgrounds", { defaultValue: "打印背景色" })}
+              />
+              <p className="text-[10px] text-ink-ghost leading-relaxed mt-1">
+                {t("pdfExport.backgroundsHint", {
+                  defaultValue: "关掉之后代码块与表头会变成一片白",
+                })}
+              </p>
+            </div>
+          </Section>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="py-2 border-b border-paper-deep/30 last:border-b-0">
+      <h4 className="text-[11px] text-ink-soft mb-1.5">{title}</h4>
+      {children}
+    </section>
+  );
+}
+
+function Choice({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`h-6 px-2 rounded text-[11px] transition-colors cursor-pointer ${
+        active ? "text-bamboo bg-bamboo-mist/60" : "text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/40"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Toggle({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: (value: boolean) => void;
+  label: string;
+}) {
+  return (
+    <label className="flex items-center gap-2 text-[11px] text-ink-soft cursor-pointer select-none">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="accent-[var(--color-bamboo)]"
+      />
+      {label}
+    </label>
+  );
+}
+
+function MarginInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-0.5">
+      <span className="text-[10px] text-ink-ghost text-center">{label}</span>
+      <NumberInput value={value} onChange={onChange} />
+    </label>
+  );
+}
+
+function NumberInput({
+  value,
+  suffix,
+  onChange,
+}: {
+  value: number;
+  suffix?: string;
+  onChange: (value: number) => void;
+}) {
+  // 数字框里打字时会有「空串」「半个数字」这种中间态，直接回写会被 clamp 打断输入。
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <span className="relative inline-flex items-center">
+      <input
+        type="text"
+        inputMode="numeric"
+        value={draft ?? String(value)}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => {
+          const parsed = Number.parseFloat(draft ?? "");
+          setDraft(null);
+          if (Number.isFinite(parsed)) onChange(parsed);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+        }}
+        className="w-full h-6 rounded bg-paper-warm px-1.5 text-center text-[11px] text-ink-soft tabular-nums focus:outline-none focus:ring-1 focus:ring-bamboo/40"
+      />
+      {suffix ? (
+        <span className="absolute right-1 text-[9px] text-ink-ghost pointer-events-none">
+          {suffix}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function TextInput({
+  value,
+  placeholder,
+  onChange,
+}: {
+  value: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <input
+      type="text"
+      value={value}
+      placeholder={placeholder}
+      onChange={(event) => onChange(event.target.value)}
+      className="w-full h-6 rounded bg-paper-warm px-2 text-[11px] text-ink-soft placeholder:text-ink-ghost/70 focus:outline-none focus:ring-1 focus:ring-bamboo/40"
+    />
+  );
+}

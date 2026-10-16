@@ -107,6 +107,13 @@ globalThis.pdfjsLib = { getDocument: Ut, GlobalWorkerOptions: Jt, … };
 读不到 worker 源码时 pdf.js 会退回主线程渲染（大文件会卡界面），所以那种情况下记一条
 warn 日志。
 
+## 工具栏图标
+
+那一排按钮的图标是**插件自带**的（`icons/*.svg`），宿主读成文本、消毒后内联进按钮里 ——
+所以它们跟着主题色走（SVG 里写的是 `currentColor`），深浅色不用各画一套。实测过：
+外壳 SVG 里塞 `<script>` / `onload` / `foreignObject` / `<style>` / 外链 `href`，
+消毒之后一个都留不下，而形状与 `currentColor` 原样保留（见 `sanitizeSvg.ts`）。
+
 ## 现在还没做的
 
 * **马克笔与悬浮批注**：**做成另一个插件了**（`pdf-annotations`，见

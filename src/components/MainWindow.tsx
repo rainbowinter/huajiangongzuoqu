@@ -115,6 +115,7 @@ import { BackgroundLayer } from "./BackgroundLayer";
 import { ExplorerItem } from "./ExplorerItem";
 import { FilePreview, TablePreview } from "./FilePreview";
 import { Modal } from "./Modal";
+import { PdfExportPanel } from "./PdfExportPanel";
 import { WorkspaceTree, folderName, shortenPath } from "./WorkspaceTree";
 import { POPUP_VIEWPORT_MARGIN, useViewportPopupPosition } from "./popupPosition";
 import { disposeListener } from "./listeners";
@@ -143,7 +144,7 @@ import { cleanUnusedImages, saveImageFromPath } from "../features/images/api";
 import { useImagePaste, insertTextAtCursor } from "../features/images/useImagePaste";
 import { useImageBaseDir } from "../features/images/useImageBaseDir";
 import { handleMarkdownShortcut } from "../features/shortcuts/markdownShortcuts";
-import { exportNoteAsPdf } from "../features/pdfExport/api";
+import { buildPrintBody } from "../features/pdfExport/api";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type { ExternalFile, Note, NoteMetadata } from "../features/notes/types";
 import {
@@ -796,6 +797,11 @@ export function MainWindow({
   /** 整个主窗口是否钉在最前（**不是**再开一个磁贴窗）。 */
   const [windowPinned, setWindowPinned] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  /**
+   * 「导出 PDF」面板。内容在**打开那一刻**就定下来：面板开着的时候用户还能在背后改笔记，
+   * 但我们导的是他点下那一刻看到的那一份。
+   */
+  const [pdfPanel, setPdfPanel] = useState<{ title: string; bodyHtml: string } | null>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const [categories, setCategories] = useState<string[]>([]);
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
@@ -3565,7 +3571,14 @@ export function MainWindow({
         // 取**内容层**而不是滚动容器：后者还含撑开层与 scale 包装，打进 PDF 会串版。
         const renderedHtml =
           (previewContentRef.current ?? previewScrollRef.current)?.innerHTML ?? undefined;
-        await exportNoteAsPdf(title || fallbackTitle, content, renderedHtml);
+        // 打开导出界面（预览 + 设置），真正的生成在那边按用户选的参数做。
+        // 没有预览（编辑器模式、或还没渲染出来）时才退回自己转一份 Markdown。
+        const bodyHtml = await buildPrintBody({
+          title: title || fallbackTitle,
+          content,
+          renderedHtml,
+        });
+        setPdfPanel({ title: title || fallbackTitle, bodyHtml });
       } catch (error) {
         showToast(getErrorMessage(error));
       }
@@ -5381,6 +5394,14 @@ export function MainWindow({
       )}
       {/* 移除工作文件夹时的确认框。**只有那个文件夹里确实有缓存才出现** ——
           没有缓存可删的时候多问一句纯属打扰。 */}
+      {pdfPanel ? (
+        <PdfExportPanel
+          title={pdfPanel.title}
+          bodyHtml={pdfPanel.bodyHtml}
+          onClose={() => setPdfPanel(null)}
+        />
+      ) : null}
+
       {pendingFolderRemoval ? (
         <Modal
           title={t("main.workspace.removeWithCache.title", {

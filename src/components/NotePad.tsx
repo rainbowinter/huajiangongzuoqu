@@ -1226,7 +1226,7 @@ export function NotePad({
                     <button
                       onClick={() => {
                         if (content.trim() || title.trim()) {
-                          void exportNoteAsPdf(title || "笔记", content).catch((err) =>
+                          void exportNoteAsPdf({ title: title || "笔记", content }).catch((err) =>
                             showToast(getErrorMessage(err)),
                           );
                         } else {

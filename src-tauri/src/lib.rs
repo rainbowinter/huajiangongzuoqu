@@ -2,6 +2,7 @@ pub mod desktop;
 pub mod docs;
 pub mod json_io;
 pub mod locales;
+pub mod pdf;
 pub mod plugins;
 pub mod selfupdate;
 pub mod services;
@@ -763,6 +764,7 @@ pub fn run() {
             take_startup_file,
             workspace_read_file_bytes,
             read_external_file_bytes,
+            pdf::print_pdf,
             selfupdate::update_endpoint,
             docs::read_bundled_doc,
             plugins::market::commands::plugins_market_endpoint,

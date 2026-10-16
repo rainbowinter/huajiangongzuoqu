@@ -1,236 +1,98 @@
 /**
- * PDF 导出功能
+ * 导出 PDF。
  *
- * 策略：在页面内创建打印浮层，直接调用浏览器打印。
- * 图片保留在原始 DOM 上下文中，避免 Tauri asset protocol 跨上下文失效。
+ * 两条路，用的是**同一份** DOM（见 `printView.ts`）：
+ *
+ * - **保存为 PDF**（默认）：问一个路径，然后调后端的 `print_pdf`。后端走 WebView2 自己的
+ *   `PrintToPdf` —— 没有系统打印对话框、不经过任何打印机驱动，页眉页脚 / 缩放 / 纸张 /
+ *   边距全由我们的参数说了算。
+ * - **用系统打印机**：还是 `window.print()`。要打真纸、要选别的打印机时才用得上。
+ *
+ * 早先只有第二条路，而且是从**预览面板**里直接 `window.print()`：屏幕上看到的是预览、
+ * 打出来的是另一个东西，中间还夹着用户自己在打印对话框里的选择。
  */
 
-export async function exportNoteAsPdf(
-  title: string,
-  _content: string,
-  renderedHtml?: string,
-): Promise<void> {
-  if (!renderedHtml) {
-    // NotePad 无预览 → 只能用 Markdown 转 HTML
-    renderedHtml = markdownToHtml(_content);
-    renderedHtml = await convertImagesToDataUri(renderedHtml);
-    printViaIframe(title, renderedHtml);
-    return;
-  }
+import { invoke } from "@tauri-apps/api/core";
+import { mountPrintView, waitForPrintable } from "./printView";
+import {
+  loadPdfSettings,
+  pdfFileName,
+  toPrintSettings,
+  type PdfExportSettings,
+} from "./settings";
 
-  // MainWindow 有预览 → 直接在页面内打印，图片自然可用
-  printViaOverlay(title, renderedHtml);
+/** 后端生成 PDF 并写到 `path`。Windows 上是 WebView2 的 `PrintToPdf`。 */
+export function printPdf(path: string, settings: PdfExportSettings): Promise<void> {
+  return invoke("print_pdf", { path, settings: toPrintSettings(settings) });
+}
+
+export interface PdfExportInput {
+  title: string;
+  /** 笔记原文，仅在拿不到渲染结果时才用（快速便签窗口）。 */
+  content: string;
+  /** 预览区抠出来的 HTML。有它就用它 —— 那才是用户看到的排版。 */
+  renderedHtml?: string;
+  /** 本次导出用的设置；不给就用上次记住的那份。 */
+  settings?: PdfExportSettings;
+}
+
+/** 把要打印的那份 HTML 准备好。导出面板也要用它。 */
+export async function buildPrintBody(input: PdfExportInput): Promise<string> {
+  if (input.renderedHtml) return input.renderedHtml;
+  // 没有预览（快速便签窗口）：自己把 Markdown 转一份，图片转成 data URI ——
+  // 那条路上的图片是 `asset:` 地址，同一个文档里能不能二次加载不作保证，转成内联最稳。
+  return await convertImagesToDataUri(markdownToHtml(input.content));
 }
 
 /**
- * 方式一：页面浮层打印（MainWindow 用，图片在原始 DOM 中天然可用）
+ * 「保存为 PDF」：问路径 → 摆好纸 → 让后端写文件。
+ *
+ * 返回 `false` 表示用户取消了保存对话框。
  */
-function printViaOverlay(title: string, bodyHtml: string): void {
-  // 创建全屏打印浮层（只放 body 内容，不是完整 HTML）
-  const overlay = document.createElement("div");
-  overlay.id = "__floral_print_overlay__";
-  overlay.innerHTML = `<h1>${escapeHtml(title)}</h1>${bodyHtml}`;
-  overlay.style.cssText = `
-    position: fixed; inset: 0; z-index: 2147483647;
-    background: white; overflow-y: auto;
-    padding: 18mm 20mm;
-    font-family: "Source Han Serif SC", "SimSun", Georgia, serif;
-    font-size: 12pt; line-height: 1.85; color: #2c2c2c;
-  `;
-  document.body.appendChild(overlay);
+export async function exportNoteAsPdf(input: PdfExportInput): Promise<boolean> {
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  const path = await save({
+    defaultPath: pdfFileName(input.title),
+    filters: [{ name: "PDF", extensions: ["pdf"] }],
+  });
+  if (typeof path !== "string") return false;
 
-  // 提示文字：提醒关闭页眉页脚
-  const hint = document.createElement("div");
-  hint.id = "__floral_print_hint__";
-  hint.style.cssText =
-    "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 24px;border-radius:10px;font-size:14px;z-index:2147483647;box-shadow:0 4px 20px rgba(0,0,0,0.3);text-align:center;";
-  hint.innerHTML =
-    '打印对话框 → 更多设置 → <b>取消勾选"页眉和页脚"</b>';
-  document.body.appendChild(hint);
-
-  // 注入打印 CSS
-  const style = document.createElement("style");
-  style.id = "__floral_print_style__";
-  style.textContent = `
-    @media print {
-      /* 隐藏除浮层外的所有内容 */
-      body > *:not(#__floral_print_overlay__) { display: none !important; }
-      #__floral_print_overlay__ {
-        position: static !important; inset: auto !important;
-        overflow: visible !important;
-        padding: 0 !important; margin: 0 !important;
-      }
-      @page {
-        size: A4;
-        margin: 18mm 20mm;
-      }
-    }
-
-    /* === 浮层内容样式（打印和屏幕通用，确保格式正确） === */
-    #__floral_print_overlay__ {
-      -webkit-print-color-adjust: exact !important;
-      print-color-adjust: exact !important;
-      color-adjust: exact !important;
-    }
-
-    /* 标题字号放大 */
-    #__floral_print_overlay__ h1 { font-size: 22pt !important; font-weight: 700 !important; margin: 0 0 10mm 0 !important; padding-bottom: 3mm !important; border-bottom: 2px solid #333 !important; color: #1a1a1a !important; }
-    #__floral_print_overlay__ h2 { font-size: 17pt !important; font-weight: 600 !important; margin: 8mm 0 4mm !important; color: #2a2a2a !important; }
-    #__floral_print_overlay__ h3 { font-size: 14pt !important; font-weight: 600 !important; margin: 6mm 0 3mm !important; }
-    #__floral_print_overlay__ h4 { font-size: 12.5pt !important; font-weight: 600 !important; margin: 5mm 0 2mm !important; }
-
-    /* 表格样式 */
-    #__floral_print_overlay__ table {
-      border-collapse: collapse !important;
-      width: 100% !important;
-      margin: 5mm 0 !important;
-      font-size: 11pt !important;
-      border: 1px solid #ccc !important;
-    }
-    #__floral_print_overlay__ th {
-      background: #e8e8e8 !important;
-      color: #333 !important;
-      font-weight: 700 !important;
-      padding: 3mm 4mm !important;
-      border: 1px solid #bbb !important;
-      text-align: left !important;
-    }
-    #__floral_print_overlay__ td {
-      padding: 2mm 4mm !important;
-      border: 1px solid #ccc !important;
-      text-align: left !important;
-      vertical-align: top !important;
-    }
-    #__floral_print_overlay__ tr:nth-child(even) td {
-      background: #f5f5f5 !important;
-    }
-
-    /* 代码块 */
-    #__floral_print_overlay__ .markdown-code-block {
-      position: relative !important;
-      margin: 5mm 0 !important;
-    }
-    #__floral_print_overlay__ .markdown-code-block > button {
-      /* 隐藏复制按钮 */
-      display: none !important;
-    }
-    #__floral_print_overlay__ .markdown-code-block > span:first-of-type {
-      /* 语言标签（PYTHON / JAVA 等） */
-      position: absolute !important;
-      top: 6px !important;
-      left: 14px !important;
-      font-size: 9pt !important;
-      font-family: monospace !important;
-      color: #888 !important;
-      text-transform: uppercase !important;
-      z-index: 1 !important;
-    }
-    #__floral_print_overlay__ pre {
-      background: #f4f4f4 !important;
-      border: 1px solid #ddd !important;
-      border-radius: 4px !important;
-      padding: 28px 14px 10px 14px !important;
-      margin: 0 !important;
-      font-size: 10pt !important;
-      line-height: 1.6 !important;
-      overflow-x: auto !important;
-    }
-    #__floral_print_overlay__ pre code {
-      background: none !important;
-      font-size: inherit !important;
-    }
-    #__floral_print_overlay__ code {
-      background: #f0f0f0 !important;
-      padding: 1px 4px !important;
-      border-radius: 3px !important;
-      font-size: 10pt !important;
-    }
-
-    /* 引用块 */
-    #__floral_print_overlay__ blockquote {
-      border-left: 3px solid #aaa !important;
-      padding: 2mm 6mm !important;
-      margin: 4mm 0 !important;
-      color: #555 !important;
-      background: #fafafa !important;
-    }
-
-    /* 提示文字，只在屏幕上显示 */
-    #__floral_print_hint__ {
-      position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
-      background: #333; color: #fff; padding: 8px 20px; border-radius: 8px;
-      font-size: 14px; z-index: 2147483647; pointer-events: none;
-    }
-    @media print {
-      #__floral_print_hint__ { display: none !important; }
-    }
-  `;
-  document.head.appendChild(style);
-
-  function cleanup() {
-    const el = document.getElementById("__floral_print_overlay__");
-    if (el) document.body.removeChild(el);
-    const st = document.getElementById("__floral_print_style__");
-    if (st) document.head.removeChild(st);
-    const ht = document.getElementById("__floral_print_hint__");
-    if (ht) document.body.removeChild(ht);
+  const settings = input.settings ?? loadPdfSettings();
+  const bodyHtml = await buildPrintBody(input);
+  const view = mountPrintView(input.title, bodyHtml, settings);
+  try {
+    await waitForPrintable(view.element);
+    await printPdf(path, settings);
+  } finally {
+    // 无论成没成都得收拾干净：这是个盖住整个界面的层，留着它应用就废了。
+    view.cleanup();
   }
+  return true;
+}
 
-  window.addEventListener("afterprint", cleanup, { once: true });
-
-  setTimeout(() => {
+/**
+ * 「用系统打印机」：摆好纸，交给系统打印对话框。
+ *
+ * 同一个窗口里 `window.print()` 会打印**整个界面**，所以打印 CSS 把除了这张纸以外的
+ * 东西全部隐藏（`visibility: hidden`，见 `printView.ts`）。
+ */
+export async function printNoteWithSystemPrinter(input: PdfExportInput): Promise<void> {
+  const settings = input.settings ?? loadPdfSettings();
+  const bodyHtml = await buildPrintBody(input);
+  const view = mountPrintView(input.title, bodyHtml, settings);
+  try {
+    await waitForPrintable(view.element);
     window.print();
-    // 超时兜底
-    setTimeout(cleanup, 120000);
-  }, 800);
-}
-
-/**
- * 方式二：iframe 打印（NotePad 降级方案，图片已转 base64）
- */
-function printViaIframe(title: string, bodyHtml: string): void {
-  const doc = buildPrintDocument(title, bodyHtml);
-
-  const iframe = document.createElement("iframe");
-  iframe.style.cssText =
-    "position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;";
-  document.body.appendChild(iframe);
-
-  const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
-  if (!iframeDoc) {
-    document.body.removeChild(iframe);
-    return;
+  } finally {
+    setTimeout(() => view.cleanup(), 500);
   }
-
-  iframeDoc.open();
-  iframeDoc.write(doc);
-  iframeDoc.close();
-
-  let resolved = false;
-  const cleanup = () => {
-    if (resolved) return;
-    resolved = true;
-    setTimeout(() => {
-      if (document.body.contains(iframe)) document.body.removeChild(iframe);
-    }, 1000);
-  };
-
-  iframe.onload = () => {
-    setTimeout(() => {
-      try {
-        iframe.contentWindow?.addEventListener("afterprint", cleanup);
-        iframe.contentWindow?.print();
-      } catch {
-        cleanup();
-      }
-    }, 500);
-  };
-
-  setTimeout(cleanup, 60000);
 }
 
 /**
- * 将 HTML 中的图片 src 转为 base64 data URI
+ * 将 HTML 中的图片 src 转为 base64 data URI。
+ *
+ * 只在「没有预览」那条路上用（快速便签窗口）：它的 Markdown 里写的是相对路径，
+ * 放进另一个文档里就找不到文件了。
  */
 async function convertImagesToDataUri(html: string): Promise<string> {
   const imgRegex = /<img[^>]+src="([^"]+)"[^>]*>/g;
@@ -267,59 +129,12 @@ async function convertImagesToDataUri(html: string): Promise<string> {
 }
 
 /**
- * 构建打印 HTML 文档（不含 <html>/<body> 外层，供 overlay/iframe 使用）
+ * Markdown → HTML（快速便签窗口用）。
+ *
+ * 是一份**简化**的实现，只求把标题、强调、代码、表格、列表这些块级结构摆对 ——
+ * 真正的渲染在 `MarkdownPreview` 那边，走 unified/remark。
  */
-function buildPrintDocument(title: string, bodyHtml: string): string {
-  return `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <title>${escapeHtml(title)}</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
-  <style>
-    @page { size: A4; margin: 18mm 20mm; }
-    body {
-      font-family: "Source Han Serif SC", "Noto Serif CJK SC", "SimSun", Georgia, serif;
-      font-size: 12pt; line-height: 1.85; color: #2c2c2c;
-      -webkit-print-color-adjust: exact; print-color-adjust: exact;
-    }
-    h1 { font-size: 20pt; font-weight: 700; margin-bottom: 6mm; padding-bottom: 2mm; border-bottom: 2px solid #2c2c2c; }
-    h2 { font-size: 16pt; font-weight: 600; margin: 6mm 0 3mm; }
-    h3 { font-size: 14pt; font-weight: 600; margin: 5mm 0 2mm; }
-    h4 { font-size: 12pt; font-weight: 600; margin: 4mm 0 2mm; }
-    p { margin: 2mm 0; }
-    strong, b { font-weight: 700; }
-    em, i { font-style: italic; }
-    del { text-decoration: line-through; color: #999; }
-    code { font-family: "Cascadia Code", "Fira Code", monospace; background: #f3f3f3; padding: 1px 5px; border-radius: 3px; font-size: 10pt; color: #c7254e; }
-    pre { background: #f8f8f8; border: 1px solid #e0e0e0; border-radius: 4px; padding: 10px 14px; margin: 4mm 0; overflow-x: auto; font-size: 10pt; line-height: 1.6; page-break-inside: avoid; }
-    pre code { background: none; padding: 0; color: #333; }
-    blockquote { border-left: 3px solid #bbb; padding: 2mm 6mm; margin: 4mm 0; color: #555; background: #fafafa; }
-    table { border-collapse: collapse; width: 100%; margin: 4mm 0; font-size: 10.5pt; page-break-inside: avoid; }
-    th, td { border: 1px solid #ccc; padding: 2mm 4mm; text-align: left; }
-    th { background: #f0f0f0; font-weight: 700; }
-    tr:nth-child(even) td { background: #fafafa; }
-    ul, ol { margin: 2mm 0; padding-left: 7mm; }
-    li { margin: 1mm 0; }
-    img { max-width: 100%; height: auto; display: block; margin: 4mm auto; }
-    hr { border: none; border-top: 1px solid #ddd; margin: 6mm 0; }
-    .katex { font-size: 1.05em; }
-    .katex-display { margin: 3mm 0; }
-    .markdown-alert { border-left: 3px solid #888; padding: 2mm 5mm; margin: 3mm 0; background: #f8f8f8; }
-    .page-break { page-break-after: always; }
-  </style>
-</head>
-<body>
-  <h1>${escapeHtml(title)}</h1>
-  ${bodyHtml}
-</body>
-</html>`;
-}
-
-/**
- * Markdown → HTML（NotePad 降级用）
- */
-function markdownToHtml(md: string): string {
+export function markdownToHtml(md: string): string {
   let html = md;
 
   const codeBlocks: string[] = [];
@@ -384,12 +199,23 @@ function convertMdTables(text: string): string {
   while (i < lines.length) {
     const line = lines[i].trim();
     if (line.startsWith("|") && line.endsWith("|")) {
-      const hcells = line.split("|").slice(1, -1).map((c) => c.trim());
+      const hcells = line
+        .split("|")
+        .slice(1, -1)
+        .map((c) => c.trim());
       if (i + 1 < lines.length && /^\|[\s\-:|]+\|$/.test(lines[i + 1].trim())) {
         const rows = ["<tr>" + hcells.map((c) => `<th>${c}</th>`).join("") + "</tr>"];
         i += 2;
-        while (i < lines.length && lines[i].trim().startsWith("|") && lines[i].trim().endsWith("|")) {
-          const cells = lines[i].trim().split("|").slice(1, -1).map((c) => c.trim());
+        while (
+          i < lines.length &&
+          lines[i].trim().startsWith("|") &&
+          lines[i].trim().endsWith("|")
+        ) {
+          const cells = lines[i]
+            .trim()
+            .split("|")
+            .slice(1, -1)
+            .map((c) => c.trim());
           rows.push("<tr>" + cells.map((c) => `<td>${c}</td>`).join("") + "</tr>");
           i++;
         }
@@ -404,9 +230,17 @@ function convertMdTables(text: string): string {
 }
 
 function escapeHtml(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function escapeAttr(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }

@@ -41,6 +41,55 @@
   const hint = document.getElementById("hint");
 
   /**
+   * 一份 PDF 里「有没有真的字」。
+   *
+   * 判据是 pdf.js 取出来的那些文字片段：扫描件（整页一张图）**一个片段都没有**；而
+   * **文字被转成曲线**的那种（字体是 Type3，每个字形就是一小段画图指令）会取出一串
+   * **字形码** —— 没有 ToUnicode 映射时，那些码就是 C0 控制字符。
+   *
+   * 两种情况都**没法选中、没法搜索**，而且不是我们这边坏了。但界面上什么都不说的话，
+   * 用户的结论只能是「花笺的阅读器有毛病」—— 实测他就是这么想的，所以我们得自己说出来。
+   */
+  const GLYPH_CODE = /[\u0000-\u0008\u000B-\u001F]/;
+
+  function textIsExtractable(items) {
+    if (!Array.isArray(items)) return false;
+    return items.some((item) => {
+      const text = typeof item?.str === "string" ? item.str : "";
+      // 有空白之外、又不是字形码的字符，才算「真的取到了字」。
+      return text.trim().length > 0 && !GLYPH_CODE.test(text);
+    });
+  }
+
+  /**
+   * 打开文档后抽查头几页，全都没字就提示一次。
+   *
+   * 为什么要抽查而不是「看第一页」：封面常常是整页图片，后面才是正文。
+   * 为什么只抽查头 20 页：再往后翻的文档，早就该看见字了，多查只是白花时间。
+   */
+  async function probeTextLayer() {
+    if (!state.pdf || state.textProbeDone) return;
+    state.textProbeDone = true;
+
+    const last = Math.min(state.pdf.numPages, 20);
+    for (let index = 1; index <= last; index += 1) {
+      try {
+        const page = await state.pdf.getPage(index);
+        const content = await page.getTextContent();
+        if (textIsExtractable(content.items)) return;
+      } catch (error) {
+        // 取不出来就当作「这一页没字」，继续看下一页。
+        floralView.log("warn", `抽查第 ${index} 页的文字层失败：${error?.message ?? error}`);
+      }
+    }
+
+    floralView.toast(
+      "这份 PDF 里没有可提取的文字（多半是扫描件，或者文字已经转成了曲线）—— 选中和搜索都用不了。",
+    );
+    floralView.log("warn", "PDF 全篇没有可提取的文字（扫描件 / 文字已转曲线）");
+  }
+
+  /**
    * 宿主给的调色板接到哪几个变量上。
    *
    * 视图自己的变量名与宿主的不一样（宿主那套是 `--color-paper` 这种），所以要对一次表 ——
@@ -75,6 +124,8 @@
     generation: 0,
     page: 1,
     observer: null,
+    /** 「这一篇有没有字」只抽查一次（见 `probeTextLayer`）。 */
+    textProbeDone: false,
   };
 
   /**
@@ -479,8 +530,12 @@
     hideHint();
     state.page = 1;
     state.scale = null;
+    state.textProbeDone = false;
     await buildPages();
     scroller.scrollTop = 0;
+    // 抽查文字是在**画完第一屏之后**才做的：先让用户看到内容，
+    // 顺带把「有没有字」这件事说清楚（见 `probeTextLayer`）。
+    void probeTextLayer();
   }
 
   // ---------------------------------------------------------------- 给扩展插件的口子
