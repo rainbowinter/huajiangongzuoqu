@@ -261,7 +261,10 @@
     "systemPrinter": "用系统打印机…",
     "saving": "正在生成…",
     "saved": "已保存到 {{path}}",
-    "failed": "导出失败：{{message}}"
+    "failed": "导出失败：{{message}}",
+    "pageCount": "共 {{count}} 页",
+    "overflowed": "有内容超出一页",
+    "overflowedHint": "有一块内容比一页还高、又切不开，那一页会被撑高 —— 实际页数可能比这里多。"
   },
   "settings": {
     "autoSave": {

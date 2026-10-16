@@ -34,9 +34,17 @@ interface PdfExportPanelProps {
   /** 已经渲染好的正文 HTML（预览区抠出来的，或 Markdown 转的）。 */
   bodyHtml: string;
   onClose: () => void;
+  /**
+   * 顶上给标题栏让出多少像素（默认 44 = 主窗口的 `h-11`）。
+   *
+   * ⚠️ **必须让**：主窗口是 `decorations: false`，那一条就是**拖拽窗口的手柄**。
+   * 面板铺满整个窗口的话，标题栏被盖住 —— 用户的第一反应是「窗口拖不动了」。
+   * （踩过。）
+   */
+  topInset?: number;
 }
 
-export function PdfExportPanel({ title, bodyHtml, onClose }: PdfExportPanelProps) {
+export function PdfExportPanel({ title, bodyHtml, onClose, topInset = 44 }: PdfExportPanelProps) {
   const { t } = useTranslation();
   const [settings, setSettings] = useState<PdfExportSettings>(() => {
     const remembered = loadPdfSettings();
@@ -46,6 +54,8 @@ export function PdfExportPanel({ title, bodyHtml, onClose }: PdfExportPanelProps
       : { ...remembered, headerTitle: title };
   });
   const [busy, setBusy] = useState(false);
+  /** 分页结果：给用户看「共几页」，以及「有块切不开」的提醒。 */
+  const [pageInfo, setPageInfo] = useState({ pages: 1, overflowed: false });
 
   const previewRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<PrintView | null>(null);
@@ -54,7 +64,11 @@ export function PdfExportPanel({ title, bodyHtml, onClose }: PdfExportPanelProps
   useEffect(() => {
     const parent = previewRef.current;
     if (!parent) return;
-    const view = mountPrintView(title, bodyHtml, settings, { parent, embedded: true });
+    const view = mountPrintView(title, bodyHtml, settings, {
+      parent,
+      embedded: true,
+      topInset,
+    });
     viewRef.current = view;
     return () => {
       view.cleanup();
@@ -62,12 +76,37 @@ export function PdfExportPanel({ title, bodyHtml, onClose }: PdfExportPanelProps
     };
     // 只在开面板时摆一次：`settings` 的后续变化走下面那个 effect 的 `update`。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, bodyHtml]);
+  }, [title, bodyHtml, topInset]);
 
+  /**
+   * 设置一变就重排。
+   *
+   * **要防抖**：拖一下边距数字、点两下缩放，每次重排都要把整篇 HTML 重新解析 + 逐块测量，
+   * 长文档上那就是几百毫秒一次的卡顿。150ms 足够让人「停下来」。
+   */
   useEffect(() => {
-    viewRef.current?.update(settings);
-    savePdfSettings(settings);
+    const timer = setTimeout(() => {
+      const view = viewRef.current;
+      if (!view) return;
+      view.update(settings);
+      setPageInfo({ pages: view.pageCount(), overflowed: view.overflowed() });
+      savePdfSettings(settings);
+    }, 150);
+    return () => clearTimeout(timer);
   }, [settings]);
+
+  // 第一次量完还会在「字体与图就位」之后再量一遍（见 printView 的说明），页数可能变，
+  // 所以延迟再读一次。
+  useEffect(() => {
+    const read = () => {
+      const view = viewRef.current;
+      if (view) setPageInfo({ pages: view.pageCount(), overflowed: view.overflowed() });
+    };
+    read();
+    const timer = setTimeout(read, 1200);
+    void viewRef.current?.settled.then(read);
+    return () => clearTimeout(timer);
+  }, []);
 
   const patch = useCallback((next: Partial<PdfExportSettings>) => {
     setSettings((current) => normalizePdfSettings({ ...current, ...next }));
@@ -89,6 +128,8 @@ export function PdfExportPanel({ title, bodyHtml, onClose }: PdfExportPanelProps
       // 到这里才动 DOM：用户取消对话框的话，界面不该有任何变化。
       view.toSheet();
       moved = true;
+      // 等那一次「字体就位后的重排」落地，不然印出来的可能是用替身字体量的那一版。
+      await view.settled;
       await waitForPrintable(view.element);
       await printPdf(path, settings);
       showToast(t("pdfExport.saved", { path, defaultValue: "已保存到 {{path}}" }));
@@ -113,6 +154,7 @@ export function PdfExportPanel({ title, bodyHtml, onClose }: PdfExportPanelProps
     setBusy(true);
     try {
       view.toSheet();
+      await view.settled;
       await waitForPrintable(view.element);
       // ⚠️ 放回面板要等**打完**再说：`window.print()` 在不同版本上有的同步有的异步，
       // 抢在它前面把纸挪走，印出来的就是半截文档。`afterprint` 是准的，那个 60 秒的
@@ -138,10 +180,26 @@ export function PdfExportPanel({ title, bodyHtml, onClose }: PdfExportPanelProps
   }, [busy, onClose]);
 
   return (
-    <div className="fixed inset-0 z-[9500] flex flex-col bg-ink/25 backdrop-blur-[2px]">
+    <div
+      className="fixed left-0 right-0 bottom-0 z-[9500] flex flex-col bg-ink/25 backdrop-blur-[2px]"
+      style={{ top: topInset }}
+    >
       <div className="flex items-center gap-3 h-12 px-4 shrink-0 bg-cloud/95 border-b border-paper-deep/50">
         <span className="text-[13px] text-ink">{t("pdfExport.title", { defaultValue: "导出 PDF" })}</span>
         <span className="text-[11px] text-ink-ghost truncate">{title}</span>
+        <span className="text-[11px] text-ink-ghost">
+          {t("pdfExport.pageCount", { count: pageInfo.pages, defaultValue: "共 {{count}} 页" })}
+        </span>
+        {pageInfo.overflowed ? (
+          <span
+            className="text-[11px] text-rust"
+            title={t("pdfExport.overflowedHint", {
+              defaultValue: "有一块内容比一页还高、又切不开，那一页会被撑高 —— 实际页数可能比这里多。",
+            })}
+          >
+            {t("pdfExport.overflowed", { defaultValue: "有内容超出一页" })}
+          </span>
+        ) : null}
         <span className="flex-1" />
         <span className="text-[11px] text-ink-ghost">
           {busy ? t("pdfExport.saving", { defaultValue: "正在生成…" }) : ""}

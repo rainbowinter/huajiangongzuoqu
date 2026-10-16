@@ -61,6 +61,8 @@ export async function exportNoteAsPdf(input: PdfExportInput): Promise<boolean> {
   const bodyHtml = await buildPrintBody(input);
   const view = mountPrintView(input.title, bodyHtml, settings);
   try {
+    // 先等它自己把「字体与图就位之后的第二版排版」排完，再等一遍资源，然后才写文件。
+    await view.settled;
     await waitForPrintable(view.element);
     await printPdf(path, settings);
   } finally {
@@ -81,6 +83,7 @@ export async function printNoteWithSystemPrinter(input: PdfExportInput): Promise
   const bodyHtml = await buildPrintBody(input);
   const view = mountPrintView(input.title, bodyHtml, settings);
   try {
+    await view.settled;
     await waitForPrintable(view.element);
     window.print();
   } finally {

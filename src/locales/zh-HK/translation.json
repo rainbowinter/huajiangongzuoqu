@@ -257,7 +257,10 @@
     "systemPrinter": "用系統印表機…",
     "saving": "正在生成…",
     "saved": "已儲存到 {{path}}",
-    "failed": "匯出失敗：{{message}}"
+    "failed": "匯出失敗：{{message}}",
+    "pageCount": "共 {{count}} 頁",
+    "overflowed": "有內容超出一頁",
+    "overflowedHint": "有一塊內容比一頁還高、又切不開，那一頁會被撐高 —— 實際頁數可能比這裡多。"
   },
   "settings": {
     "autoSave": {
