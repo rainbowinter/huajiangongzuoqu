@@ -260,7 +260,8 @@
     "failed": "匯出失敗：{{message}}",
     "pageCount": "共 {{count}} 頁",
     "overflowed": "有內容超出一頁",
-    "overflowedHint": "有一塊內容比一頁還高、又切不開，那一頁會被撐高 —— 實際頁數可能比這裡多。"
+    "overflowedHint": "有一塊內容比一頁還高、又切不開，那一頁會被撐高 —— 實際頁數可能比這裡多。",
+    "zoomHint": "Ctrl + 滾輪縮放預覽，點一下復位"
   },
   "settings": {
     "autoSave": {

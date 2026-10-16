@@ -264,7 +264,8 @@
     "failed": "导出失败：{{message}}",
     "pageCount": "共 {{count}} 页",
     "overflowed": "有内容超出一页",
-    "overflowedHint": "有一块内容比一页还高、又切不开，那一页会被撑高 —— 实际页数可能比这里多。"
+    "overflowedHint": "有一块内容比一页还高、又切不开，那一页会被撑高 —— 实际页数可能比这里多。",
+    "zoomHint": "Ctrl + 滚轮缩放预览，点一下复位"
   },
   "settings": {
     "autoSave": {

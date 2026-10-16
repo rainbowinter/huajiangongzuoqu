@@ -260,7 +260,8 @@
     "failed": "Export failed: {{message}}",
     "pageCount": "{{count}} pages",
     "overflowed": "A block exceeds one page",
-    "overflowedHint": "One block is taller than a page and cannot be split, so that page is stretched — the real page count may be higher."
+    "overflowedHint": "One block is taller than a page and cannot be split, so that page is stretched — the real page count may be higher.",
+    "zoomHint": "Ctrl + wheel to zoom the preview; click to reset"
   },
   "settings": {
     "autoSave": {

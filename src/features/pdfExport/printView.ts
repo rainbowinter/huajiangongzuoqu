@@ -77,6 +77,12 @@ const SCREEN_CSS = `
   /* 纸的底色跟着主题走（「原样」档）；白底 / 黑白两档由 PAPER_CSS 把变量钉成白色。 */
   background: var(--color-paper, #ffffff);
 }
+/*
+ * 预览里给**版心**描一圈极淡的虚线：打印时内容正好到这儿为止，光看白纸「怼到头」很别扭，
+ * 有条线就知道边界在哪。打印时不要（PRINT_CSS 里关掉）。
+ */
+.${FRAME_CLASS} .floral-page { outline: 1px dashed rgb(0 0 0 / 0.10); outline-offset: 0; }
+
 /* 预览里的页眉页脚：真打出来时那两行是 WebView2 画的，位置样式只能近似。 */
 .${FRAME_CLASS} .floral-sheet-margin {
   position: absolute;
@@ -139,6 +145,8 @@ const PRINT_CSS = `
   .${FRAME_CLASS}:last-child { break-after: auto; page-break-after: auto; }
   /* 页眉页脚由 WebView2 在可打印区外面画，预览里那一份别跟着印进去。 */
   .${FRAME_CLASS} .floral-sheet-margin { display: none !important; }
+  /* 版心那圈虚线是给人看的，别印进 PDF。 */
+  .${FRAME_CLASS} .floral-page { outline: none !important; }
 }
 `;
 
@@ -481,16 +489,18 @@ export function mountPrintView(
     sheets.forEach((sheet, index) => {
       const head = sheet.querySelector<HTMLElement>(".floral-sheet-head");
       const foot = sheet.querySelector<HTMLElement>(".floral-sheet-foot");
+      // 页眉：只在左上角写标题（Chromium 那条页眉也是这么排的）。
       if (head) {
         head.append(document.createTextNode(next.headerFooter ? next.headerTitle : ""));
-        const pageLabel = document.createElement("span");
-        pageLabel.textContent = `${index + 1} / ${sheets.length}`;
-        head.append(pageLabel);
       }
+      // 页脚：左边页脚文字、右边页码 —— 那个 `1 / 3` 原本在两个地方都出现，看着像印重了。
       if (foot) {
         foot.append(document.createTextNode(next.headerFooter ? next.footerText : ""));
         const number = document.createElement("span");
-        number.textContent = `${index + 1} / ${sheets.length}`;
+        number.textContent = next.headerFooter ? `${index + 1} / ${sheets.length}` : "";
+        // 页脚文字为空时 `space-between` 会把它顶到左边（只有一个弹性项）——
+        // 页码固定在右下角，与打印出来的一致。
+        number.style.marginLeft = "auto";
         foot.append(number);
       }
     });

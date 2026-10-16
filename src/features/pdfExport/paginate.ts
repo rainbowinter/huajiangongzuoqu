@@ -143,27 +143,32 @@ export function paginate(
       continue;
     }
 
-    if (current.content.childNodes.length === 1) {
-      // 一页只装它一个还放不下 —— 切开，尾巴留给下一页。
-      const rest = splitOverflow(current, node);
-      if (rest) {
-        pending[0] = rest;
-        newPage();
-        continue;
-      }
-      // 切不开（一张特别高的图之类）：**让它溢出**。内容比整齐重要 ——
-      // 裁掉用户的字是不可接受的。
-      overflowed = true;
-      current.box.style.height = "auto";
-      current.box.style.minHeight = `${contentBox(metrics).height}mm`;
-      current.box.style.overflow = "visible";
-      pending.shift();
+    pending.shift();
+
+    // 放不下就**就地切开**：能放下的那半留在本页，剩下的一半去下一页。
+    // ⚠️ 早先只有「这页上只有它」时才切 —— 于是标题后面接一张大表格时，整张表被推到
+    // 下一页，第一页只剩标题加一大片空白（用户一眼就看出来了）。
+    const rest = splitOverflow(current, node);
+    if (rest) {
+      pending.unshift(rest);
       newPage();
       continue;
     }
 
-    // 这页上还有别的东西：把它挪到下一页。
+    if (current.content.childNodes.length === 1) {
+      // 只有它一个、又切不开（一张特别高的图之类）：**让它溢出**。
+      // 内容比整齐重要 —— 裁掉用户的字是不可接受的。
+      overflowed = true;
+      current.box.style.height = "auto";
+      current.box.style.minHeight = `${contentBox(metrics).height}mm`;
+      current.box.style.overflow = "visible";
+      newPage();
+      continue;
+    }
+
+    // 切不动、而且这页上还有别的东西：整块挪到下一页去。
     node.remove();
+    pending.unshift(node);
     newPage();
   }
 
@@ -182,8 +187,47 @@ function splitOverflow(page: PageBox, node: ChildNode): ChildNode | null {
   if (node.nodeType !== Node.ELEMENT_NODE) return null;
   const block = node as HTMLElement;
 
-  if (block.tagName.toLowerCase() === "table") return splitTable(page, block);
+  const table = tableIn(block);
+  if (table) return splitTable(page, block, table);
+
   return splitByLine(page, block);
+}
+
+interface TableInBlock {
+  table: HTMLTableElement;
+  /** 从 `block` 往下到 `table` 之间的那几层（克隆续页那一半时要照着套回去）。 */
+  wrappers: HTMLElement[];
+}
+
+/**
+ * 找出这个块里那张表格。
+ *
+ * ⚠️ **表格几乎不会直接是顶层块**：Markdown 预览把它包在
+ * `<div class="my-3 relative group"><div class="overflow-x-auto"><table>…` 里（那个外层是
+ * 复制按钮的定位容器）。只看顶层节点的 `tagName === "table"` 的话，一张大表格会被当成
+ * 「切不动的 div」—— 表现就是**表格在页面底部被生生截断**（用户截图里的样子）。
+ *
+ * 所以往下找，但只认「这个块基本上就是那张表」的情况：块里有且只有一张表，
+ * 且它占了块高度的一大半。别的都不碰 —— 宁可整块挪页，也别把一个复杂的块切坏。
+ */
+function tableIn(block: HTMLElement): TableInBlock | null {
+  if (block.tagName.toLowerCase() === "table") {
+    return { table: block as HTMLTableElement, wrappers: [] };
+  }
+
+  const tables = block.querySelectorAll("table");
+  if (tables.length !== 1) return null;
+  const table = tables[0] as HTMLTableElement;
+
+  const blockRect = block.getBoundingClientRect();
+  const tableRect = table.getBoundingClientRect();
+  if (blockRect.height <= 0 || tableRect.height < blockRect.height * 0.5) return null;
+
+  const wrappers: HTMLElement[] = [];
+  for (let el = table.parentElement; el && el !== block; el = el.parentElement) {
+    wrappers.unshift(el);
+  }
+  return { table, wrappers };
 }
 
 /**
@@ -191,19 +235,13 @@ function splitOverflow(page: PageBox, node: ChildNode): ChildNode | null {
  *
  * 表头（`<thead>`）在每一页都要重画一遍 —— 不然第二页开始的数字没有列名，没法看。
  */
-function splitTable(page: PageBox, table: HTMLElement): HTMLElement | null {
-  // `HTMLTableElement` 才有 `tBodies` / `tHead`；这里拿到的是泛化的 `HTMLElement`。
-  const element = table as HTMLTableElement;
-  const body = element.tBodies[0];
+function splitTable(page: PageBox, block: HTMLElement, found: TableInBlock): HTMLElement | null {
+  const { table, wrappers } = found;
+  const body = table.tBodies[0];
   if (!body) return null;
 
   const rows = [...body.rows];
   if (rows.length < 2) return null;
-
-  const rest = table.cloneNode(false) as HTMLElement;
-  if (element.tHead) rest.append(element.tHead.cloneNode(true));
-  const restBody = document.createElement("tbody");
-  rest.append(restBody);
 
   // 从最后一行往前搬，直搬到这页不再溢出。
   // ⚠️ 每搬一行都要**真的从 DOM 里拿掉**（`row.remove()`）—— 只是收进数组的话，
@@ -217,7 +255,21 @@ function splitTable(page: PageBox, table: HTMLElement): HTMLElement | null {
   }
   if (moved.length === 0) return null;
 
+  // 续页那一半：一张新表（表头照着克隆一份，不然第二页开始的数字没有列名），
+  // 外面照原样套回那几层包装 —— 少了它们，表格的宽度与样式会跟前半截不一样。
+  const restTable = table.cloneNode(false) as HTMLTableElement;
+  if (table.tHead) restTable.append(table.tHead.cloneNode(true));
+  const restBody = document.createElement("tbody");
+  restTable.append(restBody);
   for (const row of moved) restBody.append(row);
+
+  let rest: HTMLElement = restTable;
+  for (let index = wrappers.length - 1; index >= 0; index -= 1) {
+    const clone = wrappers[index].cloneNode(false) as HTMLElement;
+    clone.append(rest);
+    rest = clone;
+  }
+  void block;
   return rest;
 }
 

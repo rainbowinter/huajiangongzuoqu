@@ -56,6 +56,13 @@ export function PdfExportPanel({ title, bodyHtml, onClose, topInset = 44 }: PdfE
   const [busy, setBusy] = useState(false);
   /** 分页结果：给用户看「共几页」，以及「有块切不开」的提醒。 */
   const [pageInfo, setPageInfo] = useState({ pages: 1, overflowed: false });
+  /**
+   * 预览的缩放（只影响**眼睛**，不影响产出）。
+   *
+   * 与设置里的「缩放」是两回事：那个是打印出来的字号，这个纯粹是把纸拉近拉远看细节。
+   * Ctrl + 滚轮调它 —— 和浏览器/编辑器里的习惯一致。
+   */
+  const [previewZoom, setPreviewZoom] = useState(1);
 
   const previewRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<PrintView | null>(null);
@@ -171,6 +178,26 @@ export function PdfExportPanel({ title, bodyHtml, onClose, topInset = 44 }: PdfE
     }
   }, []);
 
+  /**
+   * Ctrl + 滚轮缩放预览。
+   *
+   * ⚠️ 必须用**原生**监听 + `{ passive: false }`：React 的 `onWheel` 挂在被动监听上，
+   * 里面 `preventDefault()` 是无效的 —— 结果是既缩放了预览、又把整个 WebView 的页面
+   * 缩放也一起改了。
+   */
+  useEffect(() => {
+    const node = previewRef.current;
+    if (!node) return;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
+      setPreviewZoom((current) => Math.min(2, Math.max(0.4, current * factor)));
+    };
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => node.removeEventListener("wheel", onWheel);
+  }, []);
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !busy) onClose();
@@ -187,19 +214,6 @@ export function PdfExportPanel({ title, bodyHtml, onClose, topInset = 44 }: PdfE
       <div className="flex items-center gap-3 h-12 px-4 shrink-0 bg-cloud/95 border-b border-paper-deep/50">
         <span className="text-[13px] text-ink">{t("pdfExport.title", { defaultValue: "导出 PDF" })}</span>
         <span className="text-[11px] text-ink-ghost truncate">{title}</span>
-        <span className="text-[11px] text-ink-ghost">
-          {t("pdfExport.pageCount", { count: pageInfo.pages, defaultValue: "共 {{count}} 页" })}
-        </span>
-        {pageInfo.overflowed ? (
-          <span
-            className="text-[11px] text-rust"
-            title={t("pdfExport.overflowedHint", {
-              defaultValue: "有一块内容比一页还高、又切不开，那一页会被撑高 —— 实际页数可能比这里多。",
-            })}
-          >
-            {t("pdfExport.overflowed", { defaultValue: "有内容超出一页" })}
-          </span>
-        ) : null}
         <span className="flex-1" />
         <span className="text-[11px] text-ink-ghost">
           {busy ? t("pdfExport.saving", { defaultValue: "正在生成…" }) : ""}
@@ -231,21 +245,8 @@ export function PdfExportPanel({ title, bodyHtml, onClose, topInset = 44 }: PdfE
       </div>
 
       <div className="flex flex-1 min-h-0">
-        <div className="flex-1 min-w-0 flex flex-col">
-          <div className="flex items-center gap-2 px-4 py-1.5 text-[10px] text-white/70 bg-[#5f5d59]">
-            <span className="uppercase tracking-wide">
-              {t("pdfExport.preview", { defaultValue: "预览" })}
-            </span>
-            <span className="opacity-80">
-              {t("pdfExport.previewNote", {
-                defaultValue: "分页线是按纸张高度估的，真正的分页等生成时才定。",
-              })}
-            </span>
-          </div>
-          <div ref={previewRef} className="flex-1 min-h-0 overflow-auto bg-[#6f6d68] p-6" />
-        </div>
-
-        <aside className="w-[252px] shrink-0 overflow-y-auto bg-cloud/95 border-l border-paper-deep/50 px-4 py-3">
+        {/* 设置在**左**边（用户的习惯），预览在右。 */}
+        <aside className="w-[252px] shrink-0 overflow-y-auto bg-cloud/95 border-r border-paper-deep/50 px-4 py-3">
           <Section title={t("pdfExport.scale", { defaultValue: "缩放" })}>
             <div className="flex flex-wrap gap-1">
               {SCALE_CHOICES.map((choice) => (
@@ -390,6 +391,40 @@ export function PdfExportPanel({ title, bodyHtml, onClose, topInset = 44 }: PdfE
             </div>
           </Section>
         </aside>
+
+        <div className="flex-1 min-w-0 flex flex-col">
+          <div
+            ref={previewRef}
+            className="flex-1 min-h-0 overflow-auto bg-[#6f6d68] p-6"
+            style={{ zoom: previewZoom }}
+          />
+        </div>
+      </div>
+
+      {/* 底部状态条：像正文下面那条一样，别让预览直接怼到窗口边上。 */}
+      <div className="flex items-center gap-3 h-7 px-4 shrink-0 bg-cloud/95 border-t border-paper-deep/50 text-[10px] text-ink-ghost">
+        <span>
+          {t("pdfExport.pageCount", { count: pageInfo.pages, defaultValue: "共 {{count}} 页" })}
+        </span>
+        <button
+          type="button"
+          onClick={() => setPreviewZoom(1)}
+          title={t("pdfExport.zoomHint", { defaultValue: "Ctrl + 滚轮缩放预览，点一下复位" })}
+          className="cursor-pointer hover:text-ink-soft tabular-nums"
+        >
+          {Math.round(previewZoom * 100)}%
+        </button>
+        <span className="flex-1" />
+        {pageInfo.overflowed ? (
+          <span className="text-rust">
+            {t("pdfExport.overflowed", { defaultValue: "有内容超出一页" })}
+          </span>
+        ) : null}
+        <span className="opacity-70">
+          {t("pdfExport.previewNote", {
+            defaultValue: "预览就是产出的样子；改设置会立刻重排。",
+          })}
+        </span>
       </div>
     </div>
   );
