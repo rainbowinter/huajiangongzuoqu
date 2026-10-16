@@ -1,6 +1,6 @@
 {
   "name": "note-stats",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "apiVersion": 2,
   "main": "index.js",
   "description": "演示事件总线与插件级持久化：记录本次会话的笔记变化次数并跨重启保留",

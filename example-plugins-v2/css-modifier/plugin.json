@@ -1,6 +1,6 @@
 {
   "name": "css-modifier",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "apiVersion": 2,
   "main": "index.js",
   "description": "单篇笔记的附加样式：笔记 front-matter 写 css: 名字，就把 styles/ 下的样式表注入当前窗口。全局样式已改由宿主接管（右侧栏「样式」面板）",

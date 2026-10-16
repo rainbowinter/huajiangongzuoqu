@@ -1,11 +1,24 @@
 {
   "schema": 1,
-  "catalogVersion": 14,
+  "catalogVersion": 26,
   "plugins": [
     {
       "name": "color-swatches",
       "description": "颜色块：代码文件里每个颜色字面量前显示一个小色块，点它直接开系统取色器换色",
       "releases": [
+        {
+          "version": "1.0.2",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-color-swatches-v1.0.2/color-swatches-1.0.2.zip",
+          "sha256": "56ecb6b184c3355225cac09480fdc8dbdf07c60fff5ac0ecb380e429935a1947",
+          "size": 6043,
+          "permissions": [
+            "ui:decorations",
+            "editor:write"
+          ],
+          "notes": "补上插件说明（README），市场里的「详细信息」现在有内容了",
+          "publishedAt": "2026-10-16T08:50:27Z"
+        },
         {
           "version": "1.0.1",
           "apiVersion": 2,
@@ -20,12 +33,33 @@
         }
       ],
       "author": "花笺",
-      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNjMjY5MmUiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxjaXJjbGUgY3g9IjkiIGN5PSI5LjUiIHI9IjMuNiIgc3Ryb2tlLXdpZHRoPSIxLjYiIC8+CiAgPGNpcmNsZSBjeD0iMTUiIGN5PSI5LjUiIHI9IjMuNiIgc3Ryb2tlLXdpZHRoPSIxLjYiIC8+CiAgPGNpcmNsZSBjeD0iMTIiIGN5PSIxNSIgcj0iMy42IiBzdHJva2Utd2lkdGg9IjEuNiIgLz4KPC9zdmc+Cg=="
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNjMjY5MmUiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxjaXJjbGUgY3g9IjkiIGN5PSI5LjUiIHI9IjMuNiIgc3Ryb2tlLXdpZHRoPSIxLjYiIC8+CiAgPGNpcmNsZSBjeD0iMTUiIGN5PSI5LjUiIHI9IjMuNiIgc3Ryb2tlLXdpZHRoPSIxLjYiIC8+CiAgPGNpcmNsZSBjeD0iMTIiIGN5PSIxNSIgcj0iMy42IiBzdHJva2Utd2lkdGg9IjEuNiIgLz4KPC9zdmc+Cg==",
+      "readme": "# 颜色块\n\n代码文件里每个颜色字面量前面浮着一个小色块，点它直接开系统取色器，选完把原来的颜色换掉。\n\n## 用它\n\n打开任意一个**代码文件**（`.css` / `.js` / `.py`…），凡是写着颜色的地方，左边就有个小色块：\n\n```css\n.title {\n  color: #ffd400;              /* ← 这一行前面有一个黄色的小方块 */\n  background: rgba(0, 0, 0, .5);\n}\n```\n\n* **点一下色块** → 弹出系统调色盘，选一个颜色，正文里的那个字面量当场被替换；\n* **带透明度的保住透明度**：原来是 `rgba(...)` / `hsla(...)` 的话，换完还是 `rgba(...)`，\n  而且 alpha **原样**带回去 —— `.25` 还是 `.25`，`50%` 还是 `50%`。\n  （取色器本身只能表达不透明色，直接写 `#rrggbb` 会把半透明黑变成实心黑。）\n* **不带透明度的**统一折成六位 `#rrggbb`：`#fff` 会变成 `#ffffff`，\n  `hsl(0 0% 0%)` 会变成 `#000000`。\n\n认这三种写法：`#` 十六进制（3 / **4** / 6 / **8** 位都行）、`rgb()` / `rgba()`、`hsl()` / `hsla()`。\n\n**只对代码文件生效**（`.css` / `.js` / `.py`…）。笔记与 Markdown 里出现 `#fff` 多半是正文内容\n而不是颜色声明，标上色块只会碍事。\n\n**注释里的颜色不标。** 扫一遍 `App.css` 就知道，注释里满屏都是「曾经的」颜色，\n全标上色块既吵又容易点错 —— 所以 `/* … */` 与 `// …` 里的都不算。\n（URL 里的 `https://` 不会被当成注释开头。）\n\n## 它要的权限\n\n| 权限 | 为什么 |\n|---|---|\n| `ui:decorations` | 往正文某个位置叠一个小控件（就是那个色块） |\n| `editor:write` | 换色时改写正文 |\n\n色块的位置是**宿主**量的 —— 插件跑在沙箱里，没有 DOM，量不出某个字符在屏幕上落在哪儿。\n插件只回答「第几个字符起、多长、什么颜色」，排版归宿主。\n\n## 还没做的\n\n* 不认 CSS 的**命名色**（`tomato`、`rebeccapurple`），也不认 `color()` / `lab()` 这类新写法。\n* 只有取色器，没有「最近用过的颜色」。\n* 只改颜色本身：想换个写法（`#fff` → `#ffffff`）得自己动手。"
     },
     {
       "name": "css-modifier",
       "description": "单篇笔记的附加样式：笔记 front-matter 写 css: 名字，就把 styles/ 下的样式表注入当前窗口。全局样式已改由宿主接管（右侧栏「样式」面板）",
       "releases": [
+        {
+          "version": "1.2.1",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-css-modifier-v1.2.1/css-modifier-1.2.1.zip",
+          "sha256": "eb9b9ad98711ffc0a816b93957cedec7852d033bfc335757e8991761374527e8",
+          "size": 8011,
+          "permissions": [
+            "ui:style",
+            "ui:panel",
+            "ui:command",
+            "ui:toast",
+            "ui:row-action",
+            "workspace:folders",
+            "editor:read",
+            "events",
+            "settings"
+          ],
+          "notes": "补上插件说明（README），市场里的「详细信息」现在有内容了",
+          "publishedAt": "2026-10-16T08:50:39Z"
+        },
         {
           "version": "1.2.0",
           "apiVersion": 2,
@@ -46,12 +80,25 @@
           "publishedAt": "2026-10-16T08:28:51Z"
         }
       ],
-      "author": "花笺"
+      "author": "花笺",
+      "readme": "# 单篇笔记的附加样式\n\n给**某一篇笔记**挂一份 CSS，只有那一篇用得上。\n\n## 用它\n\n1. 把 `.css` 放进这个插件的 `styles/` 目录\n   （插件面板 → 打开插件文件夹 → `css-modifier/styles/`）；\n2. 在**那一篇笔记**的最开头写：\n\n   ```markdown\n   ---\n   css: 样式表名\n   ---\n   ```\n\n   字段名可以改（下面那条设置），默认 `css`；`.css` 后缀写不写都行；\n3. 保存即可 —— 那篇笔记立刻套上这份样式，**别的笔记一点不受影响**。\n\n字段名在「设置 → 插件 → css-modifier」里改，默认是 `css`。\n\n面板上还有一颗**「打开样式工作区」**：它把数据目录下的 `styles/` 文件夹加进左侧工作区\n并跳过去 —— 那儿放的是**全局**样式表，省得你去文件管理器里翻。\n\n> **想改整个界面，不是这里。** 全局样式表在数据目录的 `styles/` 下，入口是右侧栏的\n> **「样式」面板**：`custom.css` 永远生效，同目录里**别的** `.css` 默认不生效 ——\n> 在那儿把它们开成全局，或者挂到某一个打开的文件上。\n\n## 它要的权限\n\n| 权限 | 为什么 |\n|---|---|\n| `ui:style` | 把那一段 CSS 注入当前窗口 |\n| `ui:panel` | 右侧栏里那个面板 |\n| `ui:command` | 「重新读取笔记附加样式」这条命令 |\n| `ui:toast` | 读不到样式表时提示你 |\n| `ui:row-action` | 插件列表里本插件那一行的「打开样式工作区」按钮 |\n| `workspace:folders` | 把数据目录下的 `styles/` 加进工作区 |\n| `editor:read` | 读笔记开头的 front-matter |\n| `events` | 笔记打开、内容变化时重新套用 |\n| `settings` | 读「字段名」这条设置 |\n\n样式是**窗口粒度**的：主窗口、小窗、磁贴各有一份运行时，各自注入。\n\n## 还没做的\n\n* 一篇笔记只能挂**一份**样式表（想要叠加，自己在那一份里 `@import` 是不行的 ——\n  注进来的是文本不是 URL，得把那几段直接写在一起）。\n* 用**外部编辑器**改 `styles/` 里的文件不会自动重读：只有在花笺里保存才会。\n  那种情况点面板上的「重新读取」。\n* front-matter 只认平铺的 `key: value`，不解析嵌套与列表。"
     },
     {
       "name": "file-reader",
       "description": "文件读取器：让工作文件夹能识别常见代码、文本、表格与图片格式，并按格式着色",
       "releases": [
+        {
+          "version": "1.0.2",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-file-reader-v1.0.2/file-reader-1.0.2.zip",
+          "sha256": "0d4e669cfc4c12c5c97dde3434b5b29621d3fc9b1a29880c6aaf0b89fb1e3ca0",
+          "size": 5345,
+          "permissions": [
+            "files:register"
+          ],
+          "notes": "补上插件说明（README），市场里的「详细信息」现在有内容了",
+          "publishedAt": "2026-10-16T08:50:47Z"
+        },
         {
           "version": "1.0.1",
           "apiVersion": 2,
@@ -65,12 +112,23 @@
         }
       ],
       "author": "花笺",
-      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM3YTRmYTAiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik02LjUgMy41aDdMMTggOHYxMi41SDYuNXoiIC8+CiAgPHBhdGggZD0iTTEzLjUgMy41VjhIMTgiIC8+CiAgPHBhdGggZD0iTTkuNSAxMi41aDVNOS41IDE2aDMiIC8+Cjwvc3ZnPgo="
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM3YTRmYTAiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik02LjUgMy41aDdMMTggOHYxMi41SDYuNXoiIC8+CiAgPHBhdGggZD0iTTEzLjUgMy41VjhIMTgiIC8+CiAgPHBhdGggZD0iTTkuNSAxMi41aDVNOS41IDE2aDMiIC8+Cjwvc3ZnPgo=",
+      "readme": "# 文件读取器\n\n让左侧工作文件夹认识三十多种常见格式 —— 不装它的时候，那儿只看得见 `.md`。\n\n## 用它\n\n装上就生效，没有开关。原来不显示的文件会带着**徽章和颜色**出现在侧栏，点开按格式展示：\n\n| 展示方式 | 认这些 | 能改吗 |\n|---|---|---|\n| **代码着色** | js / mjs / cjs / jsx · ts / tsx · py / pyw / pyi · rs · go · java · kt / kts · swift · c / h · cpp / cc / cxx / hpp · cs · rb · php · json · yml / yaml · toml · xml · html / htm · css / less · scss / sass · sql · sh / bash / zsh · ps1 / psm1 | **能编辑，保存写回磁盘** |\n| **纯文本** | txt / text · log · ini · cfg / conf · env · properties | 能编辑 |\n| **Markdown 预览** | markdown / mdx | 能编辑，有预览窗格 |\n| **表格** | csv / tsv | **能编辑**（编辑看原文，预览看表格） |\n| **图片** | png · jpg / jpeg · gif · webp · bmp · ico · avif · svg | 只读 |\n| **音视频** | mp3 · wav · ogg · flac / m4a · mp4 · webm · mov · mkv / avi | 只读 |\n\n每个格式的颜色取的是各语言社区的惯用色（GitHub linguist 那一套）—— 扫一眼卡片就能认出类型，\n不必读文字。\n\n## 它要的权限\n\n| 权限 | 为什么 |\n|---|---|\n| `files:register` | 告诉宿主「这个扩展名是什么、该怎么显示」 |\n\n**它不读任何文件，也拿不到任何路径。** 这个插件只提供「格式知识」：文件夹里有哪些文件、\n内容是什么，全部由宿主提供。所以它既不需要、也得不到任何文件系统权限。\n\n这也正是把「浏览」和「认格式」拆开的好处：不装它，宿主只剩内置的 Markdown 一条规则；\n装上之后侧栏、颜色、徽章、预览方式一次性就位，宿主代码一行没改。\n\n## 还没做的\n\n* **认不出的扩展名不会出现**在侧栏里（比如 `.docx`、`.zip`、`.exe`）—— 不是「点开说暂不支持」，\n  而是压根不列出来。\n* 表格只有「看」的两种方式：预览是解析好的网格，编辑是**原始文本** ——\n  不能点进单元格里改，也不做列宽调整。\n* 高亮用的是内置的那套语言，冷门语言会退化成纯文本 —— 不会报错，只是没颜色。"
     },
     {
       "name": "font-pack",
       "description": "字体包：把 .ttf / .otf / .woff2 丢进 fonts/ 目录，就能在「设置 → 代码字体」里选用",
       "releases": [
+        {
+          "version": "1.0.2",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-font-pack-v1.0.2/font-pack-1.0.2.zip",
+          "sha256": "fc501137610f385b27826a914b39e79a095e8e0193bbc914d49f191ac5cf860d",
+          "size": 4218,
+          "permissions": [],
+          "notes": "补上插件说明（README），市场里的「详细信息」现在有内容了",
+          "publishedAt": "2026-10-16T08:50:55Z"
+        },
         {
           "version": "1.0.1",
           "apiVersion": 2,
@@ -82,12 +140,27 @@
         }
       ],
       "author": "花笺",
-      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMzYTdhNTIiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik02IDE5TDEyIDVsNiAxNCIgLz4KICA8cGF0aCBkPSJNOC42IDE0aDYuOCIgLz4KPC9zdmc+Cg=="
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMzYTdhNTIiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik02IDE5TDEyIDVsNiAxNCIgLz4KICA8cGF0aCBkPSJNOC42IDE0aDYuOCIgLz4KPC9zdmc+Cg==",
+      "readme": "# 字体包\n\n把自己带的字体文件丢进插件的 `fonts/` 目录，它们就会出现在「设置 → 代码字体」里。\n\n## 用它\n\n1. 把 `.ttf` / `.otf` / `.woff2` 复制到本插件的 `fonts/` 目录\n   （插件面板 → 打开插件文件夹 → `font-pack/fonts/`）；\n2. 在插件面板里点一次**「刷新」**（或者重启应用）；\n3. 「设置 → 外观 → 代码字体」里会多出一组**「插件字体」**，选它就行 ——\n   代码编辑器、Markdown 代码块、行内代码一起生效。\n\n族名、字重、字形是**从字体文件内部读出来**的（宿主在 Rust 侧拆开 sfnt 容器读 `name` 与\n`OS/2` 表），正常情况下你什么都不用填。\n\n⚠️ **别指望文件名**：`JetBrainsMono-Regular.ttf` 按驼峰拆出来是「Jet Brains Mono」，\n而字体的真名是「JetBrains Mono」（没有空格）。真正装了文件时读的是真名，\n文件名只在**读不出内部名称**时才当兜底（`.woff` 这种就该注意了）。\n\n## 它要的权限\n\n**一个都不要。** 这个插件只喊一句「我的字体在 `fonts/` 里」：\n\n列目录、把文件变成 WebView 能加载的 URL、拼 `@font-face`、注入样式、登记族名 ——\n全部由宿主完成，回给插件的只有字体**名字**。所以它比 `ui.registerStyle`（那个要\n`ui:style`）的能耐还小：插件塞不进任意 CSS，规则是宿主按**校验过的文件名**生成的。\n\n## 还没做的\n\n* 只能换**代码字体** —— 正文的衬线 / 无衬线字体还不能换。\n* 只认 `.ttf` / `.otf` / `.woff2`。\n* 没有「预览」：选之前看不到这字体长什么样。"
     },
     {
       "name": "insert-timestamp",
       "description": "演示键位绑定与编辑器写入：一个快捷键插入当前时间，一个右键菜单项包裹选中文本",
       "releases": [
+        {
+          "version": "1.0.2",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-insert-timestamp-v1.0.2/insert-timestamp-1.0.2.zip",
+          "sha256": "527ca4a451f7d232346eb6c5231d909091d0e8d24b67afefe6d45f26adb7e4c9",
+          "size": 3582,
+          "permissions": [
+            "ui:command",
+            "ui:menus",
+            "editor:write"
+          ],
+          "notes": "补上插件说明（README），市场里的「详细信息」现在有内容了",
+          "publishedAt": "2026-10-16T08:51:03Z"
+        },
         {
           "version": "1.0.1",
           "apiVersion": 2,
@@ -103,12 +176,28 @@
         }
       ],
       "author": "花笺",
-      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM4YTg4ODAiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxjaXJjbGUgY3g9IjEyIiBjeT0iMTIiIHI9IjgiIC8+CiAgPHBhdGggZD0iTTEyIDcuNVYxMmwzLjQgMiIgLz4KPC9zdmc+Cg=="
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM4YTg4ODAiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxjaXJjbGUgY3g9IjEyIiBjeT0iMTIiIHI9IjgiIC8+CiAgPHBhdGggZD0iTTEyIDcuNVYxMmwzLjQgMiIgLz4KPC9zdmc+Cg==",
+      "readme": "# 插入时间戳\n\n一个快捷键插当前时间，外加两个顺手的编辑动作。\n\n## 用它\n\n| 入口 | 动作 |\n|---|---|\n| **Ctrl+Shift+D** | 在光标处插入当前时间（上下各留一个空行） |\n| 命令面板搜「把选中文本包成行内代码」 | 选中的字前后各加一个反引号 |\n| 编辑器右键菜单 →「把选中内容写入剪贴板式引用」 | 选中的**每一行**前面加 `> ` |\n\n时间格式在「设置 → 插件 → insert-timestamp」里选：\n\n| 选择 | 插入的样子 |\n|---|---|\n| 日期时间（默认） | `2026-10-14 09:30:00` |\n| 只有日期 | `2026-10-14` |\n| ISO | `2026-10-14T09:30:00` |\n\n第三条是给「引用别处一段话」用的 —— 选中三行，得到的是三行 `>` 引用块，\n而不是在整段外面套一对引号。\n\n**快捷键抢不过宿主。** Ctrl+B / Ctrl+I 这类内置的 Markdown 快捷键**先**处理，\n插件的键位只在宿主没处理时才轮到。所以别指望用插件覆盖内置键位（这是有意的，\n不然装一个插件就可能废掉工具栏上的加粗按钮）。\n\n## 它要的权限\n\n| 权限 | 为什么 |\n|---|---|\n| `ui:command` | 注册两条命令（快捷键与命令面板都挂在这上面） |\n| `ui:menus` | 往编辑器右键菜单里加条目 |\n| `editor:write` | 往正文里插字、改选区 |\n\n## 还没做的\n\n* 格式是**固定的三种**，不能自定义（想加 `2026年10月14日` 这种得改插件源码）。\n* 没有「插入当前日期」的独立快捷键 —— 换格式要去设置里改，不能一次按出两种。\n* 只有插入：没有「把选中的日期文本改成别的格式」。"
     },
     {
       "name": "line-numbers",
       "description": "行号：在编辑区左侧标出每一行的行号，随滚动同步，栏宽可调",
       "releases": [
+        {
+          "version": "1.1.2",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-line-numbers-v1.1.2/line-numbers-1.1.2.zip",
+          "sha256": "6e7cb2b00f494d84b0ab1544b96535d398d18ee5baa767c13e1a5f4b82709c86",
+          "size": 4184,
+          "permissions": [
+            "ui:gutter",
+            "editor:read",
+            "events",
+            "settings"
+          ],
+          "notes": "补上插件说明（README），市场里的「详细信息」现在有内容了",
+          "publishedAt": "2026-10-16T08:51:11Z"
+        },
         {
           "version": "1.1.1",
           "apiVersion": 2,
@@ -125,12 +214,25 @@
         }
       ],
       "author": "花笺",
-      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM4YTg4ODAiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik05IDYuNWgxMU05IDEyaDExTTkgMTcuNWg3IiBzdHJva2Utd2lkdGg9IjEuNiIgLz4KICA8cGF0aCBkPSJNNSA1LjV2MTMiIHN0cm9rZS13aWR0aD0iMS4yIiBvcGFjaXR5PSIwLjc1IiAvPgo8L3N2Zz4K"
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM4YTg4ODAiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik05IDYuNWgxMU05IDEyaDExTTkgMTcuNWg3IiBzdHJva2Utd2lkdGg9IjEuNiIgLz4KICA8cGF0aCBkPSJNNSA1LjV2MTMiIHN0cm9rZS13aWR0aD0iMS4yIiBvcGFjaXR5PSIwLjc1IiAvPgo8L3N2Zz4K",
+      "readme": "# 行号\n\n编辑区左边一栏行号，跟着滚动同步。\n\n## 用它\n\n装上就生效。栏宽在「设置 → 插件 → line-numbers」里调，20–120 像素，**改完立刻生效**：\n\n| 值 | 适合 |\n|---|---|\n| 20–30 | 短文、想给正文多留点地方 |\n| **36（默认）** | 一般笔记 |\n| 60–120 | 长文档、或者喜欢对齐着读代码 |\n\n空文档也算一行 —— 刚打开的新笔记会显示一个「1」，而不是空白。\n\n**行号是给眼睛看的，不能点。** 点它不会跳转，也不能选中——想跳到某一行得用编辑器自己的\n滚动条。\n\n## 它要的权限\n\n| 权限 | 为什么 |\n|---|---|\n| `ui:gutter` | 在编辑区左侧加一栏旁注 |\n| `editor:read` | 读正文，数出一共几行 |\n| `events` | 正文变化时重算 |\n| `settings` | 读「栏宽」这条设置 |\n\n**插件只负责算出数字，排版一概不管。** 插件跑在 Worker 里没有 DOM，量不到字体和换行\n—— 一段文字在屏幕上折成三行，行号却只该出现一次。所以这里的分工是**插件出文字、\n宿主出排版**：插件返回一个字符串数组（第 i 项对应第 i 个逻辑行），宿主把每一行的原文\n按与编辑器**完全相同的宽度**再排一遍，行高天然就对上了。\n\n## 还没做的\n\n* **不能点行号跳转**，也不能拖动选择整行。\n* 不做相对行号（`+3` / `-2` 那种），也没有「当前行高亮」——只有数字。\n* 折叠段落之类的不支持：一行就是一行。"
     },
     {
       "name": "markdown-table",
       "description": "把用空格或制表符分隔的文本转换成 Markdown 表格（Ctrl+\\ 触发）",
       "releases": [
+        {
+          "version": "2.0.2",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-markdown-table-v2.0.2/markdown-table-2.0.2.zip",
+          "sha256": "ea099e76652fd8bb32792f7c4aaf58ce9356f30c737d01dfa0421ad474e2e75b",
+          "size": 3708,
+          "permissions": [
+            "editor:read"
+          ],
+          "notes": "补上插件说明（README），市场里的「详细信息」现在有内容了",
+          "publishedAt": "2026-10-16T08:51:18Z"
+        },
         {
           "version": "2.0.1",
           "apiVersion": 2,
@@ -144,12 +246,28 @@
         }
       ],
       "author": "花笺",
-      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMyZjZiOGEiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxyZWN0IHg9IjMiIHk9IjUiIHdpZHRoPSIxOCIgaGVpZ2h0PSIxNCIgcng9IjIiIC8+CiAgPHBhdGggZD0iTTMgOS41aDE4TTMgMTQuNWgxOE05IDV2MTQiIC8+Cjwvc3ZnPgo="
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMyZjZiOGEiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxyZWN0IHg9IjMiIHk9IjUiIHdpZHRoPSIxOCIgaGVpZ2h0PSIxNCIgcng9IjIiIC8+CiAgPHBhdGggZD0iTTMgOS41aDE4TTMgMTQuNWgxOE05IDV2MTQiIC8+Cjwvc3ZnPgo=",
+      "readme": "# 快速表格\n\n选中几行用空格或制表符分开的文字，按 **Ctrl+\\\\**，变成一张 Markdown 表格。\n\n## 用它\n\n从别处粘一段数据进来（Excel、日志、`ls -l` 的输出都行），选中，按 Ctrl+\\\\：\n\n```text\n姓名 年龄 城市\n张三 28   北京\n李四 35   上海\n```\n\n变成：\n\n```markdown\n| 姓名 | 年龄 | 城市 |\n| --- | --- | --- |\n| 张三 | 28 | 北京 |\n| 李四 | 35 | 上海 |\n```\n\n* **第一行当表头**（就是那一行 `---` 分隔线插在它下面）；\n* **列数取最多的那一行**，短的行右边补空单元格 —— 参差不齐的输入不会把表格弄歪；\n* 空行直接忽略。\n\n分隔方式在「设置 → 插件 → markdown-table」里选：\n\n| 选择 | 行为 |\n|---|---|\n| **制表符优先（默认）** | 行里有 Tab 就按 Tab 切（**保留单元格内的空格**）；没有 Tab 才按连续空白切 |\n| 只按空白切分 | 一律按空白切，单元格里放不了空格 |\n\n从 Excel 直接粘过来的正是第一种：列是 Tab 隔的，而单元格里往往带空格。\n\n## 它要的权限\n\n| 权限 | 为什么 |\n|---|---|\n| `editor:read` | 拿到选中的那段文本 |\n\n只有读，**没有写** —— 插件返回一段新文本，替换选区的动作由宿主完成，所以能用原生\n撤销栈撤销（Ctrl+Z 退回原样）。\n\n## 还没做的\n\n* **单元格里的 `|` 不转义**：内容本身带竖线的话，表格会被切乱 —— 得手工改成 `\\|`。\n* **只有一列的选区不转**（返回「我处理不了」）—— 那种情况宿主的表格模板会接手，\n  给你一个空表格。\n* 没有对齐（`:---:`）选项：生成的永远是左对齐的 `---`；想要别的自己在结果上改。\n* 不做反向操作：已经是表格的文本不会变回制表符分隔。"
     },
     {
       "name": "math-symbols",
       "description": "公式面板：结构模板（分式/上下标/矩阵…）+ 分类符号表，点一下插到光标处，模板会顺手把光标送进第一个占位符",
       "releases": [
+        {
+          "version": "1.1.3",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-math-symbols-v1.1.3/math-symbols-1.1.3.zip",
+          "sha256": "db59c723ff26e4c71227ee116303460a597373731d70b3f128b991e6e89f5cc0",
+          "size": 10984,
+          "permissions": [
+            "ui:panel",
+            "ui:style",
+            "editor:write",
+            "settings"
+          ],
+          "notes": "补上插件说明（README），市场里的「详细信息」现在有内容了",
+          "publishedAt": "2026-10-16T08:51:26Z"
+        },
         {
           "version": "1.1.2",
           "apiVersion": 2,
@@ -166,12 +284,28 @@
         }
       ],
       "author": "花笺",
-      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM3YTRmYTAiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik01LjUgOC41aDVNOCA2djUiIC8+CiAgPHBhdGggZD0iTTE0LjUgMTQuNWw0IDRNMTguNSAxNC41bC00IDQiIC8+Cjwvc3ZnPgo="
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM3YTRmYTAiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik01LjUgOC41aDVNOCA2djUiIC8+CiAgPHBhdGggZD0iTTE0LjUgMTQuNWw0IDRNMTguNSAxNC41bC00IDQiIC8+Cjwvc3ZnPgo=",
+      "readme": "# 公式面板\n\n右侧栏里一版 LaTeX 符号表：**结构模板** + 十个分类的符号，点一下插到光标处。\n\n## 用它\n\n打开右侧栏的**「符号」**面板。分两段：\n\n**上面是结构模板**（分式、根号、上下标、求和 / 积分 / 极限、导数偏导、向量与重音符号、\n自适应括号、矩阵、分段函数、多行对齐）。点「分式」插进去的是 `\\frac{}{}`，\n而且**光标会自动落进第一个 `{}`** —— 接着直接打分子就行，不用自己数括号。\n\n**下面是符号表**，十个分类：\n\n小写希腊字母 · 大写希腊字母 · 运算与算术 · 关系与比较 · 集合与逻辑 · 箭头 ·\n大型运算符与微积分 · 括号与定界符 · 数集与花体 · 特殊字符与省略号\n\n**每个格子同时显示字形和 LaTeX 命令** —— 只给字形你不认识，只给命令你不知道是哪个符号，\n两样并排才用得上。鼠标停上去还有完整提示（比如 `\\varepsilon（varepsilon）`）。\n\n关于包裹（「设置 → 插件 → math-symbols」里的**「自动包裹 $…$」**，默认开）：\n\n| 光标在哪 | 点什么 |\n|---|---|\n| 已经在一个 `$…$` 里 | 只插 LaTeX 本身 |\n| 不在数学环境里 | 自动补上 `$…$` 把式子包起来 |\n| 矩阵 / 分段函数这类**独立成段**的模板 | 总是插成 `$$…$$` 块，不受这条设置影响 |\n\n关掉它就永远只插原始 LaTeX —— 你如果本来就习惯自己写 `$$`，关掉更省事。\n\n## 它要的权限\n\n| 权限 | 为什么 |\n|---|---|\n| `ui:panel` | 右侧栏里那个面板 |\n| `ui:style` | 面板的悬停与网格样式（一屏上百个格子没有悬停反馈就没法点） |\n| `editor:write` | 把符号插进正文 |\n\n插入走的是宿主的**可撤销写入**路径，Ctrl+Z 能一步步退回。颜色全部取自主题变量，\n深色 / 浅色主题自动跟着变。\n\n## 还没做的\n\n* **没有搜索框** —— 找冷门符号只能按分类翻。\n* **不依赖 KaTeX**：格子里的字形直接是 Unicode 字符，插件跑在沙箱里没法调渲染器。\n  冷门字符（黑板粗体、花体）在某些字体下可能缺字，是已知的取舍。\n* 符号表是固定的那十类，不能自己加常用符号。\n* 不做 LaTeX 到 Unicode 的反查（不会告诉你这个字符该怎么打）。"
     },
     {
       "name": "note-stats",
       "description": "演示事件总线与插件级持久化：记录本次会话的笔记变化次数并跨重启保留",
       "releases": [
+        {
+          "version": "1.0.2",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-note-stats-v1.0.2/note-stats-1.0.2.zip",
+          "sha256": "2b11ba2bf4e02a230673c9e2dff65752c13636dac47af7782c96d8e90ba7e82a",
+          "size": 3901,
+          "permissions": [
+            "events",
+            "storage",
+            "ui:panel",
+            "ui:toast"
+          ],
+          "notes": "补上插件说明（README），市场里的「详细信息」现在有内容了",
+          "publishedAt": "2026-10-16T08:51:34Z"
+        },
         {
           "version": "1.0.1",
           "apiVersion": 2,
@@ -188,12 +322,26 @@
         }
       ],
       "author": "花笺",
-      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNjMjY5MmUiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik02LjUgMTl2LTZNMTIgMTlWNi41TTE3LjUgMTl2LTkiIHN0cm9rZS13aWR0aD0iMi42IiAvPgo8L3N2Zz4K"
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNjMjY5MmUiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik02LjUgMTl2LTZNMTIgMTlWNi41TTE3LjUgMTl2LTkiIHN0cm9rZS13aWR0aD0iMi42IiAvPgo8L3N2Zz4K",
+      "readme": "# 笔记统计\n\n数一数你改了多少次笔记 —— 本次会话，以及**跨会话累计**。\n\n## 用它\n\n打开右侧栏的**「统计」**面板，两行数字：\n\n| 数字 | 含义 |\n|---|---|\n| 本次会话内容变化 | 从这个窗口打开到现在，正文变了多少次 |\n| 累计（跨会话） | 历史上的总次数，重启应用也在 |\n\n正文每变一次（打字、格式化、粘贴…）两个数都加一。\n\n* **想在任意时刻把这个数存下来**：顶上工具栏里有颗 **「保存统计」**，点一下写盘并弹个提示；\n* 就算不点，**关窗口时也会自动存一次**（插件卸载时统一写一次，比每敲一个字就写盘安静得多）；\n* 「设置 → 插件 → note-stats」里的**「保存时提示」**打开后，每次笔记变化会弹一个\n  Toast —— 默认关着，它主要是用来演示事件总线的。\n\n数字落在**数据目录**的 `plugin-data/note-stats/` 下，**与插件代码分开**：升级插件、\n甚至整个删掉重装插件，这个数都还在。\n\n## 它要的权限\n\n| 权限 | 为什么 |\n|---|---|\n| `events` | 订阅 `editor:contentChanged` / `note:opened` / `note:changed` |\n| `storage` | 把累计数存进插件自己的数据目录 |\n| `ui:panel` | 右侧栏里那个面板 |\n| `ui:toast` | 「已保存」那条提示 |\n\n多窗口要留意：插件**每个窗口各跑一份**，所以同一刻开两个窗口，两边各数各的；\n而存储是**同一只文件**，同时写是「后写覆盖」。这里只在卸载与点按钮时写，\n实际撞不上。\n\n## 还没做的\n\n* 数字**只增不减**，不区分窗口：开两个窗口打字会被算两次。\n* 没有按天 / 按笔记的细账 —— 就只有两个总数。\n* 存的是「变化次数」而不是字数：不记录写了多少字，也不画曲线。"
     },
     {
       "name": "outline",
       "description": "目录导航：扫描标题生成大纲，点击跳转到对应位置",
       "releases": [
+        {
+          "version": "2.1.2",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-outline-v2.1.2/outline-2.1.2.zip",
+          "sha256": "6a9d6b898beab06c5a947c133cdadfdb9fcc423843551b95118bbebf379afd8c",
+          "size": 9936,
+          "permissions": [
+            "ui:panel",
+            "editor:read"
+          ],
+          "notes": "补上插件说明（README），市场里的「详细信息」现在有内容了",
+          "publishedAt": "2026-10-16T08:51:42Z"
+        },
         {
           "version": "2.1.1",
           "apiVersion": 2,
@@ -208,7 +356,8 @@
         }
       ],
       "author": "花笺",
-      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMyZjZiOGEiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik02IDdoMTNNMTAgMTJoOU0xMCAxN2g2IiAvPgogIDxjaXJjbGUgY3g9IjMuNiIgY3k9IjciIHI9IjEiIGZpbGw9IiMyZjZiOGEiIHN0cm9rZT0ibm9uZSIgLz4KICA8Y2lyY2xlIGN4PSI2LjYiIGN5PSIxMiIgcj0iMSIgZmlsbD0iIzJmNmI4YSIgc3Ryb2tlPSJub25lIiAvPgogIDxjaXJjbGUgY3g9IjYuNiIgY3k9IjE3IiByPSIxIiBmaWxsPSIjMmY2YjhhIiBzdHJva2U9Im5vbmUiIC8+Cjwvc3ZnPgo="
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMyZjZiOGEiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik02IDdoMTNNMTAgMTJoOU0xMCAxN2g2IiAvPgogIDxjaXJjbGUgY3g9IjMuNiIgY3k9IjciIHI9IjEiIGZpbGw9IiMyZjZiOGEiIHN0cm9rZT0ibm9uZSIgLz4KICA8Y2lyY2xlIGN4PSI2LjYiIGN5PSIxMiIgcj0iMSIgZmlsbD0iIzJmNmI4YSIgc3Ryb2tlPSJub25lIiAvPgogIDxjaXJjbGUgY3g9IjYuNiIgY3k9IjE3IiByPSIxIiBmaWxsPSIjMmY2YjhhIiBzdHJva2U9Im5vbmUiIC8+Cjwvc3ZnPgo=",
+      "readme": "# 目录\n\n把当前文件的结构列成大纲，点一行跳过去。**代码文件也能用**，不只是 Markdown。\n\n## 用它\n\n打开右侧栏的**「目录」**面板。面板按**当前打开的文件类型**换一套解析规则：\n\n| 文件 | 拿什么当目录 |\n|---|---|\n| 笔记 / `.md` | Markdown 的 `#` 标题，按层级缩进 |\n| `.py` | 行首**缩进**（类 → 方法 → 嵌套函数） |\n| `.js` `.ts` `.jsx` `.tsx` | 花括号深度 + 声明关键字 |\n| `.json` | 键的嵌套路径 |\n| `.css` `.scss` | 规则（选择器）与 `@` 规则，按花括号嵌套 |\n| 其它代码格式 | 通用兜底：一套更宽的关键字 + 花括号深度 |\n| 认不出的格式 | 明说「该格式没有目录」 |\n\n**点一行**：正文滚到那个位置。看 Markdown 时**预览区也跟着滚** —— 两边对得上。\n\n左边那个灰阶小标（`class` / `def` / `fn` / `key` / `@`…）是给扫读用的：\n一列里混着类和函数的时候，一眼就能分出来。\n\n最后那一行「认不出的格式明说没有目录」是**有意的**：拿 Markdown 的规则去扫一个 `.txt`，\n结果永远是「暂无标题」，用户只会以为插件坏了。说不支持，比给个假结果强。\n\n## 它要的权限\n\n| 权限 | 为什么 |\n|---|---|\n| `ui:panel` | 右侧栏里那个面板 |\n| `editor:read` | 读正文来解析 |\n\n**只读**。跳转用的是宿主的滚动接口，不改正文一个字。\n\n点击时它**重新解析一次**当前正文，而不是把位置记在按钮上 —— 从面板画出来到你点下去\n之间，你可能已经改过正文了；重算拿到的才是此刻的位置。\n\n## 还没做的\n\n* **不折叠**：层级是缩进出来的，不能把某一节收起来。\n* **不追踪当前位置**：滚动正文时面板里不会高亮「你在这儿」。\n* 没有点击复制链接 / 复制标题这类动作，点一下就是跳转。\n* `.md` 只认 `#` 标题：不解析 front-matter 里的结构，也不把列表当层级。"
     },
     {
       "name": "pdf-annotations",
@@ -258,6 +407,20 @@
       "description": "工具栏浮层样例：一个按钮 + 下拉面板，两个分类靠「onClick 返回新 HTML」切换",
       "releases": [
         {
+          "version": "1.0.1",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-popover-demo-v1.0.1/popover-demo-1.0.1.zip",
+          "sha256": "e180cc099b39f42ce350015adddf1cff8c3e2cdf12b3f57298d63f514dee0c56",
+          "size": 3720,
+          "permissions": [
+            "ui:popover",
+            "ui:style",
+            "editor:write"
+          ],
+          "notes": "补上插件说明（README），市场里的「详细信息」现在有内容了",
+          "publishedAt": "2026-10-16T08:51:50Z"
+        },
+        {
           "version": "1.0.0",
           "apiVersion": 2,
           "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-popover-demo-v1.0.0/popover-demo-1.0.0.zip",
@@ -271,12 +434,27 @@
           "publishedAt": "2026-10-16T08:30:39Z"
         }
       ],
-      "author": "花笺"
+      "author": "花笺",
+      "readme": "# 浮层样例\n\n工具栏上一颗「☺」按钮，点开是一个分两类的表情 / 符号面板，点格子插进正文。\n\n## 用它\n\n顶上工具栏里点**「☺」**，弹出一个 240px 宽的小面板：\n\n* 两个页签：**表情**（😀 😅 🤔 👍 🎉 ✅ ❌ 🔥）、**标记**（★ ☆ ❤ ⚠ → ← ↑ ↓）；\n* 点任意一个格子 → 插到光标处，面板**不关**，可以连着点好几个；\n* 点面板外面、或者按 Esc 收起。\n\n**这个插件主要是给写插件的人看的。** 它演示 `api.ui.registerPopover` 的三个要点，\n拿它当模板改比自己从零写快：\n\n1. **`render()` 每次点开调一次**，返回下拉里的 HTML；\n2. **`onClick(ref)` 里的 `ref` 是点击落点的描述符**，不是 DOM 节点。点击常常落在格子\n   内部的元素上，所以要用 `ref.closestClass(\"pd-cell\")` **往上找那一层**再取 `data-*`；\n3. **`onClick` 返回字符串时，宿主会把它当成新内容换上** —— 页签切换就是这么实现的\n   （插件在沙箱里自己记住当前是哪一页，不必重新注册）。\n   返回 `undefined` 就是不换内容。\n\n面板 HTML 会经宿主消毒，`data-*` 只放行 `index` / `id` / `key` / `value` 四个键 ——\n所以「当前是哪个页签」只能靠 **class** 表达（`pd-tab-on`），自造的 `data-active`\n会被静默剥掉。\n\n## 它要的权限\n\n| 权限 | 为什么 |\n|---|---|\n| `ui:popover` | 工具栏上的浮层按钮 |\n| `ui:style` | 面板自己的样式（页签与格子的悬停反馈） |\n| `editor:write` | 把选中的符号插进正文 |\n\n颜色用的是主题变量，深色 / 浅色主题自动跟着变。\n\n## 还没做的\n\n* **不能自己加符号** —— 两份清单写在源码里，想改就得改插件。\n* 面板宽度固定 240px，不随内容或窗口变。\n* 只插入，不做「点一下删除刚才那个」。\n* 严格说它不是个实用插件：想要的是**一份能照抄的浮层模板**。"
     },
     {
       "name": "word-count",
       "description": "在状态栏实时显示选中文本的字数",
       "releases": [
+        {
+          "version": "2.0.2",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-word-count-v2.0.2/word-count-2.0.2.zip",
+          "sha256": "010d00a2b07abe1f2b41fc81070d86ce081f42f8529dc64b7affa2b3903c5408",
+          "size": 3097,
+          "permissions": [
+            "ui:statusbar",
+            "editor:read",
+            "settings"
+          ],
+          "notes": "补上插件说明（README），市场里的「详细信息」现在有内容了",
+          "publishedAt": "2026-10-16T08:51:58Z"
+        },
         {
           "version": "2.0.1",
           "apiVersion": 2,
@@ -292,8 +470,9 @@
         }
       ],
       "author": "花笺",
-      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMzYTdhNTIiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxyZWN0IHg9IjMiIHk9IjUiIHdpZHRoPSIxOCIgaGVpZ2h0PSIxNCIgcng9IjMiIC8+CiAgPHBhdGggZD0iTTcgMTBoMTBNNyAxNGg2IiAvPgo8L3N2Zz4K"
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMzYTdhNTIiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxyZWN0IHg9IjMiIHk9IjUiIHdpZHRoPSIxOCIgaGVpZ2h0PSIxNCIgcng9IjMiIC8+CiAgPHBhdGggZD0iTTcgMTBoMTBNNyAxNGg2IiAvPgo8L3N2Zz4K",
+      "readme": "# 选中字数\n\n在状态栏显示选中的那段文字有多少字。\n\n## 用它\n\n用鼠标选一段文字，底部状态栏右下角就多出一个小读数：\n\n```text\n选中 128 字\n```\n\n**没选中东西的时候它什么都不显示** —— 状态栏就那么点地方，空着比挂个 `0` 好。\n\n统计方式在「设置 → 插件 → word-count」里选：\n\n| 选择 | 数什么 | 例子 |\n|---|---|---|\n| **字符数（默认）** | **忽略空白字符**的字符数 | 换行、空格、Tab 都不算 |\n| 词数 | 按空白切出来的段数 | 适合英文 |\n| 行数 | 一共几行 | 选中的每一行都算，包括空行 |\n\n「字符数忽略空白」是有意的：数中文段落时，缩进与换行不该让数字虚高。按「词」切分\n对中文其实不准（中文词之间没有空格）—— 中文用默认的字符数就好。\n\n## 它要的权限\n\n| 权限 | 为什么 |\n|---|---|\n| `ui:statusbar` | 在状态栏加一格读数 |\n| `editor:read` | 拿到选中的文本 |\n| `settings` | 读「统计方式」这条设置 |\n\n只读不写，也不碰文件。整个插件跑在 Worker 沙箱里，宿主把选区文本传给它的渲染函数，\n它只回一个字符串。\n\n## 还没做的\n\n* **只有选中时才有读数** —— 不做「整篇多少字」的常驻统计（那是 note-stats 那类插件的活）。\n* 词数按空白切分，对中日韩文本没有意义。\n* 读数不能点：不做「点一下复制字数」这种小动作。"
     }
   ],
-  "generatedAt": "2026-10-16T08:30:47Z"
+  "generatedAt": "2026-10-16T08:51:58Z"
 }
