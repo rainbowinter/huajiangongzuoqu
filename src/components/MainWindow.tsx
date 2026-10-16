@@ -101,7 +101,12 @@ import {
   type WorkspaceEntry,
 } from "../features/workspace/api";
 import { postActiveViewCommand } from "../features/plugins/activeView";
-import { documentActionVisible, documentContextOf } from "../features/workspace/documentContext";
+import {
+  documentActionVisible,
+  documentContextOf,
+  exportFormatsFor,
+  type ExportFormat,
+} from "../features/workspace/documentContext";
 import {
   hasPreviewPaneKind,
   isEditableKind,
@@ -237,8 +242,6 @@ function clampPreviewZoom(value: number): number {
   return Math.min(PREVIEW_ZOOM_MAX, Math.max(PREVIEW_ZOOM_MIN, rounded));
 }
 
-/** 「导出」支持的格式。顶上那一行给它们各配一个直连按钮（不再套一层下拉）。 */
-type ExportFormat = "md" | "pdf";
 
 interface NoteMenuState {
   x: number;
@@ -800,11 +803,13 @@ export function MainWindow({
   const [deleteExiting, setDeleteExiting] = useState(false);
   /** 整个主窗口是否钉在最前（**不是**再开一个磁贴窗）。 */
   const [windowPinned, setWindowPinned] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   /**
    * 「导出 PDF」面板。内容在**打开那一刻**就定下来：面板开着的时候用户还能在背后改笔记，
    * 但我们导的是他点下那一刻看到的那一份。
    */
   const [pdfPanel, setPdfPanel] = useState<{ title: string; bodyHtml: string } | null>(null);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
   const [categories, setCategories] = useState<string[]>([]);
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   const [activeCategory, setActiveCategory] = useState<string>("");
@@ -1230,12 +1235,8 @@ export function MainWindow({
     documentContext === "code" ||
     documentContext === "text";
 
-  /** 「导出 PDF」：要有一段能渲染成文字的正文，且能抓得到预览 HTML。 */
-  const canExportPdf =
-    documentContext === "note" || documentContext === "markdown" || documentContext === "table";
-
-  /** 「另存为 Markdown」：只有 Markdown 形态的内容导出成 .md 才有意义。 */
-  const canExportMarkdown = documentContext === "note" || documentContext === "markdown";
+  /** 导出下拉里有哪几项。空 = 这一行不出导出按钮（判据在 documentContext.ts 里，可单测）。 */
+  const exportFormats = exportFormatsFor(documentContext);
 
   /**
    * 只读说明文档把正文顶掉了，顶上这一行整体让它一让 —— 这时候连选中都还留在
@@ -3657,6 +3658,26 @@ export function MainWindow({
     [content, title, t],
   );
 
+  /**
+   * 导出下拉：点到菜单外面才收起。
+   *
+   * ⚠️ 这里必须判断事件是否落在菜单内。早先的写法是无条件关闭，于是在菜单项上
+   * 按下鼠标的瞬间菜单就被卸载了，随之而来的 `click` 再也派发不到那个按钮上——
+   * 两个格式都点不动，症状是「另存为 PDF 没反应」。
+   */
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    // 参数用 DOM 的 `Event`：本文件顶部的 `MouseEvent` 是 React 的合成事件类型，
+    // 两者不兼容。
+    const close = (event: Event) => {
+      const target = event.target as Node | null;
+      if (target && exportMenuRef.current?.contains(target)) return;
+      setExportMenuOpen(false);
+    };
+    document.addEventListener("mousedown", close, true);
+    return () => document.removeEventListener("mousedown", close, true);
+  }, [exportMenuOpen]);
+
   const toggleMaximize = () => {
     void toggleMaximizeCurrentWindow().then(() => isCurrentWindowMaximized().then(setIsMaximized));
   };
@@ -4613,62 +4634,70 @@ export function MainWindow({
                 ) : null}
 
                 {/*
-                  导出是**两个直连按钮**，不是一层下拉。
-                  原来「另存为 PDF」藏在「另存为…」的第二项里 —— 用户报过「在一排图标里
-                  根本找不到导出 PDF」。只留一项的下拉没有意义，拆开各点各的。
+                  导出：**一个按钮 + 一份格式下拉**。
+                  格式清单按当前文档算（`exportFormatsFor`）—— 笔记 / Markdown 能导 .md 和
+                  PDF，表格只能导 PDF。这样按钮的位置对所有文件都一样，点开才看到「这份
+                  能导成什么」，不必记「哪个格式藏在哪」。
                 */}
-                {canExportMarkdown ? (
-                  <button
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => void handleExport("md")}
-                    disabled={!selectedId}
-                    className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/40 transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                    title={t("main.editor.saveAsMarkdown", { defaultValue: "另存为 Markdown" })}
-                  >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
+                {exportFormats.length > 0 ? (
+                  <div className="relative">
+                    <button
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => setExportMenuOpen((open) => !open)}
+                      disabled={!selectedId}
+                      className={`w-7 h-7 flex items-center justify-center rounded-lg transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                        exportMenuOpen
+                          ? "text-bamboo bg-bamboo-mist/50"
+                          : "text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/40"
+                      }`}
+                      title={t("main.editor.export", { defaultValue: "导出…" })}
+                      aria-haspopup="menu"
+                      aria-expanded={exportMenuOpen}
                     >
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="7 10 12 15 17 10" />
-                      <line x1="12" y1="15" x2="12" y2="3" />
-                    </svg>
-                  </button>
-                ) : null}
-
-                {canExportPdf ? (
-                  <button
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => void handleExport("pdf")}
-                    disabled={!selectedId}
-                    className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/40 transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                    title={t("main.editor.exportPdf", { defaultValue: "导出 PDF（预览并调纸张、边距…）" })}
-                    aria-label={t("main.editor.exportPdfLabel", { defaultValue: "导出 PDF" })}
-                  >
-                    {/* 打印机的形状：导出 PDF 与「打印」是同一件事的两条出口。 */}
-                    <svg
-                      data-testid="main-editor-export-pdf-icon"
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M6 9V3h12v6" />
-                      <path d="M6 18H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2" />
-                      <rect x="6" y="14" width="12" height="7" rx="1" />
-                    </svg>
-                  </button>
+                      <svg
+                        data-testid="main-editor-export-icon"
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                      </svg>
+                    </button>
+                    {exportMenuOpen ? (
+                      <div
+                        ref={exportMenuRef}
+                        role="menu"
+                        className="absolute left-0 top-8 z-50 min-w-[168px] py-1.5 bg-cloud/95 backdrop-blur-sm border border-paper-deep/50 rounded-lg shadow-lg animate-menu-enter"
+                      >
+                        {exportFormats.map((format) => (
+                          <button
+                            key={format}
+                            role="menuitem"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              setExportMenuOpen(false);
+                              void handleExport(format);
+                            }}
+                            className="w-full text-left px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer"
+                          >
+                            {format === "md"
+                              ? t("main.editor.saveAsMarkdown", { defaultValue: "另存为 Markdown" })
+                              : t("main.editor.exportPdf", {
+                                  defaultValue: "导出 PDF（预览并调纸张、边距…）",
+                                })}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                 ) : null}
 
                 {/*

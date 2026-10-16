@@ -71,6 +71,35 @@ COM，等完成回调（60 秒超时）才报成功 —— 不然用户会拿到
 > 一样（10 页），但文件从 **31KB 涨到 11.8MB** —— Chromium 会把整个子树**先栅格化成一张图**
 > 再印。那正是「导出来怎么变成图片了、还选不中字」的来源。所以改成**换颜色**。
 
+### 纸的颜色：跟着 `--color-paper`，不是在 CSS 里写死白
+
+「原样」档的纸色就是 `var(--color-paper)`。主题、或者 `src/styles/custom.css` 改过它的时候，
+屏幕上是一张调过的纸 —— 导出必须印成同一个颜色。
+
+> ❗**这里踩过一次**：打印那几条规则原来都带着 `background: #ffffff !important`（`html` /
+> `body` / 纸各一条），于是「原样」档**永远印成纯白** —— 屏幕上是他调过的纸色、导出的 PDF
+> 却对不上。用户报的就是这个。浅色 / 黑白两档**不需要**写死白色：`PAPER_CSS` 已经把
+> `--color-paper` 钉成 `#ffffff` 了。现在 `.floral-sheet` 那条干脆不写 `background`，
+> 让它用 `SCREEN_CSS` 里那句 `var(--color-paper)`。
+
+验证方式（不启应用）：把 `printView.ts` 用 esbuild 打个包，写个小页面**调用真的
+`mountPrintView`**，再用 Edge 的打印管线出 PDF，最后**用 pdf.js 画出来读像素**：
+
+```bash
+npx esbuild src/features/pdfExport/printView.ts --bundle --format=esm --outfile=printview.mjs
+# 页面里把 --color-paper 设成刺眼的红，然后：
+msedge --headless=new --disable-gpu --virtual-time-budget=6000 \
+       --no-pdf-header-footer --print-to-pdf=out.pdf "http://127.0.0.1:8099/printbg.html?mode=as-is"
+```
+
+实测结果：`as-is` 印出来正中是 `rgb(255,0,0)`（用户的纸色），`light` / `mono` 是
+`rgb(255,255,255)`。读像素比看截图靠谱 —— 截图会「陈」，颜色更是看不准。
+
+> ❗**`@page` 留出来的那圈页边上不了色**（别再试了）：`html` / `body` 的背景压根铺不进去，
+> 换成固定定位、`inset: -100mm` 的伪元素也只盖住一小块 —— Chromium 的 `@page` margin box
+> 不在 CSS 的绘制范围里。所以那圈一直是白的，**纸本身**的颜色才是要紧的。
+> （真要四周都满色，只能把边距设成 0，让纸铺满整页。）
+
 ## 零碎但要紧的
 
 - **图片要先摘掉 `loading="lazy"`**：屏幕外的图在打印那一刻根本没开始加载，PDF 里是空白。

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { documentActionVisible, documentContextOf } from "./documentContext";
+import { documentActionVisible, documentContextOf, exportFormatsFor } from "./documentContext";
 
 describe("当前文档属于哪一类", () => {
   test("笔记：没有文件类型", () => {
@@ -24,6 +24,27 @@ describe("当前文档属于哪一类", () => {
   test("什么都没选：既不是外部文件也不是文档 ⇒ 笔记", () => {
     // 空状态那会儿 selectedId 是 null，isNoteDocument 也是 true。
     expect(documentContextOf({ docView: false, isNoteDocument: true, fileKind: null })).toBe("note");
+  });
+});
+
+describe("导出下拉里有哪几种格式", () => {
+  test("笔记与 Markdown：.md 与 PDF 都成立", () => {
+    expect(exportFormatsFor("note")).toEqual(["md", "pdf"]);
+    expect(exportFormatsFor("markdown")).toEqual(["md", "pdf"]);
+  });
+
+  test("表格只有 PDF —— 它是一张解析出来的表，导成 .md 没意义", () => {
+    expect(exportFormatsFor("table")).toEqual(["pdf"]);
+  });
+
+  test("别的都不出导出按钮", () => {
+    for (const context of ["code", "text", "image", "media", "custom", "none", "view", "doc"] as const) {
+      expect(exportFormatsFor(context)).toEqual([]);
+    }
+  });
+
+  test("PDF 自己不能导出 PDF —— 它那份要走插件贡献的「导出批注」", () => {
+    expect(exportFormatsFor("view")).not.toContain("pdf");
   });
 });
 

@@ -111,7 +111,22 @@ const SCREEN_CSS = `
  */
 const PRINT_CSS = `
 @media print {
-  html, body { background: #ffffff !important; margin: 0 !important; padding: 0 !important; }
+  html, body { margin: 0 !important; padding: 0 !important; }
+  /*
+   * ⚠️ **纸的底色不要在这里写死白色**（原来这几条都带着 background: #ffffff !important，
+   * 那是个 bug）。「原样」档（默认那一档）用的是 var(--color-paper) —— 主题、或者
+   * src/styles/custom.css 改过它的时候，屏幕上是一张调过的纸、**导出的 PDF 却是纯白**。
+   *
+   * 浅色 / 黑白两档不需要写死白色：PAPER_CSS 已经把 --color-paper 钉成 #ffffff，
+   * 纸自己就是白的。所以下面 .floral-sheet 那条干脆不写 background，让它用
+   * SCREEN_CSS 里那句 var(--color-paper)。
+   *
+   * ❗**@page 留出来的那圈页边上不了色**（实测记在这里，免得以后有人再试一遍）：
+   * html / body 的背景压根铺不进去，换成固定定位、inset: -100mm 的伪元素也只盖住
+   * 一小块 —— Chromium 的 @page margin box 不在 CSS 的绘制范围里。所以那圈一直是白的，
+   * 纸本身（.floral-sheet）的颜色才是要紧的。
+   */
+  body { background: transparent !important; }
   body > *:not(.${PRINT_ROOT_CLASS}) { display: none !important; }
   body * { visibility: hidden !important; }
   .${PRINT_ROOT_CLASS}, .${PRINT_ROOT_CLASS} * { visibility: visible !important; }
@@ -123,12 +138,14 @@ const PRINT_CSS = `
     padding: 0 !important;
     gap: 0 !important;
     overflow: visible !important;
-    background: #ffffff !important;
+    /* 屏幕上是灰底（或预览里的透明），打印时都不要 —— 底色交给纸自己。 */
+    background: transparent !important;
     background-image: none !important;
   }
   .${FRAME_CLASS} {
     box-shadow: none !important;
-    background: #ffffff !important;
+    /* 纸的底色**不写死**：SCREEN_CSS 给的就是 var(--color-paper)，
+       PAPER_CSS 会把浅色 / 黑白两档的 --color-paper 钉成白色。 */
     /*
      * ⚠️ 打印时纸要**缩回内容盒**：纸张的尺寸与四周的空白都已经由 @page 管了，
      * 这里再算一遍就是双重边距 —— 一张 210×297 的盒子塞进 170×261 的可打印区，

@@ -40,6 +40,33 @@ export function isDocumentContext(value: unknown): value is DocumentContext {
   return value === "note" || value === "doc" || isFilePreviewKind(value);
 }
 
+/** 顶上那一行「导出」下拉里能出现的格式。 */
+export type ExportFormat = "md" | "pdf";
+
+/**
+ * 这份文档能导成哪些格式。
+ *
+ * 按钮本身对所有文档都在，**变的是下拉里那几项** —— 这样按钮的位置固定，用户不必记
+ * 「哪个格式藏在哪儿」；点开看到的就是这份文档能导的东西。空数组 = 这一行不出导出按钮。
+ *
+ * - 笔记 / Markdown：`.md` 与 PDF 都成立。
+ * - 表格（`.csv` 之类）：只有 PDF —— 它是解析出来的一张表，导成 `.md` 没意义。
+ * - 别的（代码、图片、PDF 本身、说明文档）：都不成立。
+ *   PDF 自己不能「导出 PDF」（那是它本人），但它的**批注**能导出，那是插件贡献的
+ *   文档级动作，走 `ui.registerDocumentAction`，不在这份清单里。
+ */
+export function exportFormatsFor(context: DocumentContext): readonly ExportFormat[] {
+  switch (context) {
+    case "note":
+    case "markdown":
+      return ["md", "pdf"];
+    case "table":
+      return ["pdf"];
+    default:
+      return [];
+  }
+}
+
 /** 宿主这边算出来的「当前是什么」—— 判可见性时两样都要。 */
 export interface DocumentIdentity {
   context: DocumentContext;
