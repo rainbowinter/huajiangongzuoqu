@@ -199,22 +199,49 @@
     }
   }
 
-  /** 按比例把每页的占位先摆好：不然滚动条长度是错的，边滚边变会很跳。 */
+  /**
+   * 按比例把每页的占位先摆好：不然滚动条长度是错的，边滚边变会很跳。
+   *
+   * ## ⚠️ 这个函数**必须防重入**，每次 `await` 之后都要确认自己还是最新那一轮
+   *
+   * 它是一长串 `await`（每页一次 `getPage`），而调用它的 `zoomBy` 是**不排队**的：
+   * Ctrl+滚轮每一格、缩放按钮每点一下都是一次 `void zoomBy(...)`，前一次还没跑完
+   * 后一次就进来了。
+   *
+   * 两轮交错时，各自都会**从头到尾建一整套** `.page` 元素 —— 于是同一个
+   * `data-index` 出现两份。接下来的两件事合起来恰好就是用户报的那个现象：
+   *
+   * * `paint(index)` 用 `scroller.querySelector('.page[data-index=…]')` 取**第一个**匹配，
+   *   所以第二份永远轮不到被画，它的「…」占位符一直挂在那儿 —— 看起来就是
+   *   **「第二页是空白的」**；
+   * * `notifyPages()` 是 `querySelectorAll('.page')`，会把**每一份**都报给扩展插件，
+   *   批注那类插件于是也给空白那份建了层，填上同一页的标注 ——
+   *   看起来就是**「第二页多了一份第一页的标注」**。
+   *
+   * 判据就用 `state.generation`（`paint` 早就在用它挡陈旧绘制）。这一轮开始时领一个号，
+   * 之后每次 `await` 醒来都拿它对一次；对不上就**立刻返回**，绝不再往 DOM 里塞东西。
+   * 因为领号是同步的、检查也在同步段里，所以「陈旧的那轮」不可能在新一轮清空 DOM
+   * **之后**再塞进去 —— 那种情况下它必然已经发现号对不上了。
+   */
   async function buildPages() {
-    state.generation += 1;
+    const generation = (state.generation += 1);
     state.painted.clear();
     state.rendering.clear();
     state.viewports.clear();
     for (const holder of [...pages()]) holder.remove();
 
     const first = await state.pdf.getPage(1);
+    if (generation !== state.generation) return;
     // ⚠️ 基准宽度取**旋转之后**的：旋转 90° 时页面的宽高会换个个儿，
     // 拿没转过的宽度去算「适应宽度」，转完必然冒出一条横向滚动条。
     state.baseWidth = first.getViewport({ scale: 1, rotation: state.rotation }).width;
     if (state.scale === null) state.scale = fitScale();
 
     for (let index = 1; index <= state.pdf.numPages; index += 1) {
+      if (generation !== state.generation) return;
       const page = index === 1 ? first : await state.pdf.getPage(index);
+      if (generation !== state.generation) return;
+
       const viewport = page.getViewport({ scale: state.scale, rotation: state.rotation });
 
       const holder = document.createElement("section");
@@ -230,6 +257,8 @@
       scroller.append(holder);
     }
 
+    // 走到这儿还没被顶掉，才轮得到它去装观察器、通知扩展。
+    if (generation !== state.generation) return;
     state.observer?.disconnect();
     state.observer = new IntersectionObserver(
       (entries) => {
