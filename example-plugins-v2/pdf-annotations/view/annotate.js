@@ -269,10 +269,11 @@
     wrap.className = "anno anno-pin-wrap";
     wrap.dataset.markId = mark.id;
     wrap.style.cssText = `left:${at[0].toFixed(1)}px;top:${at[1].toFixed(1)}px;width:0;height:0;position:absolute`;
-
-    const hit = document.createElement("div");
-    hit.className = "anno-pin-hit";
-    hit.title = "点一下看批注，× 删掉";
+    // 提示挂在 **wrap** 上：那个原来专门用来吃事件的 `.anno-pin-hit` 其实是死代码 ——
+    // 圆点转 45° 之后外接框比它大，整个把它盖住了（实测 elementFromPoint 七个点全落在
+    // 圆点上），所以 hit 上的 `title` 从来弹不出来。`title` 会顺着祖先找，挂在 wrap
+    // 上则圆点、× 上悬停都能弹。
+    wrap.title = "点一下看批注，× 删掉";
 
     const dot = document.createElement("div");
     dot.className = "anno-pin";
@@ -281,8 +282,22 @@
     const note = document.createElement("div");
     note.className = "anno-pin-note";
     note.textContent = mark.note || "（空的批注）";
+    // 纸右边三分之一的图钉，文字往左展开 —— 不然那条悬浮批注整个跑到纸外面去了。
+    const page = pageOf(mark.page);
+    if (page && page.element.clientWidth && at[0] > page.element.clientWidth * 0.62) {
+      note.classList.add("from-right");
+    }
 
-    wrap.append(hit, dot, note, deleteButton(mark.id));
+    // 点一下把批注文字钉住（再点收起）。悬停只是路过看一眼，钉住才能一边看字
+    // 一边选文字 / 滚页面 —— 触屏上更是只有这条路（`title` 里答应过的就是这件事）。
+    wrap.addEventListener("click", (event) => {
+      // × 有它自己的 pointerdown（那一下就把这条标注删了），别把它当成「点图钉」。
+      if (event.target instanceof Element && event.target.closest(".anno-del")) return;
+      event.stopPropagation();
+      note.classList.toggle("is-open");
+    });
+
+    wrap.append(dot, note, deleteButton(mark.id));
     return wrap;
   }
 

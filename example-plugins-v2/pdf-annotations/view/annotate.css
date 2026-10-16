@@ -109,19 +109,18 @@ body[data-anno-tool="pointer"] .anno:hover .anno-del {
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
 }
 
-.anno-pin-hit {
-  position: absolute;
-  width: 20px;
-  height: 20px;
-  margin: -10px 0 0 -10px;
-  border-radius: 50%;
-}
-
-/* 悬停/floating 时把批注文字浮出来 —— 不必点开就能看。 */
+/* 图钉的批注文字：平时藏着，悬停 / 点开才浮出来（见本段末尾那条规则）。 */
 .anno-pin-note {
   position: absolute;
   left: 14px;
   top: 10px;
+  /*
+   * ⚠️ `width: max-content` 不能省。这个框挂在一个 **0×0** 的 wrap 上（图钉的定位点就是
+   * 一个点），绝对定位元素在不给宽度时会去「适应可用空间」—— 可用空间是 0，于是它一路
+   * 收缩到 min-content：一行一个字，整条批注变成 27px 宽的一竖条。
+   * 先用 max-content 量出真实文字宽度，再让 max-width 去截。
+   */
+  width: max-content;
   max-width: 220px;
   padding: 5px 8px;
   border-radius: 8px;
@@ -135,7 +134,23 @@ body[data-anno-tool="pointer"] .anno:hover .anno-del {
   z-index: 3;
 }
 
-body[data-anno-tool="pointer"] .anno-pin-hit:hover + .anno-pin-note {
+/* 图钉太靠右边时改从左边展开，免得批注整个甩到纸外面去（js 里贴的类）。 */
+.anno-pin-note.from-right {
+  left: auto;
+  right: 14px;
+}
+
+/*
+ * 悬停把批注文字浮出来；点一下则**钉住**（再点收起）—— 想一边看字一边选文字、滚页面
+ * 时用得上，触屏上也只有这条路。
+ *
+ * ⚠️ 选择器必须挂在 **wrap** 上，别去细化到里面某一个子元素。这里踩过一次：原来写的是
+ * `.anno-pin-hit:hover + .anno-pin-note`，而 wrap 里 hit 与 note 之间还夹着那个圆点
+ * （`.anno-pin`），`+` 永远匹配不上 ——「图钉只有一个黄点、怎么也不出字」就是这么来的。
+ * 挂在 wrap 上还有个好处：圆点和那个 × 上悬停都算（它们都是 wrap 的子元素）。
+ */
+body[data-anno-tool="pointer"] .anno-pin-wrap:hover .anno-pin-note,
+.anno-pin-note.is-open {
   opacity: 1;
 }
 
