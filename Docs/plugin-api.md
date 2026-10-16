@@ -563,10 +563,33 @@ await api.files.registerType({
 | `ready()` | **必须调一次**：宿主收到它才发 `init` |
 | `onMessage(handler)` | 收宿主来的消息（`init` / `document` / `documentError` / `theme`） |
 | `requestDocument()` | 要文件内容（`document`，`message.bytes` 是 `ArrayBuffer`） |
+| `requestDocumentCopy()` | **扩展插件**另要一份字节副本（`documentCopy`）—— 见下面那条 ⚠️ |
+| `saveFile(name, bytes)` | 把一份字节存到**用户选的位置**（弹原生保存对话框） |
 | `onCommand(handler)` | 收工具栏发来的命令（`{ id, value }`） |
 | `setState(values, pressed)` | 报工具栏状态（基础插件用；扩展插件用下面那个） |
 | `toast(message)` / `log(level, message)` | 提示 / 写宿主控制台（`error` 会被转发出来） |
 | `extension("<插件名>")` | 扩展插件的私有数据通道：`{ write, onData, setState }` |
+
+⚠️ **`document` 里的 `ArrayBuffer` 只用一次。** pdf.js 拿到手会把它**转移给 worker**，
+转移过的 buffer 在原处就废了（再拿去构造任何东西都会报 `detached ArrayBuffer`）。一个视图里
+两个插件（被扩展的 + 扩展它的）收到的是**同一个**对象，查看器先拿到先废 —— 所以扩展插件
+要用文件内容的话，走 `requestDocumentCopy()` 另要一份（宿主会重新读一次文件）：
+
+```js
+floralView.onMessage((message) => {
+  if (message.t === "documentCopy") useBytes(message.bytes);
+});
+floralView.requestDocumentCopy();
+```
+
+**要存东西出去**（导出、另存为）用 `saveFile` —— 宿主会弹出**原生的保存对话框**：路径由
+用户挑、文件名由用户看着。插件拿不到路径，也写不了别的位置。所以要 `workspace:cache` 那种
+权限，**这不是**「插件能写文件」：
+
+```js
+const bytes = await something.save(); // Uint8Array
+floralView.saveFile("笔记-批注.pdf", bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+```
 
 文件内容是**主动要**的 —— 插件拿不到路径：
 

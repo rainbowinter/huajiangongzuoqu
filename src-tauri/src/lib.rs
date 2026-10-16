@@ -116,6 +116,80 @@ fn save_external_file(path: String, content: String) -> Result<(), AppError> {
     })
 }
 
+/// 把**字节**写到用户选好的路径（插件视图的「另存为」）。
+///
+/// 参数走 **Tauri 的 raw body**（前端 `invoke("save_external_file_bytes", new Uint8Array(...), { headers: { path } })`）：
+/// 一份 10MB 的 PDF 如果按 JSON 数组过一遍 IPC，会变成几十 MB 的文本，慢得肉眼可见。
+/// 与 `images_save` 那种 `Vec<u8>` 老写法不同 —— 那个只适合几百 KB 的图。
+///
+/// ⚠️ 路径从**请求头**里来，因为 body 已经被字节占满了。它由宿主的原生保存对话框产生
+/// （用户自己挑的），到这里不再做「是不是在某个目录里」的校验 —— 那条规则属于
+/// `workspace_write_file` 那种「写进受管目录」的场景，而这里是「用户让我存到这儿」。
+/// 前端那层也不给插件直接调：插件只能说「我想存这份东西」，路径由人拍板。
+#[tauri::command]
+fn save_external_file_bytes(request: tauri::ipc::Request<'_>) -> Result<(), AppError> {
+    let path = request
+        .headers()
+        .get("x-floral-path")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string)
+        // 头是 ASCII 的（浏览器不会让我们塞中文进来），所以路径由前端做 percent-encoding。
+        .map(|raw| percent_decode(&raw))
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| AppError {
+            code: "io".into(),
+            message: "没有给出要保存到哪个文件".into(),
+            details: Default::default(),
+        })?;
+
+    let bytes = match request.body() {
+        tauri::ipc::InvokeBody::Raw(data) => data.clone(),
+        // 走到这儿说明前端把参数写成了 JSON —— 那是它的 bug，说清楚而不是猜。
+        _ => {
+            return Err(AppError {
+                code: "io".into(),
+                message: "保存文件的入参形状不对（要的是 raw bytes）".into(),
+                details: Default::default(),
+            })
+        }
+    };
+
+    if let Some(parent) = PathBuf::from(&path).parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).map_err(|e| AppError {
+                code: "io".into(),
+                message: e.to_string(),
+                details: Default::default(),
+            })?;
+        }
+    }
+    std::fs::write(&path, bytes).map_err(|e| AppError {
+        code: "io".into(),
+        message: e.to_string(),
+        details: Default::default(),
+    })
+}
+
+/// 解 `%XX`。自己写是因为 `percent-encoding` 那套为了几个字节不值得引依赖。
+fn percent_decode(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            let hex = std::str::from_utf8(&bytes[index + 1..index + 3]).ok();
+            if let Some(byte) = hex.and_then(|value| u8::from_str_radix(value, 16).ok()) {
+                out.push(byte);
+                index += 3;
+                continue;
+            }
+        }
+        out.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 #[tauri::command]
 fn categories_list() -> Result<Vec<String>, AppError> {
     default_store()?.list_categories()
@@ -764,6 +838,7 @@ pub fn run() {
             take_startup_file,
             workspace_read_file_bytes,
             read_external_file_bytes,
+            save_external_file_bytes,
             pdf::print_pdf,
             selfupdate::update_endpoint,
             docs::read_bundled_doc,

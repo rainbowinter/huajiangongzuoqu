@@ -17,10 +17,28 @@ const PLUGIN_NAME_PATTERN = /^[A-Za-z0-9_.-]{1,64}$/;
 export type ViewMessage =
   | { t: "ready" }
   | { t: "requestDocument" }
+  /**
+   * 要一份**独立的**文件字节副本（扩展插件用）。
+   *
+   * ⚠️ 为什么要单独来一条：`document` 那条消息里的 ArrayBuffer 是**大家共用的同一个**，
+   * 而 pdf.js 拿到手之后会把它**转移给 worker** —— 转移过的 buffer 在原处就作废了
+   * （`byteLength` 变 0，构造任何视图都报 "detached ArrayBuffer"）。查看器先拿到、
+   * 先用，扩展插件后拿到就已经是一份废纸。所以扩展要自己**另要一份**（宿主每次都会重新
+   * 从磁盘读）。
+   */
+  | { t: "requestDocumentCopy" }
   /** 这个文件上、**某个插件**的数据（批注这类）。见 `HostMessage.data`。 */
   | { t: "saveData"; plugin: string; data: unknown }
   | { t: "log"; level: "info" | "warn" | "error"; message: string }
   | { t: "toast"; message: string }
+  /**
+   * 视图要把一份**字节**存到用户选的位置（「另存为带批注的 PDF」这种）。
+   *
+   * ⚠️ 这不是「插件可以随便写文件」：宿主会弹**原生的保存对话框**，路径由用户挑、
+   * 文件名由用户看着。插件只能提出「我想存这份东西」，拍板的是人。
+   * 见 `Docs/plugin-api.md` 里 `floralView.saveFile` 那一节。
+   */
+  | { t: "saveFile"; name: string; bytes: ArrayBuffer }
   /**
    * 工具栏要显示的东西。`values[id]` 覆盖那一项的显示文本（按钮也能覆盖，于是
    * 「单页 / 连续」这种一个按钮两种状态不必拆成两个），`pressed` 是点亮的开关 id。
@@ -44,6 +62,8 @@ export type HostMessage =
       tokens: Record<string, string>;
     }
   | { t: "document"; bytes: ArrayBuffer }
+  /** 上面那条的「另给扩展一份」版本。与 `document` 分开，免得查看器又重开一次文档。 */
+  | { t: "documentCopy"; bytes: ArrayBuffer }
   /**
    * 已存的那份数据（打开文件时按插件各推一份）。`plugin` 说是谁的。
    *
@@ -66,6 +86,15 @@ export type HostMessage =
 const MAX_TEXT_LENGTH = 100_000;
 /** 批注一次最多交上来这么大（序列化后的字符数）。 */
 export const MAX_ANNOTATION_CHARS = 4 * 1024 * 1024;
+/**
+ * 「另存为」一次最多交上来多少字节。
+ *
+ * 256MB：比任何正常的 PDF 都宽，而它挡的是「插件把内存当硬盘用」——字节要在宿主的
+ * 对话框与 IPC 之间整个搬一遍，没有上限就等于把界面的命交给插件。
+ */
+const MAX_SAVE_FILE_BYTES = 256 * 1024 * 1024;
+/** 文件名长度上限（原始名，宿主还会再洗一遍）。 */
+const MAX_SAVE_FILE_NAME = 200;
 /** 一次 `state` 最多带几项、每项多长。工具栏本就十几个控件，多了就是有人在灌。 */
 const MAX_STATE_ENTRIES = 32;
 const MAX_STATE_KEY = 48;
@@ -91,6 +120,9 @@ export function parseViewMessage(raw: unknown): ViewMessage | null {
     case "requestDocument":
       return { t: "requestDocument" };
 
+    case "requestDocumentCopy":
+      return { t: "requestDocumentCopy" };
+
     case "saveData": {
       const plugin = typeof raw.plugin === "string" ? raw.plugin : "";
       if (!PLUGIN_NAME_PATTERN.test(plugin)) return null;
@@ -103,6 +135,16 @@ export function parseViewMessage(raw: unknown): ViewMessage | null {
       }
       if (serialized.length > MAX_ANNOTATION_CHARS) return null;
       return { t: "saveData", plugin, data: raw.data ?? null };
+    }
+
+    case "saveFile": {
+      const name = typeof raw.name === "string" ? raw.name.trim().slice(0, MAX_SAVE_FILE_NAME) : "";
+      if (!name) return null;
+      // ⚠️ 只认 **ArrayBuffer**，不认 Uint8Array / 数字数组：视图那边来自 `pdfDoc.save()`
+      // 的就是 ArrayBuffer，别的一律当成形状不对（结构克隆会原样把类型带过来）。
+      if (!(raw.bytes instanceof ArrayBuffer)) return null;
+      if (raw.bytes.byteLength === 0 || raw.bytes.byteLength > MAX_SAVE_FILE_BYTES) return null;
+      return { t: "saveFile", name, bytes: raw.bytes };
     }
 
     case "log": {
@@ -174,7 +216,17 @@ const floralDataListeners = [];
 window.floralView = {
   ready: () => floralViewMessage({ t: "ready" }),
   requestDocument: () => floralViewMessage({ t: "requestDocument" }),
+  /**
+   * 另要一份文件字节（**扩展插件**用，见 viewBridge.ts 里 requestDocumentCopy 的说明）。
+   * 收到的是一条 t 为 documentCopy、带 bytes 的消息。
+   */
+  requestDocumentCopy: () => floralViewMessage({ t: "requestDocumentCopy" }),
   toast: (message) => floralViewMessage({ t: "toast", message }),
+  /**
+   * 把一份字节存到用户选的位置 —— 宿主会弹原生保存对话框，用户挑路径、看文件名。
+   * 插件拿不到路径，也写不了别的地方：这是「导出」，不是「写文件」。
+   */
+  saveFile: (name, bytes) => floralViewMessage({ t: "saveFile", name, bytes }),
   log: (level, message) => floralViewMessage({ t: "log", level, message }),
   onMessage: (handler) => { floralViewListeners.push(handler); },
   // 宿主那排工具栏：点是点在宿主上，命令从这儿进来。

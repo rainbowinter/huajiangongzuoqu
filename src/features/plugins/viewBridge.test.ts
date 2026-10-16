@@ -224,3 +224,51 @@ describe("工具栏的状态消息", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------- 另存为
+
+/**
+ * 「另存为」（`saveFile`）与「另要一份字节」（`requestDocumentCopy`）。
+ *
+ * 前者是唯一一条会让插件**往磁盘写东西**的消息，所以它的校验要盯紧：形状不对一律丢掉，
+ * 而且必须是 ArrayBuffer —— 别的一律当成形状不对，不猜。真正拍板的是原生保存对话框。
+ */
+describe("另存为与字节副本", () => {
+  const bytes = new Uint8Array([1, 2, 3]).buffer;
+
+  test("saveFile：名字与字节都在才收", () => {
+    expect(parseViewMessage({ t: "saveFile", name: "a.pdf", bytes })).toEqual({
+      t: "saveFile",
+      name: "a.pdf",
+      bytes,
+    });
+  });
+
+  test("saveFile：名字空的、超长的、字节不是 ArrayBuffer 的都不要", () => {
+    expect(parseViewMessage({ t: "saveFile", name: "   ", bytes })).toBeNull();
+    expect(parseViewMessage({ t: "saveFile", bytes })).toBeNull();
+    expect(parseViewMessage({ t: "saveFile", name: "a.pdf" })).toBeNull();
+    // 数字数组 / Uint8Array 都不算 —— 视图那边来自 `pdfDoc.save()` 的切片就是 ArrayBuffer，
+    // 收下别的形状只会让人以为「传什么都行」。
+    expect(parseViewMessage({ t: "saveFile", name: "a.pdf", bytes: [1, 2, 3] })).toBeNull();
+    expect(
+      parseViewMessage({ t: "saveFile", name: "a.pdf", bytes: new Uint8Array([1, 2]) }),
+    ).toBeNull();
+  });
+
+  test("saveFile：空字节丢掉（「存一个空文件」一定是出了什么问题）", () => {
+    expect(parseViewMessage({ t: "saveFile", name: "a.pdf", bytes: new ArrayBuffer(0) })).toBeNull();
+  });
+
+  test("saveFile：名字太长就截断，不是整条丢掉（路径里的中文要靠后端解回来）", () => {
+    const long = "名".repeat(400) + ".pdf";
+    const parsed = parseViewMessage({ t: "saveFile", name: long, bytes });
+    expect(parsed?.t).toBe("saveFile");
+    expect((parsed as { name: string }).name.length).toBe(200);
+  });
+
+  test("requestDocumentCopy：另一条通道，别和 requestDocument 混起来", () => {
+    expect(parseViewMessage({ t: "requestDocumentCopy" })).toEqual({ t: "requestDocumentCopy" });
+    expect(parseViewMessage({ t: "requestDocument" })).toEqual({ t: "requestDocument" });
+  });
+});

@@ -11,7 +11,7 @@ import {
 import { readPluginAsset } from "../features/plugins/api";
 import { sanitizeSvg } from "../features/plugins/sanitizeSvg";
 import { readThemeTokens } from "../features/plugins/themeTokens";
-import { getErrorMessage, readExternalFileBytes } from "../features/notes/api";
+import { getErrorMessage, readExternalFileBytes, saveExternalFileBytes } from "../features/notes/api";
 import {
   readWorkspaceCache,
   readWorkspaceFileBytes,
@@ -136,6 +136,12 @@ function useToolbarIcons(type: FileType): Map<string, string> {
   return icons;
 }
 
+/** 从文件名里取扩展名（给保存对话框的过滤器用）。取不到就让调用方兜底。 */
+function extensionOf(name: string): string {
+  const match = /\.([A-Za-z0-9]{1,8})$/.exec(name.trim());
+  return match ? match[1].toLowerCase() : "";
+}
+
 export function PluginFileView({ path, type }: PluginFileViewProps) {
   const { t } = useTranslation();
   const [document, setDocument] = useState<string | null>(null);
@@ -232,6 +238,34 @@ export function PluginFileView({ path, type }: PluginFileViewProps) {
               }),
             );
           });
+        }}
+        onSaveFile={(name, bytes) => {
+          // 「另存为带批注的 PDF」这条路：**弹的是原生保存对话框**，路径由用户挑。
+          // 插件拿不到路径，也写不了别的地方 —— 这是导出，不是「插件能写文件」。
+          void (async () => {
+            const { save } = await import("@tauri-apps/plugin-dialog");
+            const path = await save({
+              defaultPath: name,
+              filters: [{ name: "文件", extensions: [extensionOf(name) || "pdf"] }],
+            });
+            if (typeof path !== "string") return;
+            try {
+              await saveExternalFileBytes(path, bytes);
+              showToast(
+                t("main.view.savedFile", {
+                  path,
+                  defaultValue: "已保存到 {{path}}",
+                }),
+              );
+            } catch (error) {
+              showToast(
+                t("main.view.saveFileFailed", {
+                  message: getErrorMessage(error),
+                  defaultValue: "存不了这个文件：{{message}}",
+                }),
+              );
+            }
+          })();
         }}
         onToast={showToast}
         onLog={(level, message) => {

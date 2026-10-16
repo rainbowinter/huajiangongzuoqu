@@ -28,7 +28,10 @@ floral.register({
       // 要一条数据通道（标注落在文件旁边）。
       data: true,
       css: ["view/annotate.css"],
-      js: ["view/annotate.js"],
+      // 顺序有意义：pdf-lib 要在标注脚本之前求值（后者用 `globalThis.PDFLib`）。
+      // 它是 UMD，拼进内联 module 时会走 `self.PDFLib = {}` 那条分支 —— 见
+      // `scripts/fetch-pdfjs.mjs` 里的说明。
+      js: ["vendor/pdf-lib.js", "view/annotate.js"],
       // 顶上那排控件是**两个插件共用**的：这几项接在 pdf-viewer 自己的翻页/缩放之后。
       // `values.tool` / `values.color` 由查看器那边的脚本报回来，按钮上写的就是当前
       // 选中的那一项。
@@ -61,6 +64,15 @@ floral.register({
             { value: "#7cc7ff", label: "蓝", color: "#7cc7ff" },
             { value: "#ff9ec4", label: "粉", color: "#ff9ec4" },
           ],
+        },
+        // 「另存为带批注的 PDF」：把标注写成 PDF 自己的注释对象，原文件一个字不动。
+        { kind: "separator" },
+        {
+          kind: "button",
+          id: "export-pdf",
+          label: "导出",
+          title: "另存为带批注的 PDF（原文件不动）",
+          icon: "icons/export.svg",
         },
       ],
     });

@@ -62,6 +62,31 @@ const VIEWER_CSS = {
   sha256: "f684e5c55f3baa4516519e8e0d4543726ab2c4223a0ded8c71ed9d5bf3782e7b",
 };
 
+/**
+ * pdf-lib —— 给批注用的（把标注写成 PDF 自己的注释对象，另存一份）。
+ *
+ * 与 pdf.js 不同，它**不用改产物**：UMD 的外壳是
+ *
+ * ```js
+ * !function(t,e){…}(this, function(t){…})
+ * ```
+ *
+ * 在我们那个内联 module 里，`exports` / `module` / `define` 三个都探测不到（module 作用域
+ * 里没有 CommonJS 的那些名字），于是走最后一个分支：`(t = this || self).PDFLib = {}`。
+ * 模块顶层的 `this` 是 `undefined`，`|| self` 兜住 —— 最后落在 `self.PDFLib` 上，
+ * 与查看器那边用 `globalThis.pdfjsLib` 是同一个套路。
+ *
+ * ⚠️ 前提是**这份 UMD 的自包含性不变**：不引入别的文件、外壳还是这个样子。下面有断言盯着。
+ */
+const PDF_LIB_VERSION = "1.17.1";
+const PDF_LIB = {
+  name: "pdf-lib.min.js",
+  url: `https://cdn.jsdelivr.net/npm/pdf-lib@${PDF_LIB_VERSION}/dist/pdf-lib.min.js`,
+  sha256: "0f9a5cad07941f0826586c94e089d89b918c46e5c17cf2d5a3c6f666e3bc694f",
+};
+/** pdf-lib 是批注插件的依赖，落在**它自己**的 vendor 里。 */
+const pdfLibDir = join(root, "example-plugins-v2", "pdf-annotations", "vendor");
+
 const force = process.argv.slice(2).includes("--force");
 
 function sha256(text) {
@@ -215,6 +240,37 @@ if (!force && existsSync(cssPath)) {
   );
 }
 
+// pdf-lib：给批注插件，原样落盘（UMD 在我们那个内联 module 里直接就能用，见上面的注释）。
+mkdirSync(pdfLibDir, { recursive: true });
+const pdfLibPath = join(pdfLibDir, "pdf-lib.js");
+if (!force && existsSync(pdfLibPath)) {
+  console.log(`[pdfjs] 已有 ${pdfLibPath}（--force 可重取）`);
+} else {
+  console.log(`[pdfjs] 下载 ${PDF_LIB.name} @ ${PDF_LIB_VERSION}…`);
+  const raw = await download(PDF_LIB.url);
+  const actual = sha256(raw);
+  if (actual !== PDF_LIB.sha256) {
+    throw new Error(
+      `${PDF_LIB.name} 的 sha256 对不上：\n  期望 ${PDF_LIB.sha256}\n  实际 ${actual}\n` +
+        "要么版本号写错了，要么上游重新发布了同一个版本号 —— 都该先人看一眼。",
+    );
+  }
+
+  // 落盘前把 sourceMappingURL 那行去掉：内联进 srcdoc 之后它只会让浏览器去拉一个
+  // 取不到的 .map（帧是 opaque origin），白记一条网络错误。
+  const cleaned = `${raw.replace(/\n?\/\/# sourceMappingURL=\S*\s*$/, "")}\n`;
+  // 包装方式一换，上面那套「靠 self 兜底」的推理就不成立了 —— 宁可在这里停下。
+  for (const marker of ["!function(", "PDFLib"]) {
+    if (!cleaned.includes(marker)) {
+      throw new Error(`${PDF_LIB.name} 里找不到 ${marker} —— 上游换了包装方式，别再按老样子拼`);
+    }
+  }
+  writeFileSync(pdfLibPath, cleaned);
+  console.log(
+    `[pdfjs] 已生成 pdf-annotations/vendor/pdf-lib.js（${(cleaned.length / 1024).toFixed(0)} KB）`,
+  );
+}
+
 // 插件的 js / css 是**逐字读进来内联**的，源码里出现结束标签会截断宿主拼的文档。
 for (const name of ["pdf.global.mjs", "pdf.worker.min.mjs", "text-layer.css"]) {
   const text = readFileSync(join(vendorDir, name), "utf8");
@@ -228,4 +284,12 @@ for (const name of ["pdf.global.mjs", "pdf.worker.min.mjs", "text-layer.css"]) {
     throw new Error(`${name} 里有会截断 HTML 的片段（结束标签或 <!--），必须转义后再用`);
   }
 }
-console.log("[pdfjs] 校验通过：三份文件里都没有会截断内联标签的片段");
+// pdf-lib 同样会被逐字内联（它在批注插件的 js 列表里）。
+{
+  const text = readFileSync(pdfLibPath, "utf8");
+  if (/<\/script|<!--/.test(text)) {
+    throw new Error("pdf-lib.js 里有会截断 HTML 的片段（结束标签或 <!--），必须转义后再用");
+  }
+}
+
+console.log("[pdfjs] 校验通过：四份文件里都没有会截断内联标签的片段");

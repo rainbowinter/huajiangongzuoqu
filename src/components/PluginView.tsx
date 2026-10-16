@@ -46,6 +46,13 @@ interface PluginViewProps {
   loadData: (plugin: string) => Promise<unknown>;
   /** 某个插件要存数据。宿主负责校验与落盘。 */
   onSaveData: (plugin: string, data: unknown) => void;
+  /**
+   * 视图要把一份字节存到用户选的位置（「另存为带批注的 PDF」）。
+   *
+   * 宿主这一层只负责往下递：弹对话框、落盘都在 `PluginFileView` 那边（那里才有
+   * 「这个文件叫什么」这类上下文）。
+   */
+  onSaveFile: (name: string, bytes: ArrayBuffer) => void;
   /** 视图报上来的工具栏状态。`plugin` 是**哪个插件**报的（`null` = 视图所有者）。 */
   onState: (plugin: string | null, values: Record<string, string>, pressed: string[]) => void;
   /** 宿主往视图下命令的口子，由宿主工具栏填。 */
@@ -139,8 +146,26 @@ export function PluginView(props: PluginViewProps) {
           sendDocument();
           break;
 
+        case "requestDocumentCopy":
+          // 扩展插件要一份自己的副本。**必须是新读的一份**：`document` 那份的
+          // ArrayBuffer 已经被 pdf.js 转移给 worker 了（见 viewBridge 里的说明）。
+          void latest.current
+            .loadBytes()
+            .then((bytes) => post({ t: "documentCopy", bytes }))
+            .catch((error) =>
+              post({
+                t: "documentError",
+                message: error instanceof Error ? error.message : String(error),
+              }),
+            );
+          break;
+
         case "saveData":
           latest.current.onSaveData(message.plugin, message.data);
+          break;
+
+        case "saveFile":
+          latest.current.onSaveFile(message.name, message.bytes);
           break;
 
         case "state":

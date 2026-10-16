@@ -42,6 +42,8 @@
     /** 正在写字的图钉：{ page, at, id | null }。 */
     editing: null,
     saveTimer: 0,
+    /** 原文件名（导出时的默认文件名）。 */
+    fileName: "",
   };
 
   // ---------------------------------------------------------------- 小工具
@@ -91,6 +93,46 @@
       state.saveTimer = 0;
       store.write({ version: 1, marks: state.marks });
     }, SAVE_DELAY);
+  }
+
+  /**
+   * 文件字节**按需另要**，不缓存 `document` 那条里的。
+   *
+   * ⚠️ `document` 里的 ArrayBuffer 是视图里两个插件**共用同一个**，而 pdf.js 会把它
+   * **转移给 worker**（转移过的 buffer 在原处就废了）。查看器注册在前、先用先废，
+   * 我们后收到的那份已经是空的了 —— 所以导出时单独要一份（宿主会重新读磁盘）。
+   */
+  floralView.onMessage((message) => {
+    if (!message || typeof message !== "object") return;
+    if (message.t === "init" && typeof message.name === "string") {
+      state.fileName = message.name;
+      return;
+    }
+    if (message.t === "documentCopy" && message.bytes) {
+      const pending = copyWaiters.shift();
+      if (pending) pending.resolve(message.bytes);
+    }
+  });
+
+  /** 等一份字节副本的排队人。一次一条足够，但用队列更省心。 */
+  const copyWaiters = [];
+
+  function requestBytesCopy(timeoutMs = 20000) {
+    return new Promise((resolve, reject) => {
+      const waiter = {
+        resolve: (bytes) => {
+          clearTimeout(timer);
+          resolve(bytes);
+        },
+      };
+      const timer = setTimeout(() => {
+        const index = copyWaiters.indexOf(waiter);
+        if (index >= 0) copyWaiters.splice(index, 1);
+        reject(new Error("等原文件超时"));
+      }, timeoutMs);
+      copyWaiters.push(waiter);
+      floralView.requestDocumentCopy();
+    });
   }
 
   store.onData((data) => {
@@ -528,7 +570,201 @@
       state.color = message.value;
       updateToolbar();
     }
+    if (message.id === "export-pdf") {
+      void exportAnnotatedPdf();
+    }
   });
+
+  // ---------------------------------------------------------------- 导出带批注的 PDF
+  //
+  // 把标注写成 **PDF 自己的注释对象**（`/Square` / `/Circle` / `/Ink` / `/Highlight` /
+  // `/Text`），另存成一份新文件 —— **原文件一个字都不动**（用户明确要的）。
+  //
+  // 为什么值得这么做：批注从此不再是「花笺的私有数据」，Edge / Acrobat / WPS 打
+  // 开就是真批注；而旁边那份 JSON 仍然留着，应用里继续用。
+  //
+  // 坐标**直接用落盘的那份**：我们存的是 `viewport.convertToPdfPoint` 的未旋转用户空间，
+  // 注释的 `/Rect` 也是这个空间（页面自带的 `/Rotate` 由阅读器再套一层）—— 缩放、旋转
+  // 都不会跑偏。
+
+  /** 把 `#rrggbb` 变成 PDF 要的 0~1 三元组。 */
+  function toRgb01(hex) {
+    const text = String(hex).replace("#", "");
+    const full =
+      text.length === 3
+        ? text
+            .split("")
+            .map((c) => c + c)
+            .join("")
+        : text;
+    const value = Number.parseInt(full.slice(0, 6), 16);
+    if (!Number.isFinite(value)) return [1, 0.83, 0];
+    return [((value >> 16) & 255) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255];
+  }
+
+  /** 一对角点 → `[x0, y0, x1, y1]`（PDF 空间里 y 朝上，所以要取极值）。 */
+  function rectOf(from, to) {
+    return [
+      Math.min(from[0], to[0]),
+      Math.min(from[1], to[1]),
+      Math.max(from[0], to[0]),
+      Math.max(from[1], to[1]),
+    ];
+  }
+
+  /**
+   * 一条标注 → 一份注释字典。认不出来的（页面越界、点太少）返回 `null`。
+   *
+   * `F 4` 是「打印时也画」—— 少了它，注释只出现在屏幕上，打印出来一片干净。
+   */
+  function annotationOf(context, PDFLib, mark) {
+    const { PDFName, PDFString, PDFHexString, PDFNumber } = PDFLib;
+    const color = toRgb01(mark.color || "#ffd400");
+    const base = {
+      Type: PDFName.of("Annot"),
+      F: PDFNumber.of(4),
+      C: context.obj(color),
+      CA: PDFNumber.of(mark.kind === "text" ? 0.45 : 0.35),
+    };
+
+    if (mark.kind === "pin") {
+      const [x, y] = mark.at;
+      // 图标要有个框，不然阅读器不知道该在哪儿画。16 点见方，围着那个点。
+      const rect = [x - 8, y - 8, x + 8, y + 8];
+      return context.obj({
+        ...base,
+        Subtype: PDFName.of("Text"),
+        Rect: context.obj(rect),
+        Name: PDFName.of("Comment"),
+        Open: false,
+        // ⚠️ 中文要走 UTF-16 的 HexString：`PDFString` 只认 latin1，塞进去就是乱码。
+        Contents: PDFHexString.fromText(String(mark.note || "")),
+      });
+    }
+
+    if (mark.kind === "ink") {
+      const points = mark.points.flatMap(([x, y]) => [x, y]);
+      if (points.length < 4) return null;
+      const xs = mark.points.map(([x]) => x);
+      const ys = mark.points.map(([, y]) => y);
+      const rect = rectOf([Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]);
+      // 线宽存的是…没存。用默认 2 点，跟屏幕上的手感接近。
+      return context.obj({
+        ...base,
+        Subtype: PDFName.of("Ink"),
+        Rect: context.obj(rect),
+        InkList: context.obj([points]),
+        BS: context.obj({ W: PDFNumber.of(2) }),
+      });
+    }
+
+    const rects = (mark.rects || [])
+      .map(([from, to]) => rectOf(from, to))
+      .filter(([x0, y0, x1, y1]) => x1 > x0 && y1 > y0);
+    if (rects.length === 0) return null;
+
+    const bounds = rects.reduce(
+      (acc, [x0, y0, x1, y1]) => [
+        Math.min(acc[0], x0),
+        Math.min(acc[1], y0),
+        Math.max(acc[2], x1),
+        Math.max(acc[3], y1),
+      ],
+      rects[0],
+    );
+
+    if (mark.kind === "text") {
+      // `/QuadPoints` 的顺序是：左上、右上、左下、右下（y 朝上）。
+      const quads = rects.flatMap(([x0, y0, x1, y1]) => [x0, y1, x1, y1, x0, y0, x1, y0]);
+      return context.obj({
+        ...base,
+        Subtype: PDFName.of("Highlight"),
+        Rect: context.obj(bounds),
+        QuadPoints: context.obj(quads),
+      });
+    }
+
+    // 矩形 / 圆形：PDF 里叫 Square / Circle（Rectangle 早就废了，Square 就是矩形）。
+    return context.obj({
+      ...base,
+      Subtype: PDFName.of(mark.kind === "ellipse" ? "Circle" : "Square"),
+      Rect: context.obj(bounds),
+      IC: context.obj(color),
+      BS: context.obj({ W: PDFNumber.of(1.5) }),
+    });
+  }
+
+  async function exportAnnotatedPdf() {
+    const PDFLib = globalThis.PDFLib;
+    if (!PDFLib) {
+      floralView.toast("导出要用到的 pdf-lib 没加载上，先刷新一下插件。");
+      return;
+    }
+    if (state.marks.length === 0) {
+      floralView.toast("这一份上还没有任何标注。");
+      return;
+    }
+
+    let source;
+    try {
+      source = await requestBytesCopy();
+    } catch (error) {
+      floralView.log("error", `拿原文件失败：${error?.message ?? error}`);
+      floralView.toast("拿不到这份 PDF 的原文件，导出没做成。");
+      return;
+    }
+
+    let doc;
+    try {
+      doc = await PDFLib.PDFDocument.load(source, { updateMetadata: false });
+    } catch (error) {
+      // 加密的、结构特殊的一律在这里失败 —— 明确说出来，别写出一份坏文件。
+      floralView.log("error", `读原 PDF 失败：${error?.message ?? error}`);
+      floralView.toast("这份 PDF 读不了（可能加过密或者结构特殊），没法导出批注。");
+      return;
+    }
+
+    const context = doc.context;
+    const pages = doc.getPages();
+    let written = 0;
+    for (const mark of state.marks) {
+      const page = pages[mark.page - 1];
+      if (!page) continue;
+      const annotation = annotationOf(context, PDFLib, mark);
+      if (!annotation) continue;
+
+      const existing = page.node.lookupMaybe(PDFLib.PDFName.of("Annots"), PDFLib.PDFArray);
+      const array = existing ?? context.obj([]);
+      array.push(context.register(annotation));
+      page.node.set(PDFLib.PDFName.of("Annots"), array);
+      written += 1;
+    }
+
+    if (written === 0) {
+      floralView.toast("没有一条标注能写进这份 PDF。");
+      return;
+    }
+
+    let bytes;
+    try {
+      bytes = await doc.save();
+    } catch (error) {
+      floralView.log("error", `生成 PDF 失败：${error?.message ?? error}`);
+      floralView.toast("生成带批注的 PDF 时出错了。");
+      return;
+    }
+
+    // `save()` 给的是 Uint8Array，可能挂在一个更大的 buffer 上 —— 按视图切一份干净的。
+    const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    floralView.saveFile(exportedName(state.fileName), buffer);
+    floralView.log("info", `已写出 ${written} 条批注`);
+  }
+
+  /** `论文.pdf` → `论文-批注.pdf`。没有扩展名就补一个。 */
+  function exportedName(name) {
+    const base = (name || "文档").replace(/\.pdf$/i, "");
+    return `${base}-批注.pdf`;
+  }
 
   // ---------------------------------------------------------------- 起步
 

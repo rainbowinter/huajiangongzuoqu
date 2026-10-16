@@ -76,6 +76,21 @@ export function saveExternalFile(path: string, content: string): Promise<void> {
   return invoke("save_external_file", { path, content });
 }
 
+/**
+ * 把**字节**写到用户选好的路径（插件视图的「另存为」）。
+ *
+ * ⚠️ 路径走**请求头**：body 已经被字节占满了，而 Tauri 的 raw payload 只能整份当 body。
+ * 头里只能装 ASCII，所以先 `encodeURIComponent`，Rust 那边再解回来（中文路径要靠这一步）。
+ * 这是 Tauri 自己也在用的路子（见它 `ipc/channel.rs` 里传 channel id 那几处）。
+ *
+ * 不走 JSON 数组：一份 10MB 的 PDF 那样会变成几十 MB 的文本，慢得肉眼可见。
+ */
+export function saveExternalFileBytes(path: string, bytes: ArrayBuffer): Promise<void> {
+  return invoke("save_external_file_bytes", bytes, {
+    headers: { "x-floral-path": encodeURIComponent(path) },
+  });
+}
+
 export function getFileModifiedTime(path: string): Promise<number> {
   return invoke("get_file_modified_time", { path });
 }

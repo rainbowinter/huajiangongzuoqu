@@ -18,6 +18,7 @@ function render() {
       dataPlugins={["pdf-annotations"]}
       loadData={async () => null}
       onSaveData={noop}
+      onSaveFile={noop}
       onState={noop}
       onToast={noop}
       onLog={noop}
