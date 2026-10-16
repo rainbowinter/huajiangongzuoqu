@@ -106,13 +106,14 @@ fn clamp(value: f64, min: f64, max: f64, fallback: f64) -> f64 {
 }
 
 /// 页眉文字：去掉换行与其它控制字符（它们会把页眉那行顶开），再按字符数截断。
+///
+/// ⚠️ **先 trim、再 take**，顺序不能反。反过来的话，`take` 之后停在两端的那几个
+/// 空白会被 `trim` 一起吃掉，于是结果比 `MAX_HEADER_CHARS` **短** ——
+/// 单测 `header_text_is_stripped_of_control_chars_and_capped` 盯的正是这个
+///（原来那个写法在「开头带空格 + 超长」的输入上会少 2 个字符）。
 fn clean_header(text: &str) -> String {
-    let cleaned: String = text
-        .chars()
-        .filter(|c| !c.is_control())
-        .take(MAX_HEADER_CHARS)
-        .collect();
-    cleaned.trim().to_string()
+    let cleaned: String = text.chars().filter(|c| !c.is_control()).collect();
+    cleaned.trim().chars().take(MAX_HEADER_CHARS).collect()
 }
 
 /// 把前端那份设置变成可以交给 WebView2 的那份。**纯函数**，单测盯的就是它。
