@@ -19,6 +19,7 @@ import type { CodeThemePreference } from "../markdown/codeThemes";
 import type { FontFaceOverride } from "../fonts/fontFace";
 import { parseViewToolbar, type FileViewSpec, type ViewToolbarItem } from "../workspace/fileTypes";
 import { isDocumentContext, type DocumentContext } from "../workspace/documentContext";
+import { isWorkspaceFolderTarget } from "../workspace/folderBridge";
 
 export interface CommandContribution {
   id: string;
@@ -90,7 +91,15 @@ export interface ToolbarContribution {
 export interface DocumentActionContribution {
   id: string;
   title: string;
-  /** 按钮上显示的文字字形；不给就只显示 title。 */
+  /**
+   * 按钮上的图标。两种写法：
+   *
+   * - **插件目录下的相对路径**（`"icons/export.svg"`）—— 宿主读成文本、消毒后**内联**，
+   *   于是能跟 `currentColor` 走（与 `view.toolbar` 的图标同一条通道）；
+   * - **一个短文字字形**（`"导出"`）—— 原样当文字画。
+   *
+   * 判据见 `viewAssets.ts` 的 `isIconAssetPath`。不给就只显示 `title`。
+   */
   icon?: string;
   /** 在插件沙箱里跑的处理函数。与 `viewCommand` 二选一（或都给）。 */
   runToken?: string;
@@ -105,6 +114,48 @@ export interface DocumentActionContribution {
   contexts?: readonly DocumentContext[];
   /** 只在这些文件类型 id 里出现（带插件名前缀）。空 = 不限。 */
   typeIds?: readonly string[];
+  /**
+   * 下拉里的项。给了（且至少有一项认得出来）这个动作就变成一个**下拉**：点开菜单再选。
+   *
+   * 什么时候该用：**同一件事的几种做法**（导出原始 PDF / 导出带批注的 PDF）。做成两颗
+   * 并排的按钮更占地方，而且「导出」这个词重复两遍。
+   *
+   * ⚠️ 给了 `items` 之后，顶层的 `run` / `viewCommand` **不再被调用** —— 按钮只负责展开
+   * 菜单，「点什么」由各项目己说。
+   */
+  items?: readonly DocumentActionItem[];
+}
+
+/** 文档动作下拉里的一项。 */
+export interface DocumentActionItem {
+  id: string;
+  title: string;
+  /** 在插件沙箱里跑的处理函数。与 `viewCommand` 二选一（或都给）。 */
+  runToken?: string;
+  /** 转发给当前那个沙箱视图帧的命令 id。 */
+  viewCommand?: string;
+}
+
+/**
+ * 行内动作：**插件列表里、这个插件那一行**展开后的一颗按钮。
+ *
+ * 与 `ui.registerCommand` 的区别不在长相，在**入口在哪**：命令面板是一个得先知道有它存在
+ * 的地方（敲名字才找得到），而行内动作就摆在「这个插件」旁边 —— 用户点开这一行的原因是
+ * 「我想看看这个插件能干什么」，答案应该当场在那儿，不必再去别处找。
+ *
+ * 典型用法：css-modifier 的「打开样式工作区」—— 它管的东西（`<数据目录>/styles`）不在
+ * 任何工作区里，用户看不到，那就顺手帮他加进去。
+ *
+ * 只认 `run`（在 worker 里跑）：行内动作没有「转发给当前视图」的场合 —— 它跟当前打开
+ * 什么文件毫无关系。
+ */
+export interface RowActionContribution {
+  id: string;
+  title: string;
+  /** 按钮上显示的文字字形；不给就只显示 title。 */
+  icon?: string;
+  /** 在插件沙箱里跑的处理函数。 */
+  runToken: string;
 }
 
 /**
@@ -343,6 +394,9 @@ export interface PluginHostBridge {
   registerNoteMenuItem(contribution: MenuContribution): string;
   registerToolbarButton(contribution: ToolbarContribution): string;
   registerDocumentAction(contribution: DocumentActionContribution): string;
+  registerRowAction(contribution: RowActionContribution): string;
+  /** 把数据目录下的一个文件夹加进左侧工作区并跳过去（只认 `@data` / `@data/styles`）。 */
+  openWorkspaceFolder(path: string): Promise<void>;
   registerPopover(contribution: PopoverContribution): string;
   registerDecorations(contribution: DecorationContribution): string;
   registerSelectionTransformer(contribution: SelectionTransformerContribution): string;
@@ -599,12 +653,13 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
       const method = "ui.registerDocumentAction";
       const record = asRecord(args[0], method);
       const icon = asOptionalString(record.icon);
+      const items = parseDocumentActionItems(record.items);
       // 函数是可选的（转发命令那种就不带 run），但**一个都没有**就等于点下去什么都不
-      // 发生 —— 那种按钮不如不出现。
+      // 发生 —— 那种按钮不如不出现。下拉形态由 `items` 提供那个「点什么」。
       const runToken = asOptionalString(record.run);
       const viewCommand = asOptionalString(record.viewCommand);
-      if (!runToken && !viewCommand) {
-        throw invalidArgument(method, "run 与 viewCommand 至少要有一个");
+      if (!items && !runToken && !viewCommand) {
+        throw invalidArgument(method, "要么给 items（下拉），要么给 run / viewCommand");
       }
       const contexts = asDocumentContexts(record.contexts);
       const typeIds = asStringList(record.typeIds);
@@ -612,11 +667,39 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
         id: asString(record.id, method, "id"),
         title: asString(record.title, method, "title"),
         ...(icon ? { icon } : {}),
-        ...(runToken ? { runToken } : {}),
-        ...(viewCommand ? { viewCommand } : {}),
+        // 给了下拉就不再要顶层那两个回调：按钮只负责展开菜单（见接口上的说明）。
+        ...(items ? { items } : { ...(runToken ? { runToken } : {}), ...(viewCommand ? { viewCommand } : {}) }),
         ...(contexts ? { contexts } : {}),
         ...(typeIds ? { typeIds } : {}),
       });
+    },
+  },
+  "ui.registerRowAction": {
+    permission: "ui:row-action",
+    handler: (ctx, args) => {
+      const method = "ui.registerRowAction";
+      const record = asRecord(args[0], method);
+      const icon = asOptionalString(record.icon);
+      return ctx.bridge.registerRowAction({
+        id: asString(record.id, method, "id"),
+        title: asString(record.title, method, "title"),
+        runToken: requireToken(record, "run", method),
+        ...(icon ? { icon } : {}),
+      });
+    },
+  },
+  "workspace.openFolder": {
+    permission: "workspace:folders",
+    handler: (ctx, args) => {
+      const method = "workspace.openFolder";
+      const path = asString(args[0], method, "路径");
+      if (!isWorkspaceFolderTarget(path)) {
+        throw invalidArgument(
+          method,
+          `只认 @data 与 @data/styles（插件住在数据目录里，不该去猜用户磁盘的结构），收到：${path}`,
+        );
+      }
+      return ctx.bridge.openWorkspaceFolder(path);
     },
   },
   "ui.registerPopover": {
@@ -1044,6 +1127,8 @@ function menuContribution(args: unknown[], method: string): MenuContribution {
 
 /** 文档动作最多声明多少个过滤词 —— 手滑写个几千条也不该拖慢每一帧的工具栏。 */
 const MAX_DOCUMENT_ACTION_FILTER = 32;
+/** 一个文档动作的下拉项数上限。菜单长到要滚动就已经该拆成两个动作了。 */
+const MAX_DOCUMENT_ACTION_ITEMS = 12;
 
 /**
  * 解析插件给的文档上下文清单。
@@ -1055,6 +1140,45 @@ const MAX_DOCUMENT_ACTION_FILTER = 32;
 function asDocumentContexts(value: unknown): DocumentContext[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const kept = value.filter(isDocumentContext);
+  return kept.length > 0 ? kept : undefined;
+}
+
+/**
+ * 解析文档动作的下拉项。
+ *
+ * 老规矩「**认得出就收、认不出就丢**」：少一项只让那一项不显示，不会让整个按钮没掉。
+ * 但**一项都不剩**时返回 `undefined` —— 那时候这个动作就退回单按钮形态（由顶层
+ * `run` / `viewCommand` 决定成不成立），而不是变成一个点开是空的菜单。
+ *
+ * ⚠️ 这里**允许一项都不带 `title` 之外的东西吗**？不允许：`run` 与 `viewCommand` 都没有
+ * 的项点下去什么都不发生，不如不出现（与文档动作本身同一条规矩）。
+ */
+function parseDocumentActionItems(value: unknown): DocumentActionItem[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+
+  const kept: DocumentActionItem[] = [];
+  const seen = new Set<string>();
+  for (const entry of value.slice(0, MAX_DOCUMENT_ACTION_ITEMS)) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) continue;
+    const record = entry as Record<string, unknown>;
+
+    const id = asOptionalString(record.id);
+    const title = asOptionalString(record.title);
+    if (!id || !title || seen.has(id)) continue;
+
+    const runToken = asOptionalString(record.run);
+    const viewCommand = asOptionalString(record.viewCommand);
+    if (!runToken && !viewCommand) continue;
+
+    seen.add(id);
+    kept.push({
+      id,
+      title,
+      ...(runToken ? { runToken } : {}),
+      ...(viewCommand ? { viewCommand } : {}),
+    });
+  }
+
   return kept.length > 0 ? kept : undefined;
 }
 

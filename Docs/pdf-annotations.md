@@ -171,28 +171,44 @@ E:\笔记\
 未必还靠谱（用户手改过、别的版本写的），所以每条标注都要过一遍 `isSaneMark`，
 坏的直接不要 —— 一条坏数据不该让整份批注都画不出来。
 
-## 另存为带批注的 PDF
+## 导出：顶上那一行的「导出」下拉
 
-**「导出批注」在主窗口顶上那一行**，不在预览区那排视图小工具里：
+**它在主窗口顶上那一行**，不在预览区那排视图小工具里。一颗下载图标 + 一个下拉，两项：
 
 ```js
 api.ui.registerDocumentAction({
-  id: "export-pdf",
-  title: "导出批注",
+  id: "export",
+  title: "导出",
+  icon: "icons/export.svg",
   typeIds: ["pdf-viewer:pdf"], // 只在打开 PDF 时出现
-  viewCommand: "export-pdf",   // 转发给当前视图帧
+  items: [
+    { id: "original",  title: "导出原始 PDF",     viewCommand: "export-original-pdf" },
+    { id: "annotated", title: "导出带批注的 PDF", viewCommand: "export-annotated-pdf" },
+  ],
 });
 ```
 
-分界线是「**这是对这一份文档做的事，还是对这一屏画面做的事**」—— 翻页、缩放、选标注工具
-是后者（`view.toolbar`），导出是前者，和「另存为 PDF」「打印」是一类。机制见
-[`Docs/plugin-api.md` 的 `registerDocumentAction`](./plugin-api.md)。
+**为什么是下拉而不是两颗按钮**：它们是同一件事的两种做法，并排摆占地更多，而且「导出」
+这个词会重复两遍。`items` 就是给这种场合用的（见
+[`Docs/plugin-api.md`](./plugin-api.md)）。
 
-⚠️ 这里必须用 `viewCommand` 而不是 `run()`：**真正的活在帧里**（`view/annotate.js` 的
-`exportAnnotatedPdf` 拿得到 pdf-lib、原文件字节和所有标注坐标），而 `index.js` 跑在
-**Worker** 里，够不到那些东西。宿主点到时把 `{ t: "command", id: "export-pdf" }` 转给
-当前那个视图帧 —— 与 `view.toolbar` 控件收到的是同一条消息，`annotate.js` 里那句判断
-原样能用。
+分界线是「**这是对这一份文档做的事，还是对着一屏画面做的事**」—— 翻页、缩放、选标注工具
+是后者（`view.toolbar`），导出是前者，和「另存为 PDF」「打印」是一类。
+
+⚠️ 这里必须用 `viewCommand` 而不是 `run()`：**真正的活在帧里**（`view/annotate.js` 拿得到
+pdf-lib、原文件字节和所有标注坐标），而 `index.js` 跑在 **Worker** 里，够不到那些东西。
+宿主点到某一项时把 `{ t: "command", id: "<那一项的 viewCommand>" }` 转给当前那个视图帧 ——
+与 `view.toolbar` 控件收到的是同一条消息。
+
+### 「导出原始 PDF」
+
+把磁盘上那一份**原样**另存一份出去，一个字节都不改，默认文件名 `原名-原件.pdf`。
+
+批注是写在**旁边那份 JSON** 里的（不动原文件 —— 用户明确要的），所以「我要一份干净的
+原始件」这件事得单独给一个出口，而不是让用户去文件管理器里翻。默认名**刻意带上
+「-原件」**：原件可能就在同一个文件夹里，同名保存等于让用户在保存框里自己去分辨谁是谁。
+
+### 「导出带批注的 PDF」
 
 它会（或说：你点它之后，帧里的代码会）把标注**写进 PDF 自己的注释对象**，另存成
 `原名-批注.pdf` —— **原文件一个字都不动**（用户明确要的）。写出来的是标准注释，

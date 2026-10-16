@@ -69,6 +69,7 @@ import {
   type PopoverContribution,
   type PluginHostBridge,
   type FileTypeContribution,
+  type RowActionContribution,
   type SelectionTransformerContribution,
   type StatusBarContribution,
   type StyleContribution,
@@ -94,11 +95,13 @@ import {
   registerDocumentAction,
   registerPluginPanel,
   registerPopover,
+  registerRowAction,
   registerSelectionTransformer,
   registerToolbarButton,
   registerViewExtension,
 } from "../registry";
 import { clearViewDocumentCache } from "../viewAssets";
+import { openWorkspaceFolder } from "../../workspace/folderBridge";
 import {
   addStatusBarItemId,
   clearGutterLines,
@@ -651,9 +654,23 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
     registerDocumentAction(contribution: DocumentActionContribution) {
       // 两个回调都可能缺：`viewCommand` 那条要在帧里跑，`run` 那条在 worker 里跑。
       // 宿主这边统一收成一个 `run`，谁在什么线程由闭包自己决定 —— 界面上不必知道。
-      const run = contribution.runToken
-        ? () => invokeHandler(contribution.runToken as string, []).then(() => undefined)
-        : undefined;
+      const bindRun = (token: string | undefined) =>
+        token ? () => invokeHandler(token, []).then(() => undefined) : undefined;
+
+      const items = contribution.items?.map((item) => {
+        const itemRun = bindRun(item.runToken);
+        return {
+          id: item.id,
+          title: item.title,
+          ...(item.viewCommand ? { viewCommand: item.viewCommand } : {}),
+          ...(itemRun ? { run: itemRun } : {}),
+        };
+      });
+
+      // 有下拉时顶层那两个回调不绑：按钮只负责展开菜单（见 `DocumentActionContribution`）。
+      const topRun = items?.length ? undefined : bindRun(contribution.runToken);
+      const topCommand = items?.length ? undefined : contribution.viewCommand;
+
       return registrations.add(
         registerDocumentAction({
           id: `${owner}:${contribution.id}`,
@@ -662,10 +679,30 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
           contexts: contribution.contexts ?? [],
           typeIds: contribution.typeIds ?? [],
           ...(contribution.icon ? { icon: contribution.icon } : {}),
-          ...(contribution.viewCommand ? { viewCommand: contribution.viewCommand } : {}),
-          ...(run ? { run } : {}),
+          ...(topCommand ? { viewCommand: topCommand } : {}),
+          ...(topRun ? { run: topRun } : {}),
+          ...(items?.length ? { items } : {}),
         }),
       );
+    },
+
+    registerRowAction(contribution: RowActionContribution) {
+      // 行内动作只有 worker 侧一条路：它跟当前打开什么文件没关系，没有可转发的视图。
+      return registrations.add(
+        registerRowAction({
+          id: `${owner}:${contribution.id}`,
+          title: contribution.title,
+          plugin: owner,
+          ...(contribution.icon ? { icon: contribution.icon } : {}),
+          run: () => invokeHandler(contribution.runToken, []).then(() => undefined),
+        }),
+      );
+    },
+
+    openWorkspaceFolder(path: string) {
+      // 真正的实现住在 `MainWindow`（那里才有 `activeExplorer` 这些状态），
+      // 经过 `folderBridge` 的模块级 sink 拿 —— 与「把命令转发给当前视图」同一套路。
+      return openWorkspaceFolder(path);
     },
 
     registerPopover(contribution: PopoverContribution) {

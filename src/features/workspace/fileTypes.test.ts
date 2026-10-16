@@ -235,14 +235,26 @@ describe("校验插件声明的视图工具栏", () => {
     expect(parseViewToolbar([{ kind: "separator" }, { kind: "separator" }])).toBeUndefined();
   });
 
-  it("认不出的 kind 与缺 label 的按钮都丢掉，剩下的照收", () => {
+  it("认不出的 kind 与「文字图标都没有」的按钮丢掉，剩下的照收", () => {
     const items = parseViewToolbar([
       { kind: "让宿主画点东西", id: "x", label: "x" },
-      { kind: "button", id: "no-label" },
+      { kind: "button", id: "empty" },
       { kind: "button", id: "ok", label: "好" },
     ]);
 
     expect(items).toEqual([{ kind: "button", id: "ok", label: "好" }]);
+  });
+
+  it("只有图标、没有 label 的按钮是合法的（图标已经把它说清楚了）", () => {
+    const items = parseViewToolbar([
+      { kind: "button", id: "next", title: "下一页", icon: "icons/page-next.svg" },
+      { kind: "button", id: "both", label: "适应宽度", icon: "icons/fit-width.svg" },
+    ]);
+
+    expect(items).toEqual([
+      { kind: "button", id: "next", title: "下一页", icon: "icons/page-next.svg" },
+      { kind: "button", id: "both", label: "适应宽度", icon: "icons/fit-width.svg" },
+    ]);
   });
 
   it("id 不合规、或重名的丢掉 —— 它要当 key / 命令名 / 状态名用", () => {

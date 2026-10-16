@@ -1158,4 +1158,44 @@ describe("插件文档动作（顶上那一行）", () => {
 
     await host.dispose();
   });
+
+  test("下拉形态：每一项自己带闭包，顶层那两个回调被丢掉", async () => {
+    const code = `
+      floral.register({
+        onLoad(api) {
+          api.ui.registerDocumentAction({
+            id: "export",
+            title: "导出",
+            icon: "icons/export.svg",
+            typeIds: ["pdf-viewer:pdf"],
+            viewCommand: "顶层的不该被调用",
+            run() {},
+            items: [
+              { id: "original", title: "导出原始 PDF", viewCommand: "export-original-pdf" },
+              { id: "annotated", title: "导出带批注的 PDF", viewCommand: "export-annotated-pdf" },
+              { id: "native", title: "在 worker 里跑", run() {} },
+            ],
+          });
+        },
+      });
+    `;
+    const host = await createV2PluginHost({
+      manifest: manifest({ permissions: ACTION_PERMISSIONS, grantedPermissions: ACTION_PERMISSIONS }),
+      code,
+      allowInProcess: true,
+    });
+
+    await waitFor(() => expect(listDocumentActions()).toHaveLength(1));
+    const action = listDocumentActions()[0]!;
+
+    expect(action.items?.map((item) => item.id)).toEqual(["original", "annotated", "native"]);
+    expect(action.items?.[0]?.viewCommand).toBe("export-original-pdf");
+    expect(action.items?.[2]?.run).toBeTypeOf("function");
+    // ⚠️ 有下拉就不该再有顶层回调：留着它们，界面点按钮本身时也会发一条命令出去。
+    expect(action.viewCommand).toBeUndefined();
+    expect(action.run).toBeUndefined();
+
+    await host.dispose();
+    expect(listDocumentActions()).toHaveLength(0);
+  });
 });

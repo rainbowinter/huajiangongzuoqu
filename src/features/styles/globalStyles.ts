@@ -2,10 +2,18 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 /**
- * 全局样式表 —— `<数据目录>/styles/*.css`。
+ * 全局样式表 —— `<数据目录>/styles/`。
  *
- * 目录里的每一份 `.css` 都注入**每一个窗口**，**没有开关**（想让它不生效就把文件移走）。
- * 数据侧的一切（列目录、读内容、路径校验、轮询）都在 Rust 的 `src-tauri/src/styles.rs`，
+ * ## 哪几份生效
+ *
+ * 1. `custom.css` —— **常开**，它就是「我的界面」那份主样式表；
+ * 2. **全局打开的**（在「样式」面板里挨个开）；
+ * 3. **挂在当前打开文件上的**。
+ *
+ * 判据本身在 Rust（`styles::applied_names`），这里只认它给的 `applied` 标志 ——
+ * **别在前端再算一遍**，两套规则迟早不一致（而且 R 侧那份有单测）。
+ *
+ * 数据侧的一切（列目录、读内容、路径校验、轮询）都在 `src-tauri/src/styles.rs`，
  * 这里只做「拿回来 → 塞进 `<head>`」。
  *
  * ## 时机与生命周期
@@ -17,6 +25,8 @@ import { listen } from "@tauri-apps/api/event";
  * 「改了文件怎么办」由 Rust 那边的**轮询**负责：它每 2 秒比一次指纹，变了就广播
  * `global-styles-changed`，三个窗口一起收到、一起重注入。所以小窗和磁贴**不需要**
  * 各自轮询，也不需要互相通知。
+ *
+ * 开关的翻转不是**文件**变化，轮询看不见，由那两条命令自己广播一次。
  */
 
 /** 与 Rust 的 `styles::StyleSheet` 一一对应。 */
@@ -25,6 +35,23 @@ export interface StyleSheet {
   mtimeMs: number;
   size: number;
   css: string;
+  /** 现在会不会被注入。**注入只看这一个字段。** */
+  applied: boolean;
+  /** 全局开关开着没有。 */
+  global: boolean;
+  /**
+   * 挂在**当前打开的那个文件**上没有。与 `applied` 不是一回事 —— 一份既全局开着、
+   * 又挂在这个文件上时两者同为真；而「当前文件」那一段显示的必须是「挂没挂」。
+   */
+  bound: boolean;
+  /** 常开、界面上把开关钉死的那一份（`custom.css`）。 */
+  locked: boolean;
+}
+
+/** Rust 的 `StylesConfig`：开关与按文件绑定的落盘形态。 */
+export interface StylesConfig {
+  global: string[];
+  files: Record<string, string[]>;
 }
 
 /** 注入用的标记属性。值就是文件名 —— 出问题时在 DevTools 里一眼看得出是谁。 */
@@ -33,9 +60,66 @@ export const STYLE_ATTR = "data-floral-style";
 /** Rust 广播「样式变了」用的主题。 */
 export const STYLES_CHANGED_EVENT = "global-styles-changed";
 
-/** 一次取回目录里全部样式表（连内容）。 */
+/**
+ * 现在打开的是哪个文件（外部文件的绝对路径，或者笔记 id）—— 与插件面板、工作区缓存
+ * 用的是同一个 key。`null` = 没打开任何东西（只注入常开与全局那几份）。
+ */
+let activeFileKey: string | null = null;
+
+/**
+ * 告诉样式模块「现在打开的是谁」。由 `MainWindow` 在选中项变化时调。
+ *
+ * 变了才重新取一次：没变就返回，免得每次重新渲染都打一趟 IPC。**键变了不等于样式变了**
+ * —— 签名一致时 `refreshGlobalStyles` 自己会跳过重注入，所以这里不必再判一次。
+ */
+export function setActiveStyleFile(key: string | null): void {
+  const next = key && key.trim() ? key : null;
+  if (next === activeFileKey) return;
+  activeFileKey = next;
+  void refreshGlobalStyles();
+}
+
+/** 一次取回目录里**全部**样式表（连内容），每份带当前文件视角下的三个状态位。 */
 export function bundleStyles(): Promise<StyleSheet[]> {
-  return invoke<StyleSheet[]>("global_styles_bundle");
+  return invoke<StyleSheet[]>("global_styles_bundle", { fileKey: activeFileKey });
+}
+
+/** 把一份样式表开成 / 关掉全局。`custom.css` 会被后端拒绝。 */
+export function setStyleGlobal(name: string, enabled: boolean): Promise<StylesConfig> {
+  return invoke<StylesConfig>("global_styles_set_global", { name, enabled });
+}
+
+/** 把一份样式表挂到 / 摘离某一个文件。 */
+export function bindStyleToFile(
+  fileKey: string,
+  name: string,
+  enabled: boolean,
+): Promise<StylesConfig> {
+  return invoke<StylesConfig>("global_styles_bind", { fileKey, name, enabled });
+}
+
+/**
+ * 界面上的开关点一下走的这条路：改完立刻重新取一遍清单。
+ *
+ * 后端那条命令也会广播 `global-styles-changed`（别的窗口要跟着变），但**不能只靠它** ——
+ * 事件是异步投递的，点完开关到面板重画之间会空一拍，看着像没点动。自己再取一次是确定的；
+ * 两条路撞上也无妨，签名一致就不会重复注入。
+ */
+async function applySwitch(action: () => Promise<StylesConfig>): Promise<void> {
+  await action();
+  await refreshGlobalStyles();
+}
+
+export function toggleStyleGlobal(name: string, enabled: boolean): Promise<void> {
+  return applySwitch(() => setStyleGlobal(name, enabled));
+}
+
+export function toggleStyleForFile(
+  fileKey: string,
+  name: string,
+  enabled: boolean,
+): Promise<void> {
+  return applySwitch(() => bindStyleToFile(fileKey, name, enabled));
 }
 
 /** 样式目录的绝对路径（会给界面显示）。 */
@@ -61,7 +145,12 @@ export function openStylesDir(): Promise<string> {
 export function styleSignature(sheets: readonly StyleSheet[]): string {
   return [...sheets]
     .sort(compareByName)
-    .map((sheet) => `${sheet.name}:${sheet.mtimeMs}:${sheet.size}`)
+    // `applied` / `global` / `bound` 一并算进去：**翻了开关也是「内容变了」**，签名不带
+    // 它们的话「关掉」这一步会被当成没变，样式还挂在那儿。
+    .map(
+      (sheet) =>
+        `${sheet.name}:${sheet.mtimeMs}:${sheet.size}:${sheet.applied ? 1 : 0}:${sheet.global ? 1 : 0}:${sheet.bound ? 1 : 0}`,
+    )
     .join("|");
 }
 
@@ -134,9 +223,14 @@ export async function refreshGlobalStyles(force = false): Promise<readonly Style
   let next: StyleSheet[];
   try {
     next = await bundleStyles();
-  } catch {
+  } catch (error) {
     // 读不出来（数据目录刚被换掉、盘一时不可用……）就保持现状，**不清空已有样式** ——
     // 「界面突然全白」比「还是旧的」糟糕得多。
+    //
+    // ⚠️ 但也**不能一声不吭**：这条路上「保持现状」的表现是**面板里的清单停在旧的那一份**
+    // ——用户看到的是「点了刷新没反应、新加的样式表不出现」，而日志里一个字都没有。
+    // 上报一条 warn（经 Vite 会落到 dev-server 的输出里），下次一眼就能分辨。
+    console.warn("[styles] 取回样式表失败，保持现状（清单可能停在上一次的结果）", error);
     return sheets;
   }
 
@@ -145,13 +239,16 @@ export async function refreshGlobalStyles(force = false): Promise<readonly Style
 
   clearInjected();
 
-  // 按文件名排序后逐个 append —— 顺序稳定，且都落在 `<head>` 末尾，
-  // 于是排在 `App.css` 之后，能盖住它（`custom.css` 以前靠 import 顺序拿到的那点优势，
-  // 这里靠 append 位置保住）。
+  // 只注入 `applied` 的那几份 —— 目录里的**其它**文件只是「存在」，不生效。
+  //
+  // 按文件名排序后逐个 append：顺序稳定，且都落在 `<head>` 末尾，于是排在 `App.css`
+  // 之后，能盖住它（`custom.css` 以前靠 import 顺序拿到的那点优势，这里靠 append
+  // 位置保住）。
   //
   // 一份一个 `<style>` 而不是拼成一大份：某一份写坏了语法只是那一份失效，不会把后面的
   // 全带走；DevTools 里也能一眼看出哪条规则来自哪个文件。
   for (const sheet of [...next].sort(compareByName)) {
+    if (!sheet.applied) continue;
     const element = document.createElement("style");
     element.setAttribute(STYLE_ATTR, sheet.name);
     element.textContent = sheet.css;

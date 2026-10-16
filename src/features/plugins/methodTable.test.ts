@@ -24,6 +24,8 @@ function fakeBridge(overrides: Partial<PluginHostBridge> = {}): PluginHostBridge
     registerNoteMenuItem: vi.fn(() => "reg-5"),
     registerToolbarButton: vi.fn(() => "reg-6"),
     registerDocumentAction: vi.fn(() => "reg-doc-action"),
+    registerRowAction: vi.fn(() => "reg-row-action"),
+    openWorkspaceFolder: vi.fn(async () => undefined),
     registerPopover: vi.fn(() => "reg-popover"),
     registerDecorations: vi.fn(() => "reg-decorations"),
     registerSelectionTransformer: vi.fn(() => "reg-7"),
@@ -348,6 +350,133 @@ describe("权限门", () => {
       title: "全拼错",
       runToken: "\u0000h:2",
     });
+  });
+
+  test("ui.registerDocumentAction 的 items 走下拉形态，顶层回调不再要", async () => {
+    const bridge = fakeBridge();
+    const ctx = context(["ui:document-action"], ["ui:document-action"], bridge);
+
+    await dispatchPluginCall(ctx, "ui.registerDocumentAction", [
+      {
+        id: "export",
+        title: "导出",
+        icon: "icons/export.svg",
+        viewCommand: "top-level-should-be-ignored",
+        run: "\u0000h:9",
+        items: [
+          { id: "original", title: "导出原始 PDF", viewCommand: "export-original-pdf" },
+          { id: "annotated", title: "导出带批注的 PDF", viewCommand: "export-annotated-pdf" },
+        ],
+      },
+    ]);
+    // ⚠️ 顶层那两个**一个都不能带下去**：按钮只负责展开菜单，带着它们只会让人以为
+    // 点按钮本身也有用。
+    expect(bridge.registerDocumentAction).toHaveBeenLastCalledWith({
+      id: "export",
+      title: "导出",
+      icon: "icons/export.svg",
+      items: [
+        { id: "original", title: "导出原始 PDF", viewCommand: "export-original-pdf" },
+        { id: "annotated", title: "导出带批注的 PDF", viewCommand: "export-annotated-pdf" },
+      ],
+    });
+  });
+
+  test("下拉项：坏项一个个丢掉，一项不剩就退回单按钮", async () => {
+    const bridge = fakeBridge();
+    const ctx = context(["ui:document-action"], ["ui:document-action"], bridge);
+
+    await dispatchPluginCall(ctx, "ui.registerDocumentAction", [
+      {
+        id: "mixed",
+        title: "混合",
+        run: "\u0000h:1",
+        items: [
+          { id: "ok", title: "好的", run: "\u0000h:2" },
+          { id: "dead", title: "点下去什么都不发生" }, // 既没 run 也没 viewCommand
+          { title: "连 id 都没有", viewCommand: "x" },
+          { id: "ok", title: "重名的", viewCommand: "x" }, // 与第一项撞 id
+          { id: "cmd", title: "只有命令", viewCommand: "y" },
+        ],
+      },
+    ]);
+    expect(bridge.registerDocumentAction).toHaveBeenLastCalledWith({
+      id: "mixed",
+      title: "混合",
+      items: [
+        { id: "ok", title: "好的", runToken: "\u0000h:2" },
+        { id: "cmd", title: "只有命令", viewCommand: "y" },
+      ],
+    });
+
+    // 一项都没活下来 → 退回单按钮，顶层的 run 照旧有效（而不是变成点开是空的菜单）。
+    await dispatchPluginCall(ctx, "ui.registerDocumentAction", [
+      { id: "empty", title: "空菜单", run: "\u0000h:3", items: [{ id: "x", title: "死项" }] },
+    ]);
+    expect(bridge.registerDocumentAction).toHaveBeenLastCalledWith({
+      id: "empty",
+      title: "空菜单",
+      runToken: "\u0000h:3",
+    });
+
+    // 连顶层都没有 → 报错（老规矩：点下去不发生的按钮不如不出现）。
+    await expect(
+      dispatchPluginCall(ctx, "ui.registerDocumentAction", [{ id: "nothing", title: "什么都没有" }]),
+    ).rejects.toMatchObject({ code: "invalidArgument" });
+  });
+
+  test("ui.registerRowAction 受 ui:row-action 门控", async () => {
+    const contribution = { id: "open-styles", title: "打开样式工作区", run: "\u0000h:0" };
+    const parsed = { id: "open-styles", title: "打开样式工作区", runToken: "\u0000h:0" };
+
+    const denied = fakeBridge();
+    await expect(
+      dispatchPluginCall(context([], [], denied), "ui.registerRowAction", [contribution]),
+    ).rejects.toBeInstanceOf(PermissionError);
+    expect(denied.registerRowAction).not.toHaveBeenCalled();
+
+    const allowed = fakeBridge();
+    await dispatchPluginCall(context(["ui:row-action"], ["ui:row-action"], allowed), "ui.registerRowAction", [
+      contribution,
+    ]);
+    expect(allowed.registerRowAction).toHaveBeenCalledWith(parsed);
+
+    // 只有 run 一条路：转发型动作（viewCommand）在这里没有场合，多给也不认。
+    const withView = fakeBridge();
+    await dispatchPluginCall(
+      context(["ui:row-action"], ["ui:row-action"], withView),
+      "ui.registerRowAction",
+      [{ id: "x", title: "x", run: "\u0000h:1", viewCommand: "x" }],
+    );
+    expect(withView.registerRowAction).toHaveBeenCalledWith({
+      id: "x",
+      title: "x",
+      runToken: "\u0000h:1",
+    });
+  });
+
+  test("workspace.openFolder 只认两个哨兵值", async () => {
+    const denied = fakeBridge();
+    await expect(
+      dispatchPluginCall(context([], [], denied), "workspace.openFolder", ["@data/styles"]),
+    ).rejects.toBeInstanceOf(PermissionError);
+    expect(denied.openWorkspaceFolder).not.toHaveBeenCalled();
+
+    const bridge = fakeBridge();
+    const ctx = context(["workspace:folders"], ["workspace:folders"], bridge);
+
+    await dispatchPluginCall(ctx, "workspace.openFolder", ["@data/styles"]);
+    expect(bridge.openWorkspaceFolder).toHaveBeenCalledWith("@data/styles");
+    await dispatchPluginCall(ctx, "workspace.openFolder", ["@data"]);
+    expect(bridge.openWorkspaceFolder).toHaveBeenLastCalledWith("@data");
+
+    // 绝对路径不给过：插件住在数据目录里，不该去猜用户磁盘长什么样。
+    for (const bad of ["C:/", "C:\\Users", "/etc", "@data/plugins", "@data/styles/..", ""]) {
+      await expect(
+        dispatchPluginCall(ctx, "workspace.openFolder", [bad]),
+      ).rejects.toMatchObject({ code: "invalidArgument" });
+    }
+    expect(bridge.openWorkspaceFolder).toHaveBeenCalledTimes(2);
   });
 
   test("ui.registerDecorations 受 ui:decorations 门控", async () => {

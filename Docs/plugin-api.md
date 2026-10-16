@@ -99,6 +99,7 @@ v2 插件**默认没有任何权限**。清单里没声明的权限一律不生�
 | `workspace:read`                       | `workspace.listNotes` / `getNote` / `getActiveNote`                 |
 | `workspace:write`                      | 新建 / 更新 / 删除 / 移动分类 / `openNote`（蕴含 `workspace:read`） |
 | `workspace:cache`                      | 在**文件旁边**的 `__floral-notepaper__/` 里读写这个插件自己的数据   |
+| `workspace:folders`                    | 把数据目录下的文件夹加进左侧工作区（`workspace.openFolder`）       |
 | `categories:read` / `categories:write` | 分类的列举与创建                                                    |
 | `editor:read`                          | 读正文、选区、光标；注册选区转换器                                  |
 | `editor:write`                         | 插入、包裹、按范围替换、设选区、聚焦（蕴含 `editor:read`）          |
@@ -109,6 +110,7 @@ v2 插件**默认没有任何权限**。清单里没声明的权限一律不生�
 | `ui:menus`                             | 编辑器 / 笔记列表右键菜单项                                         |
 | `ui:toolbar`                           | 工具栏按钮                                                          |
 | `ui:document-action`                   | 主窗口顶上那一行的文档级动作（`ui.registerDocumentAction`）          |
+| `ui:row-action`                        | 插件列表里自己那一行的按钮（`ui.registerRowAction`）                 |
 | `ui:popover`                           | 工具栏浮层：按钮 + 下拉面板（`ui.registerPopover`）                 |
 | `ui:gutter`                            | 编辑器左侧的行旁注（`ui.registerGutter`）                           |
 | `ui:decorations`                       | 行内装饰：贴着正文某个字符叠的小控件（`ui.registerDecorations`）    |
@@ -448,7 +450,7 @@ api.ui.registerPopover({
 api.ui.registerDocumentAction({
   id: "export-annotations",
   title: "导出批注",
-  icon: "导出", // 可选，按钮上显示的文字
+  icon: "导出", // 可选：一个文字字形，或插件目录下的一份 .svg
   typeIds: ["pdf-viewer:pdf"], // 只在打开这种文件时出现
   viewCommand: "export-pdf", // 转发给当前视图帧的命令 id
 });
@@ -475,7 +477,7 @@ api.ui.registerDocumentAction({
 | | 放什么 | 例子 |
 | --- | --- | --- |
 | `view.toolbar` | **视图内部的小工具**，渲染在预览区里面、iframe 上面 | PDF 的翻页、缩放、标注工具 |
-| `ui.registerDocumentAction` | **文档级动作**，渲染在主窗口顶部那一行 | 导出批注、打印、导出 PDF、检查这份笔记 |
+| `ui.registerDocumentAction` | **文档级动作**，渲染在主窗口顶部那一行（可以是下拉） | 导出、打印、导出 PDF、检查这份笔记 |
 
 一句话：**「这是对这一份文档做的事，还是对这一屏画面做的事」**。
 
@@ -498,7 +500,83 @@ api.ui.registerDocumentAction({
   pdf.js、文字层），`run()` 够不到它 —— 「导出批注」要拿 pdf-lib 重写整份 PDF，就只有
   这条路。`example-plugins-v2/pdf-annotations/` 就是这么把「导出」挪到顶上那一行的。
 
+**放不下的时候按这个顺序挑**（三条路的入口各不相同，搞混了用户就找不着）：
+
+| 想做的事 | 用哪个 |
+| --- | --- |
+| 对这一份文档做点什么（导出、打印、检查） | `ui.registerDocumentAction` → 主窗口顶上那一行 |
+| 对这一屏画面做点什么（翻页、缩放、标注工具） | `view.toolbar` → 预览区里面、iframe 上面 |
+| 告诉我这个插件能干什么 | `ui.registerRowAction` → 插件列表里自己那一行的展开区 |
+
+**`icon` 两种写法**：一个**文字字形**（`"导出"`），或者**插件目录下的一份 `.svg`**
+（`"icons/export.svg"`）。后者由宿主读成文本、消毒后**内联**进按钮 —— 于是能跟
+`currentColor` 走，尺寸也由宿主定死（与 `view.toolbar` 的图标同一条通道）。
+判据是「看起来像路径的就算路径」（含 `/` 或以 `.svg` 结尾）；判成路径之后**不再回退成
+文字** —— 写错一个文件名，显示出来的是一串半截路径，比什么都不显示难看得多。
+
+### 下拉形态：`items`
+
+同一件事有几种做法时（导出原始 PDF / 导出带批注的 PDF），别并排摆两颗按钮 ——
+占地更多，而且「导出」这个词会重复两遍：
+
+```js
+api.ui.registerDocumentAction({
+  id: "export",
+  title: "导出",
+  icon: "icons/export.svg",
+  typeIds: ["pdf-viewer:pdf"],
+  items: [
+    { id: "original", title: "导出原始 PDF", viewCommand: "export-original-pdf" },
+    { id: "annotated", title: "导出带批注的 PDF", viewCommand: "export-annotated-pdf" },
+  ],
+});
+```
+
+每一项都可以有自己的 `run()` / `viewCommand`（与顶层同一条规矩：至少有一个，否则那一项
+被丢掉）。⚠️ 给了 `items` 之后，**顶层的 `run` / `viewCommand` 不再被调用** —— 按钮只
+负责展开菜单。
+
 一个都没有的话，注册会**直接报错**：点下去什么也不发生的按钮不如不出现。
+
+#### `api.ui.registerRowAction()` —— 插件列表里自己那一行的按钮
+
+```js
+api.ui.registerRowAction({
+  id: "open-styles-workspace",
+  title: "打开样式工作区",
+  run: async () => {
+    await api.workspace.openFolder("@data/styles");
+  },
+});
+```
+
+需要 `ui:row-action` 权限。
+
+**放在哪儿**：插件列表里、**这个插件自己那一行**展开之后（「管理」区上方）。用户点开某
+一行，十有八九是想问「这个插件能干什么」—— 答案应该当场在那儿，不必再去命令面板里敲
+名字找。
+
+**只有 `run`（在 Worker 里跑），没有 `viewCommand`**：行内动作跟当前打开什么文件毫无
+关系，没有可转发的视图。
+
+和 `ui.registerCommand` 的分工只有一个词：**入口在哪**。命令面板要先知道有它存在才找
+得到；行内动作就摆在插件名字旁边。
+
+### `api.workspace.openFolder()` —— 把数据目录下的文件夹加进工作区
+
+```js
+await api.workspace.openFolder("@data/styles"); // <数据目录>/styles
+await api.workspace.openFolder("@data"); //         <数据目录>
+```
+
+需要 `workspace:folders` 权限。**已经在工作区里就只跳过去**（幂等）。
+
+**只认这两个哨兵值**，绝对路径一律拒绝：插件住在数据目录里，但那个目录叫什么、搬到哪儿
+是用户说了算，插件不该猜；反过来说，允许任意路径就等于给了一个「把 `C:\` 挂进侧栏」的
+能力，对用户没有任何好处。想挂别的目录，用户自己在活动栏点 `+`。
+
+典型用法：某个插件的相关文件放在数据目录下（css-modifier 的 `styles/` 就是这样），
+用户根本看不到它们 —— 顺手加进工作区，就能在花笺里直接编辑。
 
 ### `api.files` — 文件类型
 
@@ -720,6 +798,11 @@ view: {
   就行，深浅色、主题色都不用你操心。
 - **`button`、`menu` 与 `menu` 的每个选项**都能带。菜单的触发按钮显示的是**当前选中那一项**
   的图标，所以不必给菜单本身再配一个。
+- ⚠️ **给了 `icon` 就别再写单字符的 `label`。** 那是**图标的文字替身**，宿主画不出图标时
+  才用它 —— 两个都给的时候，一颗按钮上会并排出现 14px 的图形和 11px 的字符，看着就是
+  「同一个图标画了两遍」。（多字符的 `label` 是**文案**，跟图标各说各的，该留就留：
+  「适应宽度」「单页 / 连续」这类。）想在按钮上只放一个图形，直接不给 `label` 就行 ——
+  `label` 与 `icon` 有一个就能成立。
 - 读不到、不是 SVG、或者内容里有脚本一类的东西 —— 都只是「这一项没有图标」，照旧显示文字，
   不会让整排控件出不来。单份图标超过 32KB 会被跳过（图标那么大一定是画歪了）。
 - 路径合不合法由后端把关（与 `css` / `js` 同一条原则：前端不重复写一遍规则）。

@@ -58,7 +58,12 @@ import {
   subscribePopovers,
   subscribeToolbarButtons,
 } from "../features/plugins/registry";
-import type { PluginDecoration, PluginDocumentAction, PluginPopover } from "../features/plugins/registry";
+import type {
+  PluginDecoration,
+  PluginDocumentAction,
+  PluginDocumentActionItem,
+  PluginPopover,
+} from "../features/plugins/registry";
 import { sanitizePluginHtml } from "../features/plugins/sanitizeHtml";
 import {
   getDecorationItems,
@@ -95,6 +100,7 @@ import { normalizeTileColor } from "../features/settings/tileColor";
 import { formatSize } from "../features/market/presentation";
 import {
   addWorkspaceFolder,
+  dataDirPath,
   clearWorkspaceCache,
   removeWorkspaceFolder,
   setWorkspaceIcon,
@@ -103,6 +109,14 @@ import {
   type WorkspaceEntry,
 } from "../features/workspace/api";
 import { postActiveViewCommand } from "../features/plugins/activeView";
+import { isIconAssetPath } from "../features/plugins/viewAssets";
+import { usePluginIcons } from "../features/plugins/usePluginIcons";
+import { DocumentActionButton } from "./DocumentActionButton";
+import {
+  sameFolderPath,
+  setWorkspaceFolderOpener,
+} from "../features/workspace/folderBridge";
+import { setActiveStyleFile, stylesDirPath } from "../features/styles/globalStyles";
 import {
   documentActionVisible,
   documentContextOf,
@@ -1212,6 +1226,23 @@ export function MainWindow({
   const isNoteDocument = selectedExternalFile === null;
 
   /**
+   * 「样式」面板里那个「当前文件」的标识与显示名。
+   *
+   * 标识与插件面板、工作区缓存是**同一个 key**（见 `v2Host.ts` 的 `panelFileKeyOf`：
+   * 外部文件用绝对路径，笔记回落到 id）—— 三处必须一致，否则同一篇东西在两边算成两个。
+   * 只读文档（`docView`）不算：它不在磁盘上，挂样式没有意义。
+   */
+  const styleFileKey = docView !== null ? null : (activeFilePath ?? (isNoteDocument ? selectedId : null));
+  const styleFileLabel = activeFilePath
+    ? activeFilePath.split(/[\\/]/).pop() || activeFilePath
+    : (selectedNote?.title ?? null);
+
+  // 样式模块要按当前文件重新取一遍清单（按文件挂的那几份随之切换）。
+  useEffect(() => {
+    setActiveStyleFile(styleFileKey);
+  }, [styleFileKey]);
+
+  /**
    * 顶部那一行按**当前打开的是什么**编排。
    *
    * 那一行放的是**文档级动作**（导出、删除、开右侧栏的插件面板）；插件视图自己那排
@@ -2099,6 +2130,45 @@ export function MainWindow({
     if (!workspaceFolders.includes(activeExplorer)) setActiveExplorer(EXPLORER_NOTES);
   }, [workspaceFolders, activeExplorer]);
 
+  /**
+   * 把某个**已经知道路径**的文件夹加进工作区并跳过去。插件那条路（`@data` / `@data/styles`）
+   * 走这里 —— 与用户点「+」的区别只在路径从哪来。
+   *
+   * 幂等：已经在列表里就只跳过去。所以「该跳哪一个」不能取列表末尾（后端去重之后末尾
+   * 可能是别人），要按路径找回来。
+   */
+  const openKnownWorkspaceFolder = useCallback(async (path: string) => {
+    const config = await addWorkspaceFolder(path);
+    const folders = config.workspaceFolders ?? [];
+    setWorkspaceFolders(folders);
+
+    const target = folders.find((folder) => sameFolderPath(folder, path));
+    if (target) setActiveExplorer(target);
+    setSidebarCollapsed(false);
+  }, []);
+
+  /**
+   * 插件要打开的文件夹。`folderBridge` 那个 sink 从这里拿实现。
+   *
+   * 只解析两个哨兵（`workspace/openFolder` 的方法表那关已经拦过别的值了，这里再判一次
+   * 是因为 sink 是模块级的，测试与将来的调用方都可能绕过方法表直接调它）。
+   */
+  useEffect(() => {
+    setWorkspaceFolderOpener(async (path) => {
+      if (path === "@data/styles") {
+        await openKnownWorkspaceFolder(await stylesDirPath());
+        return;
+      }
+      if (path === "@data") {
+        await openKnownWorkspaceFolder(await dataDirPath());
+        return;
+      }
+      throw new Error(`不认得的文件夹：${path}`);
+    });
+    // ⚠️ 卸载时清掉：窗口关了之后回调会去打一个已经作废的 setState。
+    return () => setWorkspaceFolderOpener(null);
+  }, [openKnownWorkspaceFolder]);
+
   const handleAddWorkspaceFolder = useCallback(async () => {
     try {
       const picked = await chooseDataDirectory();
@@ -2813,12 +2883,44 @@ export function MainWindow({
    * 文字层）；`run` 在插件自己的 Worker 沙箱里跑。先发命令、再跑 run，顺序固定，免得
    * 作者在两处各写一半时还要猜先后。
    */
+  /**
+   * 顶上那一行**真正要显示的**文档动作：按当前文档过滤过的（给 PDF 做的「导出」不该在
+   * 打开一篇笔记时冒出来）。
+   */
+  const visibleDocumentActions = useMemo(
+    () =>
+      pluginDocumentActions.filter((action) =>
+        documentActionVisible(action, {
+          context: documentContext,
+          typeId: selectedFileType?.id ?? null,
+        }),
+      ),
+    [pluginDocumentActions, documentContext, selectedFileType],
+  );
+
+  /**
+   * 文档动作的图标。
+   *
+   * `action.icon` 写成 `.svg` 路径（而不是一个字形）时，得把那份文件读进来、消毒后内联 ——
+   * 与 `view.toolbar` 的图标同一条通道、同一套尺寸约束（见 `loadPluginIcon`）。
+   * 读不到就是「这颗按钮没有图标」，按钮照旧在。
+   */
+  const documentActionIcons = usePluginIcons(
+    visibleDocumentActions.flatMap((action) => {
+      const icon = action.icon;
+      if (!icon || !isIconAssetPath(icon)) return [];
+      return [{ key: action.id, owner: action.plugin, path: icon }];
+    }),
+  );
+
   const handleDocumentAction = useCallback(
-    (action: PluginDocumentAction) => {
-      if (action.viewCommand) postActiveViewCommand(action.viewCommand);
-      if (!action.run) return;
+    (action: PluginDocumentAction, item?: PluginDocumentActionItem) => {
+      // 下拉那一项自带的回调优先；没有（点了颗普通按钮）才用动作本身的。
+      const target = item ?? action;
+      if (target.viewCommand) postActiveViewCommand(target.viewCommand);
+      if (!target.run) return;
       void Promise.resolve()
-        .then(() => action.run?.())
+        .then(() => target.run?.())
         .catch((error: unknown) => showToast(getErrorMessage(error)));
     },
     [],
@@ -3911,8 +4013,9 @@ export function MainWindow({
               </svg>
             </button>
 
-            {/* 「样式」：开右侧栏，看全局样式表（`<数据目录>/styles/*.css`）现在生效了哪几份。
-                没有开关 —— 目录里有哪几份就有哪几份生效，所以这里只是个查看入口。 */}
+            {/* 「样式」：开右侧栏的样式面板 —— 全局样式表（`<数据目录>/styles/`）的开关
+                与「当前文件挂哪几份」都在那儿。标题栏这一颗只负责开那个面板：
+                标题栏上不做下拉菜单（那套拖拽/叠层会吃掉点击，踩过）。 */}
             <button
               onClick={handleOpenStyles}
               className={`titlebar-button w-10 h-11 flex items-center justify-center transition-all cursor-pointer ${
@@ -3920,7 +4023,7 @@ export function MainWindow({
                   ? "is-active text-bamboo bg-bamboo-mist/50"
                   : "text-ink-ghost hover:text-ink-faint hover:bg-paper-warm"
               }`}
-              title={t("main.styles.title", { defaultValue: "样式" })}
+              title={t("main.window.styles", { defaultValue: "样式" })}
             >
               <svg
                 width="15"
@@ -4850,25 +4953,14 @@ export function MainWindow({
 
                 {/* 插件贡献的**文档级动作**（`ui.registerDocumentAction`）。按当前文档
                     过滤 —— 给 PDF 做的「导出批注」不该在打开一篇笔记时冒出来。 */}
-                {pluginDocumentActions
-                  .filter((action) =>
-                    documentActionVisible(action, {
-                      context: documentContext,
-                      typeId: selectedFileType?.id ?? null,
-                    }),
-                  )
-                  .map((action) => (
-                    <button
-                      key={action.id}
-                      type="button"
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => handleDocumentAction(action)}
-                      className="doc-toolbar-button px-2.5 h-7 shrink-0 whitespace-nowrap flex items-center justify-center rounded-lg text-[11px] text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/40 transition-all cursor-pointer"
-                      title={`${action.title}（插件 ${action.plugin}）`}
-                    >
-                      {action.icon ?? action.title}
-                    </button>
-                  ))}
+                {visibleDocumentActions.map((action) => (
+                  <DocumentActionButton
+                    key={action.id}
+                    action={action}
+                    icon={documentActionIcons.get(action.id)}
+                    onRun={(item) => handleDocumentAction(action, item)}
+                  />
+                ))}
               </div>
 
               {/* 用 ml-auto 而不是父级的 justify-between：父级一旦换行，justify-between
@@ -5529,7 +5621,11 @@ export function MainWindow({
               }`}
             >
               {mountedSidePanel === "styles" ? (
-                <StylesPanel onClose={handleCloseStyles} />
+                <StylesPanel
+                  onClose={handleCloseStyles}
+                  fileKey={styleFileKey}
+                  fileLabel={styleFileLabel}
+                />
               ) : null}
             </div>
             <div

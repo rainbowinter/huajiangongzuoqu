@@ -59,6 +59,30 @@ describe("视图工具栏", () => {
     expect(lit).not.toMatch(/aria-pressed[^>]*>−</);
   });
 
+  test("❗窄的时候整排折行，不把每一项揉扁", () => {
+    // 这一条表面上只是在看类名，但它守的是一个**肉眼在宽窗口里永远看不出**的毛病：
+    // 中文没有空格，flex 一旦把按钮压到内容宽度以下，文字就按**字**换行 ——
+    // 「适应宽度」竖成一列，`1 / 42` 断成两行，而且还看不出是布局问题。
+    // 修法是容器 `flex-wrap` + 每一项 `shrink-0 whitespace-nowrap`（与顶上那一行
+    // `doc-toolbar` 同一套）。真机对比见报告里的 A/B 量测。
+    const markup = render();
+
+    expect(markup).toMatch(/class="view-toolbar[^"]*\bflex-wrap\b/);
+
+    // 每一个控件（按钮 / 读数 / 输入框 / 分隔线）都不许被压缩。
+    const classes = [...markup.matchAll(/class="([^"]*)"/g)].map((match) => match[1]);
+    const controls = classes.filter(
+      (value) =>
+        value.includes("view-toolbar-button") ||
+        value.includes("tabular-nums") ||
+        value.includes("w-px"),
+    );
+    expect(controls.length).toBeGreaterThan(0);
+    for (const value of controls) {
+      expect(value).toContain("shrink-0");
+    }
+  });
+
   test("输入框把 placeholder 与宽度带上了", () => {
     const markup = render();
 
@@ -188,6 +212,35 @@ describe("工具栏图标", () => {
     const markup = draw(icons, { values: { tool: "rect" }, pressed: [] });
     expect(markup).toContain('d="M2 2h2"');
     expect(markup).not.toContain('d="M1 1h1"');
+  });
+
+  test("单字符的 label 是图标的文字替身：有图标就不再画第二遍", () => {
+    // 用户报的「一个按钮里面有两个 >」——pdf-viewer 的「下一页」同时给了
+    // `label: "›"` 和一件箭头图标，两个都画就成了 14px 图形 + 11px 字符。
+    const next = parseViewToolbar([
+      { kind: "button", id: "page-next", label: "›", title: "下一页", icon: "icons/page-next.svg" },
+      { kind: "button", id: "fit-width", label: "适应宽度", icon: "icons/fit-width.svg" },
+      { kind: "button", id: "bare", label: "›" },
+    ])!;
+    const icons = new Map([
+      [toolbarIconKey("page-next"), ICON],
+      [toolbarIconKey("fit-width"), ICON],
+    ]);
+    const markup = renderToStaticMarkup(
+      <PluginViewToolbar
+        items={next}
+        state={{ values: {}, pressed: [] }}
+        onCommand={vi.fn()}
+        icons={icons}
+      />,
+    );
+
+    // 图标画了，那个字符没跟着画 —— `>›<` 是「那个字符成了按钮正文」的形状，
+    // 整份输出里只剩一处，就是没图标的 `bare`。
+    expect(markup).toContain('d="M4 5v14"');
+    expect(markup.match(/>›</g)).toHaveLength(1);
+    // 文案型的 label 照旧（它是内容，不是替身）。
+    expect(markup).toContain("适应宽度");
   });
 
   test("图标不会漏进 readout / input 那几项", () => {

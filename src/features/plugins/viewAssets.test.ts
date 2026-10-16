@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { registerViewExtension } from "./registry";
 import {
+  isIconAssetPath,
   mergeToolbarStates,
   ownerOfFileType,
   toolbarIconKey,
@@ -281,5 +282,27 @@ describe("工具栏图标的来源", () => {
       },
     });
     expect(requests).toEqual([]);
+  });
+});
+
+/**
+ * `icon` 一个字段两种含义：插件目录下的 `.svg` 路径，或者一个文字字形。
+ * 判错方向的后果不对称 —— 把字形判成路径，按钮上会显示一串半截路径。
+ */
+describe("图标是路径还是字形", () => {
+  test("像路径的算路径", () => {
+    expect(isIconAssetPath("icons/export.svg")).toBe(true);
+    expect(isIconAssetPath("export.svg")).toBe(true);
+    expect(isIconAssetPath("icons/EXPORT.SVG")).toBe(true);
+    // 反斜杠也算路径（Windows 写法）。⚠️ 用 `String.raw`：普通字符串里 `\e` 会退化成 `e`，
+    // 那样测到的其实是 `.svg` 那一条分支，反斜杠那条永远绿 —— 一条什么都没测的断言。
+    expect(isIconAssetPath(String.raw`icons\export`)).toBe(true);
+    expect(isIconAssetPath("icons\\export")).toBe(true);
+  });
+
+  test("字形、空串、光一个文件名的都不算", () => {
+    for (const glyph of ["导出", "⤓", "⟳", "PDF", "", "   "]) {
+      expect(isIconAssetPath(glyph)).toBe(false);
+    }
   });
 });

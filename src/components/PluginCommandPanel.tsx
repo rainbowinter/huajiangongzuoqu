@@ -24,9 +24,12 @@ import {
   listPluginCommands,
   listPluginPanels,
   listPopovers,
+  listRowActions,
   listToolbarButtons,
   subscribeLoadedPlugins,
   subscribePluginCommands,
+  subscribeRowActions,
+  type PluginRowAction,
 } from "../features/plugins/registry";
 import { buildPluginDetails, type PluginContribution } from "../features/docs/pluginDetails";
 import type { PluginCommand, PluginRuntimeRecord, PluginStatus } from "../features/plugins/types";
@@ -67,6 +70,7 @@ function contributionsOf(name: string): PluginContribution[] {
       items: owned(listToolbarButtons(), (b) => b.plugin).map((b) => b.title),
     },
     { label: "工具栏浮层", items: owned(listPopovers(), (p) => p.plugin).map((p) => p.title) },
+    { label: "行内动作", items: owned(listRowActions(), (a) => a.plugin).map((a) => a.title) },
     { label: "命令", items: owned(listPluginCommands(), (c) => c.plugin).map((c) => c.title) },
     { label: "行旁注", items: owned(listEditorGutters(), (g) => g.plugin).map((g) => g.title) },
     {
@@ -152,6 +156,33 @@ function useRegistry<T>(
   return useSyncExternalStore(subscribe, list, list);
 }
 
+/**
+ * 插件给自己那一行贡献的一颗按钮。
+ *
+ * `run` 是**跨线程**的（v2 的闭包内部要往返一次 worker），所以点下去到有反应之间可能
+ * 隔一小会儿 —— 禁用自己并显示「…」是这段空窗期唯一的反馈，否则用户会连点。
+ */
+function RowActionButton({ action }: { action: PluginRowAction }) {
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      title={action.title}
+      onClick={() => {
+        setBusy(true);
+        void Promise.resolve(action.run())
+          .catch((error: unknown) => showToast(error instanceof Error ? error.message : String(error)))
+          .finally(() => setBusy(false));
+      }}
+      className="px-2 h-6 rounded-md text-[10px] text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50 transition-colors cursor-pointer disabled:opacity-40"
+    >
+      {busy ? "…" : action.title}
+    </button>
+  );
+}
+
 function PluginRow({
   record,
   busy,
@@ -190,8 +221,16 @@ function PluginRow({
   const hasSettings = useMemo(() => parseSettingFields(manifest).length > 0, [manifest]);
   const hasPermissions = manifest.permissions.length > 0;
   const manageable = Boolean(onReinstall) || Boolean(onUninstall);
+  // 插件给自己这一行加的动作（`ui.registerRowAction`）。**先取整张表再按插件名筛** ——
+  // `listRowActions()` 的快照是稳定引用，在 `getSnapshot` 里就地 filter 会每次返回新数组，
+  // `useSyncExternalStore` 会当场转成无限重渲染。
+  const allRowActions = useSyncExternalStore(subscribeRowActions, listRowActions, listRowActions);
+  const rowActions = useMemo(
+    () => allRowActions.filter((action) => action.plugin === manifest.name),
+    [allRowActions, manifest.name],
+  );
   // 只有展开区里有东西的插件才给箭头：点开一个空无一物的行是坏的反馈。
-  const canExpand = hasPermissions || hasSettings || manageable;
+  const canExpand = hasPermissions || hasSettings || manageable || rowActions.length > 0;
 
   return (
     <div className={`plugin-card px-3 py-2 rounded-xl hover:bg-paper-warm transition-colors ${manifest.enabled ? "is-enabled " : ""}${status === "failed" || status === "invalid" ? "is-broken" : ""}`}>
@@ -334,6 +373,19 @@ function PluginRow({
       {expanded && canExpand ? (
         <div className="mt-2 pt-2 border-t border-paper-deep/25">
           <div className="space-y-2.5 pl-[38px]">
+          {/* 插件自己贡献的动作（`ui.registerRowAction`）。摆在最前 —— 用户点开这一行，
+              十有八九是想问「这个插件能干什么」，答案应该当场就在这儿。 */}
+          {rowActions.length > 0 ? (
+            <div>
+              <p className="text-[10px] text-ink-ghost mb-1">动作</p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {rowActions.map((action) => (
+                  <RowActionButton key={action.id} action={action} />
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           {/* 装 / 卸 / 自动更新都收在展开区里。
               卸载尤其不能常驻：它就在插件名下面，滑一下鼠标就点到了。 */}
           {manageable ? (

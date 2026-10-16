@@ -292,12 +292,21 @@
     "dataDir": "Data directory",
     "styles": {
       "title": "Interface styles",
-      "hint": "Every .css file in this folder is applied to every Floral Notepaper window. There is no toggle — move a file out to disable it. Save a change and it takes effect within about two seconds.",
+      "hint": "custom.css is always on. Other .css files in the same folder are off by default — turn one on globally in the Styles panel on the right, or bind it to a single open file. Save a change and it takes effect within about two seconds.",
       "openFolder": "Open folder",
       "reload": "Reload",
       "reloaded": "Reloaded",
       "active": "{{count}} active",
-      "empty": "No stylesheets yet. Drop a .css file in and it takes effect two seconds later."
+      "empty": "No stylesheets in the folder yet.",
+      "globalSection": "Global stylesheets",
+      "locked": "Always on",
+      "lockedHint": "Always on: this is the main stylesheet. Rename the file to get rid of it.",
+      "fileSection": "Current file",
+      "fileHint": "What you turn on here applies to this file only — another file gets a different set.",
+      "noFile": "No file is open. Open one to bind stylesheets to it.",
+      "alwaysOn": "Already applied",
+      "inUse": "In use",
+      "reloadHint": "Fallback for edits made in an external editor"
     },
     "openAtCursor": "Open near cursor with shortcut",
     "quickNoteShortcut": "Quick Note shortcut",

@@ -57,32 +57,42 @@ floral.register({
         // 以前是四个固定色的下拉；颜色这东西是想调就调的，不该被四个色框住。
         // （`menu` + 带 `color` 的选项那种仍然保留 —— 几个常用色一眼看全、点一下就好。）
         { kind: "color", id: "color", title: "标注颜色" },
-        // 「导出批注」**不在这排** —— 它是文档级动作，在主窗口顶上那一行，
+        // 「导出」**不在这排** —— 它是文档级动作，在主窗口顶上那一行（一个带下拉的按钮），
         // 见下面的 `registerDocumentAction`。
       ],
     });
 
     /**
-     * 「另存为带批注的 PDF」：把标注写成 PDF 自己的注释对象，原文件一个字不动。
+     * 导出：**两颗按钮收成一颗下拉**。
+     *
+     * 「导出原始 PDF」与「导出带批注的 PDF」是同一件事的两种做法，做成两颗并排的按钮
+     * 更占地方、而且「导出」这个词会重复两遍 —— `items` 就是给这种场合用的。
      *
      * 🔑 **放在主窗口顶上那一行**（`ui.registerDocumentAction`），不是这一排视图小工具里。
      * 分界线是「这是对这一份文档做的事，还是对这一屏画面做的事」—— 翻页、缩放、选标注
      * 工具都是后者，导出是前者，跟「另存为」「打印」是一类。
      *
-     * ⚠️ 真正的活要在**帧里**干（`view/annotate.js` 的 `exportAnnotatedPdf` ——
-     * 它拿得到 pdf-lib、原文件字节、和所有标注的坐标），而这段代码跑在 **Worker** 里，
-     * 够不到那些东西。所以这里只声称一条命令 id，宿主点到时把 `{t:"command", id}` 转给
-     * 当前那个视图帧 —— 与 `view.toolbar` 控件收到的是同一条消息，`annotate.js` 里那句
-     * `if (message.id === "export-pdf")` 原样能用。
+     * ⚠️ 真正的活都要在**帧里**干（`view/annotate.js` 的 `exportOriginalPdf` /
+     * `exportAnnotatedPdf` —— 它们拿得到 pdf-lib、原文件字节、和所有标注的坐标），
+     * 而这段代码跑在 **Worker** 里，够不到那些东西。所以这里只声称命令 id，宿主点到
+     * 某一项时把 `{t:"command", id}` 转给当前那个视图帧 —— 与 `view.toolbar` 控件收到的
+     * 是同一条消息。
      *
-     * `typeIds` 指名道姓：这条命令只有 pdf-viewer 那个视图认得。没它的话，将来多一个别的
+     * `icon` 写的是**插件目录下的一份 .svg**（宿主读进来内联，于是能跟主题色走）；
+     * 写成「导出」这种短文字也认，但这里有个现成的下载图标，没理由不用。
+     *
+     * `typeIds` 指名道姓：这些命令只有 pdf-viewer 那个视图认得。没它的话，将来多一个别的
      * 视图插件，打开它也会冒出这个按钮，点下去却什么都发不出去。
      */
     api.ui.registerDocumentAction({
-      id: "export-pdf",
-      title: "导出批注",
+      id: "export",
+      title: "导出",
+      icon: "icons/export.svg",
       typeIds: ["pdf-viewer:pdf"],
-      viewCommand: "export-pdf",
+      items: [
+        { id: "original", title: "导出原始 PDF", viewCommand: "export-original-pdf" },
+        { id: "annotated", title: "导出带批注的 PDF", viewCommand: "export-annotated-pdf" },
+      ],
     });
   },
 });

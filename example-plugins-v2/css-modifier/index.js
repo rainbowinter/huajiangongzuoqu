@@ -9,21 +9,28 @@
  * 以前这里还有一半功能：把 `styles/` 下的每份 `.css` 都当**全局样式**注入，并用一个
  * 「注入全局样式表」总开关统管。那半截**已经删掉**，改由宿主接管：
  *
- *   `<数据目录>/styles/*.css` —— 每一份都注入每个窗口，**没有开关**，
- *   改完保存约两秒后自动生效（宿主在轮询）。
+ *   `<数据目录>/styles/` 里的 `custom.css` —— **永远全局生效**，改完约两秒自动套用；
+ *   同一目录里**其它** `.css` —— 默认**不生效**，要么在右侧栏「样式」面板里开成全局，
+ *   要么挂到某一个打开的文件上。
  *
- * 用户入口：**设置 → 外观 → 界面样式**，或标题栏的「样式」按钮。
+ * 用户入口：**右侧栏「样式」面板**（下面那颗按钮就是帮你把那个文件夹加进工作区）。
  *
  * 为什么挪走：那是「整个界面长什么样」的事，属于宿主而不是某个插件；而且两套
  * 「往文件夹里丢 CSS」的机制并存时，用户永远分不清该丢哪一个。现在边界很清楚 ——
  * **全局归宿主，单篇归这个插件**。
  *
- * 这里用到的两个能力：
+ * 这里用到的几个能力：
  * - `api.plugin.listAssets(dir)` / `api.plugin.readAsset(path)`
  *   读插件**自己目录**下的文本资源。不需要权限——插件代码本来就是从那个目录加载的。
  * - `api.ui.registerStyle({ id, css })`
  *   把一段 CSS 注入宿主页面，需要 `ui:style` 权限。返回的注册 id 可以交给
  *   `api.ui.dispose(id)` 单独撤销；插件卸载时宿主也会自动清理。
+ * - `api.ui.registerRowAction({ id, title, run })`
+ *   在**插件列表里自己那一行**加一颗按钮（需要 `ui:row-action`）—— 用户点开这一行
+ *   往往就是想问「这个插件能干什么」，答案该当场在那儿。
+ * - `api.workspace.openFolder("@data/styles")`
+ *   把数据目录下的那个文件夹加进左侧工作区并跳过去（需要 `workspace:folders`）。
+ *   只认 `@data` 与 `@data/styles` 两个哨兵：插件住在数据目录里，但不该去猜它的绝对路径。
  *
  * 样式是**窗口粒度**的：主窗口、小窗、磁贴各有一份运行时，各自注入。
  */
@@ -125,7 +132,9 @@ floral.register({
         '<p class="cm-empty" style="margin:0;">全局样式**不在这里**。它们放在数据目录下的 ' +
         "<code>" +
         STYLE_DIR +
-        "/</code>（整个界面共用，没有开关，改完约两秒自动生效）。入口：<b>设置 → 外观 → 界面样式</b>，或标题栏的「样式」按钮。</p>" +
+        "/</code>：其中 <code>custom.css</code> 永远生效；同目录里其余 .css 默认**不生效**，" +
+        "去右侧栏的 <b>「样式」面板</b>里开成全局，或者挂到某一个打开的文件上。</p>" +
+        '<p class="cm-empty" style="margin-top:10px;">要用这颗按钮 → <b>插件面板 → 展开 css-modifier → 「打开样式工作区」</b>：把那个文件夹加进左侧工作区，直接在花笺里改。</p>' +
         '<p class="cm-empty" style="margin-top:10px;">本插件只管**单篇笔记**：把 .css 放进插件目录的 ' +
         STYLE_DIR +
         "/，再在笔记开头写 <code>" +
@@ -179,6 +188,26 @@ floral.register({
       render,
       onClick(ref) {
         if (ref.closestClass("cm-reload")) void reload();
+      },
+    });
+
+    /**
+     * 插件列表里这一行的那颗按钮。
+     *
+     * 这个插件管的东西（数据目录下的 `styles/`）**不在任何工作区里**，用户想改样式就只能
+     * 自己去文件管理器里翻。那就顺手帮他加进去并跳过去 —— 一步到位，而且加进去之后是
+     * 普通的文件夹，看得见、点得开。
+     */
+    api.ui.registerRowAction({
+      id: "open-styles-workspace",
+      title: "打开样式工作区",
+      run: async () => {
+        try {
+          await api.workspace.openFolder("@data/styles");
+          api.ui.showToast("样式文件夹已加入左侧工作区", "info");
+        } catch (error) {
+          api.ui.showToast(message(error));
+        }
       },
     });
 

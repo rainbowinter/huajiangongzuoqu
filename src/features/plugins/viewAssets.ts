@@ -2,7 +2,48 @@ import type { FileType, ViewToolbarItem } from "../workspace/fileTypes";
 import type { ViewToolbarState } from "../../components/PluginViewToolbar";
 import { readPluginAsset } from "./api";
 import { listViewExtensions } from "./registry";
+import { sanitizeSvg } from "./sanitizeSvg";
 import { buildViewDocument, isCompleteViewSpec } from "./viewBridge";
+
+/** 一份图标的字符数上限。图标超过这个大小一定是画歪了，跳过它，别让它拖垮整个按钮排。 */
+export const MAX_ICON_CHARS = 32 * 1024;
+
+/**
+ * `icon` 给的是插件目录里的一份 `.svg`，还是一个**文字字形**。
+ *
+ * 两种写法共用同一个字段：`view.toolbar` 的图标一直是路径，而 `ui.registerDocumentAction`
+ * 早先只收字形（那时还没有图标通道）。与其为它另开一个 `iconPath`，不如让一个字段两种
+ * 含义 —— 认法是「看起来像路径的就是路径」，判据只有下面这一行，两边不会各判各的。
+ *
+ * ⚠️ 判成路径之后**不再回退成文字**：写错一个文件名，显示出来的会是
+ * 一串半截路径，比什么都不显示难看得多（也是「静默降级」最典型的坏处）。
+ */
+export function isIconAssetPath(value: string): boolean {
+  const text = value.trim();
+  return text.includes("/") || text.includes("\\") || text.toLowerCase().endsWith(".svg");
+}
+
+/**
+ * 读一个插件图标，消毒后返回可以直接 `innerHTML` 的 SVG 文本。
+ *
+ * **读不到就返回 `null`，绝不抛**：图标是加法，少了它按钮照旧能用，只是少个点缀。
+ * 失败都打 `console.warn`（不静默）—— 作者写错路径时能自己看见。
+ */
+export async function loadPluginIcon(owner: string, path: string): Promise<string | null> {
+  try {
+    const source = await readPluginAsset(owner, path);
+    if (source.length > MAX_ICON_CHARS) {
+      console.warn(`[plugin-view] 图标太大，跳过：${owner}/${path}`);
+      return null;
+    }
+    const svg = sanitizeSvg(source);
+    if (!svg) console.warn(`[plugin-view] 图标用不了（不是 SVG？），跳过：${owner}/${path}`);
+    return svg || null;
+  } catch (error) {
+    console.warn(`[plugin-view] 读不到图标：${owner}/${path}`, error);
+    return null;
+  }
+}
 
 /**
  * 把插件声明的视图资源读出来、拼成 iframe 的 `srcdoc`。

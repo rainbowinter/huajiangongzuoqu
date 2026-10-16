@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ViewToolbarItem, ViewToolbarOption } from "../features/workspace/fileTypes";
 import { toolbarIconKey } from "../features/plugins/viewAssets";
+import { visibleButtonText } from "../features/plugins/toolbarText";
 import { useViewportPopupPosition, type PopupPosition } from "./popupPosition";
 
 /**
@@ -34,9 +35,16 @@ interface PluginViewToolbarProps {
   icons?: ReadonlyMap<string, string>;
 }
 
-/** 与「插件工具栏按钮」完全一致的那几个类：同一排里不该有两种手感。 */
+/**
+ * 与「插件工具栏按钮」完全一致的那几个类：同一排里不该有两种手感。
+ *
+ * ⚠️ `shrink-0` + `whitespace-nowrap` 是这一排的**地基**，不是修饰：不给的话窄一点
+ * （开着右侧栏、窗口小）flex 就会把每个按钮压到内容宽度以下，中文按**字**换行 ——
+ * 一排按钮全竖成「适/应/宽/度」，比换行难看十倍。宽度不够时该做的事是**整排折行**
+ * （容器上的 `flex-wrap`），而不是把每一项揉扁。
+ */
 const BUTTON_BASE =
-  "h-6 px-2 flex items-center justify-center rounded text-[11px] transition-all cursor-pointer";
+  "h-6 px-2 shrink-0 whitespace-nowrap flex items-center justify-center rounded text-[11px] transition-all cursor-pointer";
 const BUTTON_IDLE = "text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50";
 const BUTTON_ACTIVE = "text-bamboo bg-bamboo-mist/60";
 
@@ -72,7 +80,7 @@ function ToolbarInput({
           event.currentTarget.blur();
         }
       }}
-      className="h-6 rounded-md bg-paper-warm px-1.5 text-center text-[11px] text-ink-soft placeholder:text-ink-ghost/70 tabular-nums focus:outline-none focus:ring-1 focus:ring-bamboo/40"
+      className="h-6 shrink-0 rounded-md bg-paper-warm px-1.5 text-center text-[11px] text-ink-soft placeholder:text-ink-ghost/70 tabular-nums focus:outline-none focus:ring-1 focus:ring-bamboo/40"
       style={{ width: item.width ?? 52 }}
     />
   );
@@ -105,7 +113,7 @@ function ToolbarColor({
   return (
     <label
       title={item.title ?? item.id}
-      className={`view-toolbar-button relative w-6 h-6 flex items-center justify-center rounded transition-all cursor-pointer ${BUTTON_IDLE}`}
+      className={`view-toolbar-button relative w-6 h-6 shrink-0 flex items-center justify-center rounded transition-all cursor-pointer ${BUTTON_IDLE}`}
     >
       <span
         className="w-3.5 h-3.5 rounded-[3px] border border-paper-deep/70"
@@ -323,11 +331,14 @@ export function PluginViewToolbar({ items, state, onCommand, icons }: PluginView
   if (items.length === 0) return null;
 
   return (
-    <div className="view-toolbar flex items-center gap-0.5 px-4 pt-2 pb-1 shrink-0">
+    // 宽度不够就**整排折行**（与顶上那一行 `doc-toolbar` 同一套），别把每一项揉扁。
+    <div className="view-toolbar flex flex-wrap items-center gap-x-0.5 gap-y-1 px-4 pt-2 pb-1 shrink-0">
       {items.map((item, index) => {
         if (item.kind === "separator") {
           // 分隔线没有 id（`parseViewToolbar` 也不给它分配），key 只能靠位置。
-          return <span key={`sep-${index}`} className="w-px h-3.5 mx-1.5 bg-paper-deep/60" />;
+          return (
+            <span key={`sep-${index}`} className="w-px h-3.5 mx-1.5 shrink-0 bg-paper-deep/60" />
+          );
         }
 
         if (item.kind === "readout") {
@@ -335,7 +346,7 @@ export function PluginViewToolbar({ items, state, onCommand, icons }: PluginView
             <span
               key={item.id}
               title={item.title ?? item.id}
-              className="h-6 min-w-[40px] px-1.5 flex items-center justify-center text-[11px] text-ink-ghost font-mono tabular-nums"
+              className="h-6 min-w-[40px] px-1.5 shrink-0 whitespace-nowrap flex items-center justify-center text-[11px] text-ink-ghost font-mono tabular-nums"
             >
               {state.values[item.id] ?? ""}
             </span>
@@ -377,19 +388,28 @@ export function PluginViewToolbar({ items, state, onCommand, icons }: PluginView
         }
 
         const active = item.toggle === true && state.pressed.includes(item.id);
+        const icon = iconOf(icons, item.id);
+        // 图标与 label 都给了的时候，单字符的 label 是**图标的文字替身**，不再画第二遍
+        // （判据与理由见 `toolbarText.ts`）。多字符的 label 是文案，照旧显示。
+        const text = visibleButtonText({
+          label: item.label ?? "",
+          ...(state.values[item.id] !== undefined ? { value: state.values[item.id] } : {}),
+          hasIcon: icon !== undefined,
+        });
         return (
           <button
             key={item.id}
             type="button"
-            title={item.title ?? item.label}
+            // 三者都没有时就报 id：一个只有图形的按钮，`title` 就是它唯一的无障碍名字。
+            title={item.title ?? item.label ?? item.id}
             aria-pressed={item.toggle ? active : undefined}
             // 编辑器那排按钮也这么做：按下鼠标不抢焦点，工具栏用起来才不打断输入。
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => onCommand(item.id)}
             className={`view-toolbar-button ${BUTTON_BASE} gap-1.5 ${active ? `is-active ${BUTTON_ACTIVE}` : BUTTON_IDLE}`}
           >
-            {iconOf(icons, item.id) ? <Icon svg={iconOf(icons, item.id)!} /> : null}
-            {state.values[item.id] ?? item.label}
+            {icon ? <Icon svg={icon} /> : null}
+            {text}
           </button>
         );
       })}

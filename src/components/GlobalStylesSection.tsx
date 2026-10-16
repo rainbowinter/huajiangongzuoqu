@@ -19,8 +19,9 @@ function formatSize(bytes: number): string {
 /**
  * 「设置 → 外观 → 界面样式」那一节。
  *
- * 这里**刻意没有任何开关**：目录里的每一份 `.css` 都生效，想让它不生效就把文件移走。
- * 于是这一节要回答的问题只剩两个 —— 「文件放哪儿」和「现在生效的是哪几份」。
+ * 这里**只有状态，没有开关** —— 开关（哪几份生效、哪几份挂在当前文件上）都在右侧栏的
+ * 「样式」面板里。两处都放一套开关的话，用户改完这个还得想「那个是不是也改了」。
+ * 于是这一节只回答两个问题：「文件放哪儿」和「现在生效的是哪几份」。
  *
  * ⚠️ 清单走 `useSyncExternalStore`：`listGlobalStyles` 的快照是**稳定引用**，
  * 只有内容真的变了才换（见 `globalStyles.ts` 的说明）。直接 `useState` + 挂载时读一次
@@ -62,7 +63,7 @@ export function GlobalStylesSection() {
       <p className="text-[10px] leading-relaxed text-ink-ghost/75">
         {t("settings.styles.hint", {
           defaultValue:
-            "这个文件夹里的每一份 .css 都会套用到花笺的每个窗口，没有开关 —— 不想让它生效就把文件移走。改完保存，约两秒后自动生效。",
+            "custom.css 永远生效；同目录里其它的 .css 默认不生效 —— 去右侧栏的「样式」面板里开成全局，或者挂到某一个打开的文件上。改完保存，约两秒后自动生效。",
         })}
       </p>
 
@@ -86,7 +87,7 @@ export function GlobalStylesSection() {
       <div className="flex items-center justify-between pt-1">
         <span className="text-[10px] text-ink-ghost font-mono">
           {t("settings.styles.active", {
-            count: sheets.length,
+            count: sheets.filter((sheet) => sheet.applied).length,
             defaultValue: "当前生效 {{count}} 份",
           })}
         </span>
@@ -103,9 +104,7 @@ export function GlobalStylesSection() {
 
       {sheets.length === 0 ? (
         <p className="text-[10px] leading-relaxed text-ink-ghost/70">
-          {t("settings.styles.empty", {
-            defaultValue: "文件夹里还没有样式表。丢一份 .css 进去，两秒后它就生效了。",
-          })}
+          {t("settings.styles.empty", { defaultValue: "文件夹里还没有样式表。" })}
         </p>
       ) : (
         <ul className="space-y-1">
@@ -118,8 +117,17 @@ export function GlobalStylesSection() {
               <span className="min-w-0 truncate text-[11px] font-body text-ink-soft">
                 {sheet.name}
               </span>
-              <span className="shrink-0 text-[10px] text-ink-ghost/60 font-mono tabular-nums">
-                {formatSize(sheet.size)}
+              {/* 生效的那几份标出来 —— 「目录里有」与「现在管用」是两件事，
+                  这一节只报状态，开关在右侧栏的「样式」面板里。 */}
+              <span className="shrink-0 flex items-center gap-2">
+                {sheet.applied ? (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-md text-bamboo bg-bamboo-mist/50">
+                    {t("settings.styles.inUse", { defaultValue: "生效中" })}
+                  </span>
+                ) : null}
+                <span className="text-[10px] text-ink-ghost/60 font-mono tabular-nums">
+                  {formatSize(sheet.size)}
+                </span>
               </span>
             </li>
           ))}

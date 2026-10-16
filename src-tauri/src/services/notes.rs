@@ -20,6 +20,27 @@ const LEGACY_MACOS_GLOBAL_SHORTCUTS: [&str; 5] = [
 ];
 const MACOS_SHORTCUT_MIGRATION_MARKER: &str = ".macos-shortcut-default-v3";
 
+/// 全局样式表的开关与按文件绑定。
+///
+/// 与 `workspace_icons` 一样是**纯配置**：没有这一节就是全默认（只会注入 `custom.css`）。
+///
+/// ⚠️ `custom.css` **不进这里**。它永远生效，写进配置等于给了它一个「关掉」的入口，
+/// 而那个入口没有意义 —— 不想让它生效就把文件改名。理由与判据见 `crate::styles`。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StylesConfig {
+    /// 显式打开了**全局**的样式表（文件名）。
+    #[serde(default)]
+    pub global: Vec<String>,
+    /// 按文件绑定：文件标识 → 只给这个文件挂的样式表。
+    ///
+    /// 文件标识是外部文件的绝对路径，或者笔记 id —— 与插件面板、工作区缓存用的是
+    /// 同一个 key（见 `v2Host.ts` 的 `panelFileKeyOf`：路径优先，笔记回落到 id）。
+    /// 用 `BTreeMap` 是为了序列化顺序稳定，配置文件的 diff 才不会乱跳。
+    #[serde(default)]
+    pub files: std::collections::BTreeMap<String, Vec<String>>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppConfig {
@@ -94,6 +115,9 @@ pub struct AppConfig {
     /// 顺序稳定 —— 配置文件的 diff 才不会因为哈希顺序变来变去。
     #[serde(default)]
     pub workspace_icons: std::collections::BTreeMap<String, String>,
+    /// 全局样式表（`<数据目录>/styles/`）的开关与按文件绑定。规则见 `crate::styles`。
+    #[serde(default)]
+    pub styles: StylesConfig,
     #[serde(default = "default_remember_surface_size")]
     pub remember_surface_size: bool,
     #[serde(default = "default_tile_ctrl_close")]
@@ -665,6 +689,16 @@ impl NoteStore {
         self.config_dir.join(MACOS_SHORTCUT_MIGRATION_MARKER)
     }
 
+    /// 读配置 —— ⚠️ **但它会写**。
+    ///
+    /// 名字骗人：除了解析 `config.json`，它还会做数据目录迁移、夹取字段、建目录，最后
+    /// `write_json_atomic` 把整份配置**落盘一次**（含一次 fsync）。所以它**只适合放在
+    /// 「用户改了设置、本来就要写」那条路上**。
+    ///
+    /// 只是想知道「现在配置是什么」的地方用 [`peek_config`](Self::peek_config)：那是纯读的。
+    /// 踩过的坑：`global_styles_bundle` 每几秒被问一次，用了这个之后每次都在主线程上
+    /// fsync 一份配置，还要和每 2 秒读同一个文件的样式轮询抢 —— 表现是「点刷新要等两三秒、
+    /// 而且刷不出来」（写读相撞，rename 失败，前端只好保留旧快照）。
     pub fn load_config(&self) -> Result<AppConfig, AppError> {
         self.ensure_config_dir()?;
         let path = self.config_path();
@@ -690,6 +724,30 @@ impl NoteStore {
             write_json_atomic(&path, &config)?;
         }
         Ok(config)
+    }
+
+    /// **只读**地看一眼配置。
+    ///
+    /// 与 [`load_config`](Self::load_config) 的区别是**一个字节都不写**。那个会顺手做数据
+    /// 目录迁移、规范化字段、建目录，最后 `write_json_atomic` 把整份配置**落盘一次** ——
+    /// 而 `json_io` 里那次 `sync_all()` 在 Windows 上是一次真正的 `FlushFileBuffers`，
+    /// 慢的时候能到几百毫秒，**而且它跑在主线程上**（`#[tauri::command]` 不加 `(async)`
+    /// 就是主线程）。
+    ///
+    /// 所以「只是想知道配置长什么样」的地方必须用它 —— 那种地方往往**每几秒就被问一次**
+    /// （样式轮询那条路）。在那里 fsync 一整份配置，代价白出；更要命的是**自己每 2 秒还在
+    /// 读同一个文件**（`styles::watch` → `styles_dir` → `resolve_data_dir`），写与读撞上
+    /// 就是一次失败的 rename，于是「刷新要等 2 秒、而且刷不出来」。
+    ///
+    /// 读不出来时**原样报错**，不回落到默认值：调用方要的是「现在到底开了哪几份样式」，
+    /// 把一次读失败变成「全都没开」会让样式当场掉光。
+    pub fn peek_config(&self) -> Result<AppConfig, AppError> {
+        let path = self.config_path();
+        if !path.exists() {
+            // 真正的首次运行：还没有配置文件，用默认值（**不落盘**，那是 `load_config` 的事）。
+            return Ok(self.default_config());
+        }
+        Ok(serde_json::from_str(&fs::read_to_string(&path)?)?)
     }
 
     pub fn save_config(&self, mut config: AppConfig) -> Result<AppConfig, AppError> {
@@ -1123,6 +1181,7 @@ impl NoteStore {
             caption_color: String::new(),
             workspace_folders: Vec::new(),
             workspace_icons: Default::default(),
+            styles: Default::default(),
             remember_surface_size: default_remember_surface_size(),
             tile_ctrl_close: default_tile_ctrl_close(),
             tile_double_click_to_edit: false,
@@ -1744,6 +1803,45 @@ mod tests {
         NoteStore::new(root.clone(), root)
     }
 
+    /// `peek_config` 的**全部意义**就是「一个字节都不写」。它被放在
+    /// `global_styles_bundle` 那条每几秒跑一次的路上，一旦写盘就是一次 fsync
+    /// （Windows 上真 FlushFileBuffers），而且会和每 2 秒读同一个文件的样式轮询撞车。
+    #[test]
+    fn peek_config_never_writes() {
+        let store = test_store("peek-config");
+
+        // ① 还没有配置文件：给默认值，但**不创建**它（那是 load_config 的事）。
+        assert!(!store.config_path().exists());
+        let fresh = store.peek_config().expect("缺文件时给默认值");
+        assert!(!store.config_path().exists(), "peek 不该把配置文件建出来");
+        // 默认值里 dataDir 指向这个 store 的数据目录（`default_config` 填的），
+        // 与「有没有写盘」无关。
+        assert_eq!(fresh.data_dir.as_deref(), Some(store.data_dir().to_str().unwrap()));
+
+        // ② 有一份「需要规范化」的配置：load_config 会把它夹到 1..=8 并写回，
+        //    peek 必须原样读出来、原样留在盘上。
+        let raw = r#"{"locale":"en-US","globalShortcut":"","closeToTray":false,"autostart":false,"defaultViewMode":"edit","tabIndentSize":99,"dataDir":"C:\\elsewhere"}"#;
+        fs::write(store.config_path(), raw).expect("写一份测试配置");
+        let before = fs::read_to_string(store.config_path()).unwrap();
+
+        let peeked = store.peek_config().expect("读得出来");
+        assert_eq!(peeked.tab_indent_size, 99, "peek 不夹取值");
+        assert_eq!(peeked.data_dir.as_deref(), Some(r"C:\elsewhere"), "peek 不覆盖 dataDir");
+        assert_eq!(
+            fs::read_to_string(store.config_path()).unwrap(),
+            before,
+            "peek 改了盘上的内容 —— 它必须是纯读的"
+        );
+
+        // 对照：load_config 会**写回**（这正是它不该出现在热路径上的原因）。
+        let _ = store.load_config().expect("load_config 照常工作");
+        assert_ne!(
+            fs::read_to_string(store.config_path()).unwrap(),
+            before,
+            "load_config 本来就该规范化并写回；这条是对照，变了才说明这个测试是有意义的"
+        );
+    }
+
     #[test]
     fn creates_updates_reads_and_deletes_markdown_notes() {
         let store = test_store("crud");
@@ -1887,6 +1985,7 @@ mod tests {
             caption_color: String::new(),
             workspace_folders: Vec::new(),
             workspace_icons: Default::default(),
+            styles: Default::default(),
             remember_surface_size: true,
             tile_ctrl_close: true,
             tile_double_click_to_edit: true,

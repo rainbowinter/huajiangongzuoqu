@@ -150,8 +150,21 @@ export interface FileViewSpec {
  * 路径合不合法由后端把关（与 css / js 同一条原则：前端不重复写一遍规则）。
  */
 export type ViewToolbarItem =
-  /** 按钮。`toggle` 只是「宿主会不会用 pressed 点亮它」的意思，状态仍由视图说了算。 */
-  | { kind: "button"; id: string; label: string; title?: string; toggle?: boolean; icon?: string }
+  /**
+   * 按钮。`toggle` 只是「宿主会不会用 pressed 点亮它」的意思，状态仍由视图说了算。
+   *
+   * `label` 与 `icon` **至少要有一个**，两个都给也合法：这时 `label` 是文字的兜底
+   * （画不出图标时用它），单字符的 `label` 在图标面前**让位** —— 它替代的就是图标本身，
+   * 两个都画就成了「一颗按钮里两个箭头」。见 `toolbarText.ts`。
+   */
+  | {
+      kind: "button";
+      id: string;
+      label?: string;
+      title?: string;
+      toggle?: boolean;
+      icon?: string;
+    }
   /** 只读的小字（缩放比例、`3 / 14` 这种）。文本由视图通过 `state.values[id]` 给。 */
   | { kind: "readout"; id: string; title?: string }
   /** 输入框，回车提交（页码跳转这种）。 */
@@ -287,13 +300,15 @@ export function parseViewToolbar(raw: unknown): ViewToolbarItem[] | undefined {
 
     if (record.kind === "button") {
       const label = boundedText(record.label, MAX_LABEL);
-      if (!label) continue;
       const icon = boundedText(record.icon, MAX_ICON_PATH);
+      // **文字与图标都没有才是死按钮**。只看 label 会逼着「只想要一个图标」的作者
+      // 去写一个假的单字符 label —— 那正是「一颗按钮两个箭头」的由来。
+      if (!label && !icon) continue;
       seen.add(id);
       items.push({
         kind: "button",
         id,
-        label,
+        ...(label ? { label } : {}),
         ...(icon ? { icon } : {}),
         ...(title ? { title } : {}),
         ...(record.toggle === true ? { toggle: true } : {}),

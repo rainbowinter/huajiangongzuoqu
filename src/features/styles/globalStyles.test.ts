@@ -21,8 +21,27 @@ vi.mock("@tauri-apps/api/core", () => ({
  * 这里只测这个纯函数；真正把 `<style>` 写进 `<head>` 的那段没有 jsdom，
  * 靠真应用里手工验（改一份 css 看约两秒后有没有变）。
  */
-function sheet(name: string, mtimeMs: number, size: number): StyleSheet {
-  return { name, mtimeMs, size, css: "/* 内容不参与签名 */" };
+/**
+ * 默认造一份**生效中**的普通样式表（`custom.css` 才是常开的，这里不是它）。
+ * 开关状态与签名有关，所以三个状态位都能单点覆盖。
+ */
+function sheet(
+  name: string,
+  mtimeMs: number,
+  size: number,
+  flags: Partial<StyleSheet> = {},
+): StyleSheet {
+  return {
+    name,
+    mtimeMs,
+    size,
+    css: "/* 内容不参与签名 */",
+    applied: true,
+    global: false,
+    bound: false,
+    locked: false,
+    ...flags,
+  };
 }
 
 describe("样式表签名", () => {
@@ -62,6 +81,23 @@ describe("样式表签名", () => {
     expect(styleSignature([sheet("a.css", 100, 10)])).not.toBe(
       styleSignature([sheet("b.css", 100, 10)]),
     );
+  });
+
+  test("❗翻了开关也是「变了」—— 不带状态位的话「关掉」这一步会被当成没动", () => {
+    const on = [sheet("a.css", 100, 10, { applied: true, global: true })];
+    const off = [sheet("a.css", 100, 10, { applied: false, global: false })];
+
+    expect(styleSignature(on)).not.toBe(styleSignature(off));
+    // 文件本身一个字节都没改，两边的「文件指纹」那一段是一样的 —— 差异只能来自状态位。
+    expect(styleSignature(on)).toContain("a.css:100:10");
+    expect(styleSignature(off)).toContain("a.css:100:10");
+  });
+
+  test("`bound` 单独变也认得出（全局开着的那份挂到文件上，applied 并不变）", () => {
+    const plain = [sheet("a.css", 100, 10, { global: true })];
+    const bound = [sheet("a.css", 100, 10, { global: true, bound: true })];
+
+    expect(styleSignature(plain)).not.toBe(styleSignature(bound));
   });
 });
 
@@ -137,12 +173,9 @@ async function freshModule() {
 }
 
 function sheetsOf(names: readonly string[]) {
-  return names.map((name, index) => ({
-    name,
-    mtimeMs: 1000 + index,
-    size: 10 + index,
-    css: `/* ${name} */`,
-  }));
+  return names.map((name, index) =>
+    sheet(name, 1000 + index, 10 + index, { css: `/* ${name} */` }),
+  );
 }
 
 describe("把样式表注入 <head>", () => {
@@ -193,6 +226,41 @@ describe("把样式表注入 <head>", () => {
     await refreshGlobalStyles();
 
     expect(head.children.map((child) => child.attr[STYLE_ATTR])).toEqual(["a.css", "c.css"]);
+  });
+
+  test("❗目录里**没打开**的那几份不注入 —— 「存在」不等于「生效」", async () => {
+    const head = installFakeDom();
+    backend.bundle = async () => [
+      sheet("custom.css", 1, 1, { applied: true, global: true, locked: true }),
+      sheet("a.css", 2, 2, { applied: true, global: true }),
+      // 用户丢进目录但没打开的：清单里要有（面板要列出来），但绝不能注入。
+      sheet("b.css", 3, 3, { applied: false }),
+    ];
+    const { listGlobalStyles, refreshGlobalStyles } = await freshModule();
+
+    await refreshGlobalStyles();
+
+    expect(head.children.map((child) => child.attr[STYLE_ATTR])).toEqual(["a.css", "custom.css"]);
+    // 清单是**全部**（面板靠它列出可开的那几份），注入才是筛过的。
+    expect(listGlobalStyles().map((item) => item.name).sort()).toEqual([
+      "a.css",
+      "b.css",
+      "custom.css",
+    ]);
+  });
+
+  test("把一份关上 → 它的 <style> 跟着撤掉", async () => {
+    const head = installFakeDom();
+    backend.bundle = async () => [sheet("a.css", 1, 1), sheet("b.css", 2, 2)];
+    const { refreshGlobalStyles } = await freshModule();
+    await refreshGlobalStyles();
+    expect(head.children).toHaveLength(2);
+
+    // 用户在面板里把 b 关掉了：文件一个字节没改，只有状态位变。
+    backend.bundle = async () => [sheet("a.css", 1, 1), sheet("b.css", 2, 2, { applied: false })];
+    await refreshGlobalStyles();
+
+    expect(head.children.map((child) => child.attr[STYLE_ATTR])).toEqual(["a.css"]);
   });
 
   test("目录被清空 → 注入的那批全部撤掉", async () => {

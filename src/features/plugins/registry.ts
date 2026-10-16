@@ -331,10 +331,38 @@ export interface PluginDocumentAction {
   plugin: string;
   contexts: readonly DocumentContext[];
   typeIds: readonly string[];
-  /** 在插件的 worker 沙箱里跑。与 `viewCommand` 二选一（或都给）。 */
+  /** 在插件的 worker 沙箱里跑。与 `viewCommand` 二选一（或都给）。给了 `items` 就不调用。 */
   run?: () => void | Promise<void>;
-  /** 转发给当前那个沙箱视图的命令 id。 */
+  /** 转发给当前那个沙箱视图的命令 id。给了 `items` 就不调用。 */
   viewCommand?: string;
+  /** 下拉里的项。非空时这个动作渲染成一个下拉，点开选一项。 */
+  items?: readonly PluginDocumentActionItem[];
+}
+
+/** 文档动作下拉里的一项 —— 与 `PluginDocumentAction` 一样带**活的闭包**。 */
+export interface PluginDocumentActionItem {
+  id: string;
+  title: string;
+  run?: () => void | Promise<void>;
+  viewCommand?: string;
+}
+
+/**
+ * 宿主侧的一条**插件行内动作** —— 插件列表里、这个插件那一行展开后的一颗按钮。
+ *
+ * 为什么要有它：有些按钮只对**某一个插件**有意义（css-modifier 的「打开样式工作区」），
+ * 而插件列表每一行的展开区是宿主画的。没有这个口子，作者只能把入口塞进自己的面板里，
+ * 或者永远等宿主替它开一个特例。
+ *
+ * 与 `PluginDocumentAction` 一样，条目里带的是**活的闭包**（`run`），界面直接调。
+ */
+export interface PluginRowAction {
+  id: string;
+  title: string;
+  icon?: string;
+  plugin: string;
+  /** 在插件的 worker 沙箱里跑。 */
+  run: () => void | Promise<void>;
 }
 
 /**
@@ -379,6 +407,7 @@ const editorMenuItems = new OwnedRegistry<PluginMenuItem>();
 const noteMenuItems = new OwnedRegistry<PluginNoteMenuItem>();
 const toolbarButtons = new OwnedRegistry<PluginToolbarButton>();
 const documentActions = new OwnedRegistry<PluginDocumentAction>();
+const rowActions = new OwnedRegistry<PluginRowAction>();
 const popovers = new OwnedRegistry<PluginPopover>();
 const decorations = new OwnedRegistry<PluginDecoration>();
 
@@ -428,6 +457,18 @@ export function listDocumentActions(): readonly PluginDocumentAction[] {
 
 export function subscribeDocumentActions(listener: () => void): () => void {
   return documentActions.subscribe(listener);
+}
+
+export function registerRowAction(action: PluginRowAction): Disposable {
+  return rowActions.register(action.plugin, action);
+}
+
+export function listRowActions(): readonly PluginRowAction[] {
+  return rowActions.list();
+}
+
+export function subscribeRowActions(listener: () => void): () => void {
+  return rowActions.subscribe(listener);
 }
 
 export function registerDecoration(decoration: PluginDecoration): Disposable {
@@ -518,6 +559,7 @@ export function unregisterPlugin(name: string): void {
   noteMenuItems.removeOwner(name);
   toolbarButtons.removeOwner(name);
   documentActions.removeOwner(name);
+  rowActions.removeOwner(name);
   popovers.removeOwner(name);
   editorGutters.removeOwner(name);
   decorations.removeOwner(name);
@@ -535,6 +577,7 @@ export function clearAllPlugins(): void {
   noteMenuItems.clear();
   toolbarButtons.clear();
   documentActions.clear();
+  rowActions.clear();
   popovers.clear();
   // ⚠️ 行旁注与行内装饰**必须在这里清**。
   //
@@ -560,6 +603,7 @@ export function pluginRegistrySizes(): Record<string, number> {
     noteMenuItems: noteMenuItems.size,
     toolbarButtons: toolbarButtons.size,
     documentActions: documentActions.size,
+    rowActions: rowActions.size,
     popovers: popovers.size,
     viewExtensions: viewExtensions.size,
     plugins: plugins.size,

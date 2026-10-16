@@ -428,6 +428,18 @@ fn workspace_list_subdirs(dir: String) -> Result<Vec<String>, AppError> {
     workspace::list_subdirs(&workspace::roots_from_config(&config.workspace_folders), &dir)
 }
 
+/// 数据目录的绝对路径。
+///
+/// 给插件用的：插件住在数据目录里，但**它不知道那个目录在哪**（路径由用户配置、还可能
+/// 被迁移）。`api.workspace.openFolder` 的 `@data` / `@data/styles` 两个哨兵就靠这里解析。
+#[tauri::command]
+fn data_dir_path() -> Result<String, AppError> {
+    Ok(default_store()?
+        .data_dir()
+        .to_string_lossy()
+        .to_string())
+}
+
 /// 添加一个工作文件夹。
 ///
 /// 除了写进配置，还要把该目录加进 asset 协议白名单：文件夹里的图片要能显示就得走
@@ -878,6 +890,7 @@ pub fn run() {
             workspace_list_dir,
             workspace_read_file,
             workspace_write_file,
+            data_dir_path,
             workspace_add_folder,
             workspace_remove_folder,
             workspace_set_icon,
@@ -898,6 +911,8 @@ pub fn run() {
             selfupdate::update_endpoint,
             docs::read_bundled_doc,
             styles::global_styles_bundle,
+            styles::global_styles_set_global,
+            styles::global_styles_bind,
             styles::global_styles_dir_path,
             styles::global_styles_open_dir,
             plugins::market::commands::plugins_market_endpoint,

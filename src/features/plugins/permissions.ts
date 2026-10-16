@@ -12,6 +12,7 @@
 export const PERMISSIONS = [
   "workspace:read",
   "workspace:write",
+  "workspace:folders",
   "categories:read",
   "categories:write",
   "editor:read",
@@ -23,6 +24,7 @@ export const PERMISSIONS = [
   "ui:menus",
   "ui:toolbar",
   "ui:document-action",
+  "ui:row-action",
   "ui:popover",
   "ui:open-panel",
   "ui:style",
@@ -52,6 +54,7 @@ export type Permission = (typeof PERMISSIONS)[number];
 export const PERMISSION_LABEL: Record<Permission, string> = {
   "workspace:read": "读取工作区里的文件",
   "workspace:write": "修改或新建工作区里的文件",
+  "workspace:folders": "把数据目录下的文件夹加入左侧工作区",
   "categories:read": "读取笔记分类",
   "categories:write": "修改笔记分类",
   "editor:read": "读取当前笔记的内容与光标位置",
@@ -63,6 +66,7 @@ export const PERMISSION_LABEL: Record<Permission, string> = {
   "ui:menus": "往右键菜单里加项目",
   "ui:toolbar": "往工具栏加按钮",
   "ui:document-action": "在当前文档的顶部工具栏加按钮",
+  "ui:row-action": "在插件列表里自己那一行加按钮",
   "ui:popover": "打开一个浮层",
   "ui:open-panel": "打开别的插件面板",
   "ui:style": "往笔记里注入样式",

@@ -725,7 +725,11 @@
       state.color = message.value;
       updateToolbar();
     }
-    if (message.id === "export-pdf") {
+    // 顶上那一行的「导出」下拉发下来的两条命令（见 index.js 的 registerDocumentAction）。
+    if (message.id === "export-original-pdf") {
+      void exportOriginalPdf();
+    }
+    if (message.id === "export-annotated-pdf") {
       void exportAnnotatedPdf();
     }
   });
@@ -849,6 +853,29 @@
     });
   }
 
+  /**
+   * 「导出原始 PDF」：把磁盘上那一份**原样**另存一份出去，一个字节都不改。
+   *
+   * 为什么要它：批注是写在旁边的 JSON 里的（不动原文件 —— 用户明确要的），所以
+   * 「我要一份干净的原始件」这件事得单独给一个出口，而不是让用户去文件管理器里翻。
+   *
+   * 与带批注那条一样要**先要一份字节副本**（`requestDocumentCopy`）：帧手里那份
+   * `document` 早就被 pdf.js 转移走了（ArrayBuffer 只能用一次）。
+   */
+  async function exportOriginalPdf() {
+    let source;
+    try {
+      source = await requestBytesCopy();
+    } catch (error) {
+      floralView.log("error", `拿原文件失败：${error?.message ?? error}`);
+      floralView.toast("拿不到这份 PDF 的原文件，导出没做成。");
+      return;
+    }
+
+    floralView.saveFile(originalName(state.fileName), source);
+    floralView.toast("已导出原始 PDF（不含批注）");
+  }
+
   async function exportAnnotatedPdf() {
     const PDFLib = globalThis.PDFLib;
     if (!PDFLib) {
@@ -919,6 +946,17 @@
   function exportedName(name) {
     const base = (name || "文档").replace(/\.pdf$/i, "");
     return `${base}-批注.pdf`;
+  }
+
+  /**
+   * `论文.pdf` → `论文-原件.pdf`。
+   *
+   * 刻意**不叫回原名**：那份原件可能就在同一个文件夹里，同名保存等于让用户在保存框里
+   * 自己去分辨谁是谁，一不留神就把原件盖了。
+   */
+  function originalName(name) {
+    const base = (name || "文档").replace(/\.pdf$/i, "");
+    return `${base}-原件.pdf`;
   }
 
   // ---------------------------------------------------------------- 起步

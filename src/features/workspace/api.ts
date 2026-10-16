@@ -68,9 +68,19 @@ export function listWorkspaceSubdirs(dir: string): Promise<string[]> {
   return invoke("workspace_list_subdirs", { dir });
 }
 
-/** 添加工作文件夹，返回更新后的配置。 */
+/** 添加工作文件夹，返回更新后的配置。**幂等**：已经在列表里就不重复加。 */
 export function addWorkspaceFolder(path: string): Promise<AppConfig> {
   return invoke("workspace_add_folder", { path });
+}
+
+/**
+ * 数据目录的绝对路径。
+ *
+ * 插件不知道它在哪（用户配的、还可能被迁移），所以 `api.workspace.openFolder` 的
+ * `@data` 哨兵由宿主在这里解析完再传下去。
+ */
+export function dataDirPath(): Promise<string> {
+  return invoke("data_dir_path");
 }
 
 export function removeWorkspaceFolder(path: string): Promise<AppConfig> {
