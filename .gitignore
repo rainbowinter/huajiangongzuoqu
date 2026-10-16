@@ -64,7 +64,8 @@ src/generated/contributors.json
 ## Temp
 temp/
 nul
-tsconfig.tsbuildinfo
+# tsc 的增量缓存：`tsconfig.json` 与 `tsconfig.node.json` 各会生成一份
+*.tsbuildinfo
 Docs/windows-install-chain-code-review.md
 
 ## 本地开发隔离数据（.devdata）
