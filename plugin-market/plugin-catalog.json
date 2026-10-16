@@ -1,0 +1,299 @@
+{
+  "schema": 1,
+  "catalogVersion": 14,
+  "plugins": [
+    {
+      "name": "color-swatches",
+      "description": "颜色块：代码文件里每个颜色字面量前显示一个小色块，点它直接开系统取色器换色",
+      "releases": [
+        {
+          "version": "1.0.1",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-color-swatches-v1.0.1/color-swatches-1.0.1.zip",
+          "sha256": "7b80a95688b097b46bd179591c1fc31f44c502a7cc3eba744531a99b9760adea",
+          "size": 4564,
+          "permissions": [
+            "ui:decorations",
+            "editor:write"
+          ],
+          "publishedAt": "2026-10-16T08:28:43Z"
+        }
+      ],
+      "author": "花笺",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNjMjY5MmUiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxjaXJjbGUgY3g9IjkiIGN5PSI5LjUiIHI9IjMuNiIgc3Ryb2tlLXdpZHRoPSIxLjYiIC8+CiAgPGNpcmNsZSBjeD0iMTUiIGN5PSI5LjUiIHI9IjMuNiIgc3Ryb2tlLXdpZHRoPSIxLjYiIC8+CiAgPGNpcmNsZSBjeD0iMTIiIGN5PSIxNSIgcj0iMy42IiBzdHJva2Utd2lkdGg9IjEuNiIgLz4KPC9zdmc+Cg=="
+    },
+    {
+      "name": "css-modifier",
+      "description": "单篇笔记的附加样式：笔记 front-matter 写 css: 名字，就把 styles/ 下的样式表注入当前窗口。全局样式已改由宿主接管（右侧栏「样式」面板）",
+      "releases": [
+        {
+          "version": "1.2.0",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-css-modifier-v1.2.0/css-modifier-1.2.0.zip",
+          "sha256": "518fcdb34d7efbf5d53b45fdcb625328ca9dd54cbcbcb27030e4d6aea6327431",
+          "size": 6582,
+          "permissions": [
+            "ui:style",
+            "ui:panel",
+            "ui:command",
+            "ui:toast",
+            "ui:row-action",
+            "workspace:folders",
+            "editor:read",
+            "events",
+            "settings"
+          ],
+          "publishedAt": "2026-10-16T08:28:51Z"
+        }
+      ],
+      "author": "花笺"
+    },
+    {
+      "name": "file-reader",
+      "description": "文件读取器：让工作文件夹能识别常见代码、文本、表格与图片格式，并按格式着色",
+      "releases": [
+        {
+          "version": "1.0.1",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-file-reader-v1.0.1/file-reader-1.0.1.zip",
+          "sha256": "26bddb02c7ec4360cbdedc373a3d5497d2903ef100b13acd9512133b467dd607",
+          "size": 3825,
+          "permissions": [
+            "files:register"
+          ],
+          "publishedAt": "2026-10-16T08:28:59Z"
+        }
+      ],
+      "author": "花笺",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM3YTRmYTAiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik02LjUgMy41aDdMMTggOHYxMi41SDYuNXoiIC8+CiAgPHBhdGggZD0iTTEzLjUgMy41VjhIMTgiIC8+CiAgPHBhdGggZD0iTTkuNSAxMi41aDVNOS41IDE2aDMiIC8+Cjwvc3ZnPgo="
+    },
+    {
+      "name": "font-pack",
+      "description": "字体包：把 .ttf / .otf / .woff2 丢进 fonts/ 目录，就能在「设置 → 代码字体」里选用",
+      "releases": [
+        {
+          "version": "1.0.1",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-font-pack-v1.0.1/font-pack-1.0.1.zip",
+          "sha256": "103d9662aed5600c4691d6ff76c276f126455f4fa7dca7969f542fc0588e74dc",
+          "size": 3044,
+          "permissions": [],
+          "publishedAt": "2026-10-16T08:29:07Z"
+        }
+      ],
+      "author": "花笺",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMzYTdhNTIiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik02IDE5TDEyIDVsNiAxNCIgLz4KICA8cGF0aCBkPSJNOC42IDE0aDYuOCIgLz4KPC9zdmc+Cg=="
+    },
+    {
+      "name": "insert-timestamp",
+      "description": "演示键位绑定与编辑器写入：一个快捷键插入当前时间，一个右键菜单项包裹选中文本",
+      "releases": [
+        {
+          "version": "1.0.1",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-insert-timestamp-v1.0.1/insert-timestamp-1.0.1.zip",
+          "sha256": "72364720ea10d2b90cb29bed8a71dd913a91f13a07b00f63ad140ec6ce648a60",
+          "size": 2412,
+          "permissions": [
+            "ui:command",
+            "ui:menus",
+            "editor:write"
+          ],
+          "publishedAt": "2026-10-16T08:29:15Z"
+        }
+      ],
+      "author": "花笺",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM4YTg4ODAiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxjaXJjbGUgY3g9IjEyIiBjeT0iMTIiIHI9IjgiIC8+CiAgPHBhdGggZD0iTTEyIDcuNVYxMmwzLjQgMiIgLz4KPC9zdmc+Cg=="
+    },
+    {
+      "name": "line-numbers",
+      "description": "行号：在编辑区左侧标出每一行的行号，随滚动同步，栏宽可调",
+      "releases": [
+        {
+          "version": "1.1.1",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-line-numbers-v1.1.1/line-numbers-1.1.1.zip",
+          "sha256": "7fb5b81fb2df59787b022ae34e03bbb222fcd678878cf04e2335a52d328ab8f2",
+          "size": 3037,
+          "permissions": [
+            "ui:gutter",
+            "editor:read",
+            "events",
+            "settings"
+          ],
+          "publishedAt": "2026-10-16T08:29:23Z"
+        }
+      ],
+      "author": "花笺",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM4YTg4ODAiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik05IDYuNWgxMU05IDEyaDExTTkgMTcuNWg3IiBzdHJva2Utd2lkdGg9IjEuNiIgLz4KICA8cGF0aCBkPSJNNSA1LjV2MTMiIHN0cm9rZS13aWR0aD0iMS4yIiBvcGFjaXR5PSIwLjc1IiAvPgo8L3N2Zz4K"
+    },
+    {
+      "name": "markdown-table",
+      "description": "把用空格或制表符分隔的文本转换成 Markdown 表格（Ctrl+\\ 触发）",
+      "releases": [
+        {
+          "version": "2.0.1",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-markdown-table-v2.0.1/markdown-table-2.0.1.zip",
+          "sha256": "64747a999e840e5975f204d1003b5595d445f427a785a36a3e39c659b2346af0",
+          "size": 2444,
+          "permissions": [
+            "editor:read"
+          ],
+          "publishedAt": "2026-10-16T08:29:39Z"
+        }
+      ],
+      "author": "花笺",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMyZjZiOGEiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxyZWN0IHg9IjMiIHk9IjUiIHdpZHRoPSIxOCIgaGVpZ2h0PSIxNCIgcng9IjIiIC8+CiAgPHBhdGggZD0iTTMgOS41aDE4TTMgMTQuNWgxOE05IDV2MTQiIC8+Cjwvc3ZnPgo="
+    },
+    {
+      "name": "math-symbols",
+      "description": "公式面板：结构模板（分式/上下标/矩阵…）+ 分类符号表，点一下插到光标处，模板会顺手把光标送进第一个占位符",
+      "releases": [
+        {
+          "version": "1.1.2",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-math-symbols-v1.1.2/math-symbols-1.1.2.zip",
+          "sha256": "9ed97026aabf7c93da3802ba1c167344fd208c585e76ef2a74340b78ef7a9a54",
+          "size": 9411,
+          "permissions": [
+            "ui:panel",
+            "ui:style",
+            "editor:write",
+            "settings"
+          ],
+          "publishedAt": "2026-10-16T08:29:49Z"
+        }
+      ],
+      "author": "花笺",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM3YTRmYTAiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik01LjUgOC41aDVNOCA2djUiIC8+CiAgPHBhdGggZD0iTTE0LjUgMTQuNWw0IDRNMTguNSAxNC41bC00IDQiIC8+Cjwvc3ZnPgo="
+    },
+    {
+      "name": "note-stats",
+      "description": "演示事件总线与插件级持久化：记录本次会话的笔记变化次数并跨重启保留",
+      "releases": [
+        {
+          "version": "1.0.1",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-note-stats-v1.0.1/note-stats-1.0.1.zip",
+          "sha256": "0d97dbfc481de127e97651bb30b8e4aed85ef02cf2724c706bcf83de65923fba",
+          "size": 2654,
+          "permissions": [
+            "events",
+            "storage",
+            "ui:panel",
+            "ui:toast"
+          ],
+          "publishedAt": "2026-10-16T08:30:03Z"
+        }
+      ],
+      "author": "花笺",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNjMjY5MmUiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik02LjUgMTl2LTZNMTIgMTlWNi41TTE3LjUgMTl2LTkiIHN0cm9rZS13aWR0aD0iMi42IiAvPgo8L3N2Zz4K"
+    },
+    {
+      "name": "outline",
+      "description": "目录导航：扫描标题生成大纲，点击跳转到对应位置",
+      "releases": [
+        {
+          "version": "2.1.1",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-outline-v2.1.1/outline-2.1.1.zip",
+          "sha256": "bd3d863ed4104fe76d1a95240afd8422f36ffa43603115e3b3f9a8bcb450fa47",
+          "size": 8613,
+          "permissions": [
+            "ui:panel",
+            "editor:read"
+          ],
+          "publishedAt": "2026-10-16T08:30:15Z"
+        }
+      ],
+      "author": "花笺",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMyZjZiOGEiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik02IDdoMTNNMTAgMTJoOU0xMCAxN2g2IiAvPgogIDxjaXJjbGUgY3g9IjMuNiIgY3k9IjciIHI9IjEiIGZpbGw9IiMyZjZiOGEiIHN0cm9rZT0ibm9uZSIgLz4KICA8Y2lyY2xlIGN4PSI2LjYiIGN5PSIxMiIgcj0iMSIgZmlsbD0iIzJmNmI4YSIgc3Ryb2tlPSJub25lIiAvPgogIDxjaXJjbGUgY3g9IjYuNiIgY3k9IjE3IiByPSIxIiBmaWxsPSIjMmY2YjhhIiBzdHJva2U9Im5vbmUiIC8+Cjwvc3ZnPgo="
+    },
+    {
+      "name": "pdf-annotations",
+      "description": "在 PDF 上做标注：矩形、圆形、自由笔、文字选区高亮，还能钉批注",
+      "releases": [
+        {
+          "version": "0.2.0",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-pdf-annotations-v0.2.0/pdf-annotations-0.2.0.zip",
+          "sha256": "6806f68cc6928627908a0a46fb9a80a5f950525ce691b06e1d868c525b5ed59e",
+          "size": 228068,
+          "permissions": [
+            "files:view",
+            "workspace:cache",
+            "ui:document-action"
+          ],
+          "publishedAt": "2026-10-16T08:30:23Z"
+        }
+      ],
+      "author": "花笺",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNjOThiMmIiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik02LjUgMy41aDdMMTggOHYxMi41SDYuNXoiIC8+CiAgPHBhdGggZD0iTTEzLjUgMy41VjhIMTgiIC8+CiAgPHBhdGggZD0iTTkgMTYuNSAxNSAxMC41bDEuNiAxLjYtNiA2LTIuMi42eiIgZmlsbD0iI2ZmZDQwMCIgc3Ryb2tlPSJub25lIiAvPgo8L3N2Zz4K",
+      "readme": "# PDF 批注\n\n在 PDF 上圈画、划重点、钉批注。**依赖「PDF 阅读器」**——那个没装/没开的时候，这个也不会跑。\n\n## 用它\n\n打开一个 PDF，预览区顶上那排控件里会多出两样：\n\n| 控件 | 干什么 |\n|---|---|\n| 标注方式 | 切换当前的工具（按钮上写的就是现在这个） |\n| 颜色 | 四种颜色，选中的那个画成色块 |\n\n工具：\n\n- **指针**（默认）：不画东西。鼠标移到已有的标注上会冒出一个小 ×，点它就删掉。\n- **矩形** / **圆形**：在页面上按住鼠标拖一个框。\n- **自由笔**：按住随便画，松开就是一条线。\n- **文字选区**：像在网页上那样**划过去选中文字**，一松手就高亮。行盒是按文字的真实位置算的，\n  所以高亮贴着字走，不会圈住一整块空白。\n- **图钉批注**：在页面上点一下，弹出一个小框写字，回车保存。鼠标移上去就能看到内容。\n\n标注跟着**缩放和旋转**走：换个比例、把页面转 90°，它们还在原来的位置 —— 存的是 PDF 自己的\n坐标，不是屏幕坐标。\n\n## 导出成 PDF\n\n顶上那排控件最右边的「导出」会把标注**写进 PDF 本身**，另存成 `原来那个名字-批注.pdf`\n（**原文件不动**）。写进去的是标准 PDF 批注，Edge / Acrobat / WPS 打开就能看到、能改。\n\n注意这**不是同步**：导出之后你再改批注，得重新导一次。\n\n## 标注存在哪\n\n存在**那个 PDF 旁边**的 `__floral-notepaper__/pdf-annotations/` 里，一个 PDF 一份 JSON。\n把 PDF 拷到别处、发给别人，标注跟着走；删掉那个文件夹里的东西就等于清空批注。\n\n> 花笺自己的文件树里**看不到** `__floral-notepaper__`（扫描时会跳过它）。\n\n## 它要的权限\n\n| 权限 | 为什么 |\n|---|---|\n| `files:view` | 把界面代码并进 PDF 阅读器的沙箱视图里（标注那一层是这么进去的） |\n| `workspace:cache` | 在 PDF 旁边建 `__floral-notepaper__/` 写标注数据 |\n\n导出时不额外要权限：**存到哪儿由你在保存对话框里挑**，插件拿不到路径。\n\n## 还没做的\n\n- **撤销 / 重做**：画错了只能删掉重画。\n- **移动已有的标注**：现在只能删。\n- **批注列表**：钉了十几个图钉之后，没有一栏把它们列出来。\n- **导出成图片 / 打印**：只能另存成 PDF（批注是写进 PDF 的注释对象，不是烧进画面）。\n- 导出**不是增量更新**：pdf-lib 会整份重写，签名过的 PDF 导出后会失效。"
+    },
+    {
+      "name": "pdf-viewer",
+      "description": "在花笺里直接看 PDF：翻页、缩放、适应宽度、跳页、单页/连续、旋转",
+      "releases": [
+        {
+          "version": "0.2.1",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-pdf-viewer-v0.2.1/pdf-viewer-0.2.1.zip",
+          "sha256": "54835b512ae62aec0a54da027cf2ee8dae6e35b3d5007a758056b979a92685c9",
+          "size": 508607,
+          "permissions": [
+            "files:register",
+            "files:view"
+          ],
+          "publishedAt": "2026-10-16T08:30:31Z"
+        }
+      ],
+      "author": "花笺",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM1YTZiN2EiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik02LjUgMy41aDdMMTggOHYxMi41SDYuNXoiIC8+CiAgPHBhdGggZD0iTTEzLjUgMy41VjhIMTgiIC8+CiAgPHJlY3QgeD0iOC41IiB5PSIxNCIgd2lkdGg9IjciIGhlaWdodD0iNCIgcng9IjEiIGZpbGw9IiNjMDM5MmIiIHN0cm9rZT0ibm9uZSIgLz4KPC9zdmc+Cg==",
+      "readme": "# PDF 阅读器\n\n在花笺里直接打开 `.pdf`，不用切到别的软件。\n\n## 用它\n\n在工作文件夹里点一个 `.pdf`，或者「打开文件」选一个 —— 它会像图片那样直接显示，\n**只读**，不会改动原文件一个字节。\n\n预览区顶上那排是它自己的工具：\n\n| 控件 | 干什么 |\n|---|---|\n| `−` / `+` | 缩小 / 放大（按住 Ctrl 滚滚轮也行） |\n| 比例 | 当前缩放比例 |\n| 适应宽度 | 按窗口宽度铺满，再点一下旁边的比例就是手动缩放 |\n| `‹` / `›` | 上一页 / 下一页 |\n| `3 / 14` | 当前页 / 总页数 |\n| 页码框 | 输入页码回车直接跳过去 |\n| 单页 / 连续 | 一次只显示一页，还是像网页那样连着往下滚 |\n| `⟳` / 角度 | 顺时针旋转 90°，可以转到 0 / 90 / 180 / 270 |\n\n底色、分隔线跟着应用主题走 —— 换了深色或主题色，这边一起换。\n\n## 它要的权限\n\n| 权限 | 为什么 |\n|---|---|\n| `files:register` | 让侧栏认出 `.pdf` 这个扩展名 |\n| `files:view` | 交出会在沙箱里真的跑起来的界面代码（画布渲染 PDF） |\n\n沙箱是浏览器的 iframe 沙箱：这段界面代码**读不到你的文件**，也够不到花笺的任何能力 ——\n它只能拿到宿主递给它的那一份 PDF 字节，以及下面说的这条存数据的通道。\n\n## 还没做的\n\n* **马克笔与批注** —— 会做成一个单独的插件（它依赖这个插件）。\n* **搜索**：页面上能选中、能复制了，但还没有查找框。\n* **扫描件的 OCR**：对方本来就是图片的话，只能看，不能选。\n* **日韩文字或非内置字体**：pdf.js 遇到这些会去取额外的字体数据，而沙箱取不到外部资源，\n  那些字会缺。等真碰到再说。\n* **加密文档**：能认出来并说「打不开」，但不会提示输密码。"
+    },
+    {
+      "name": "popover-demo",
+      "description": "工具栏浮层样例：一个按钮 + 下拉面板，两个分类靠「onClick 返回新 HTML」切换",
+      "releases": [
+        {
+          "version": "1.0.0",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-popover-demo-v1.0.0/popover-demo-1.0.0.zip",
+          "sha256": "b6e76e8f2f0064513838b152daa63647d68c036203e66e051ce20761a36e8aaf",
+          "size": 2284,
+          "permissions": [
+            "ui:popover",
+            "ui:style",
+            "editor:write"
+          ],
+          "publishedAt": "2026-10-16T08:30:39Z"
+        }
+      ],
+      "author": "花笺"
+    },
+    {
+      "name": "word-count",
+      "description": "在状态栏实时显示选中文本的字数",
+      "releases": [
+        {
+          "version": "2.0.1",
+          "apiVersion": 2,
+          "url": "https://github.com/rainbowinter/fwinterhuajian-plugins/releases/download/plugin-word-count-v2.0.1/word-count-2.0.1.zip",
+          "sha256": "48fb1d6175818a17eb79dfeff07eea245589598a24f13c5ce24db7b05dae3251",
+          "size": 2048,
+          "permissions": [
+            "ui:statusbar",
+            "editor:read",
+            "settings"
+          ],
+          "publishedAt": "2026-10-16T08:30:47Z"
+        }
+      ],
+      "author": "花笺",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMzYTdhNTIiIHN0cm9rZS13aWR0aD0iMS44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxyZWN0IHg9IjMiIHk9IjUiIHdpZHRoPSIxOCIgaGVpZ2h0PSIxNCIgcng9IjMiIC8+CiAgPHBhdGggZD0iTTcgMTBoMTBNNyAxNGg2IiAvPgo8L3N2Zz4K"
+    }
+  ],
+  "generatedAt": "2026-10-16T08:30:47Z"
+}
