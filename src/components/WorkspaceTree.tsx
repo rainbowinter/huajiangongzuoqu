@@ -427,7 +427,7 @@ export function WorkspaceTree({ root, selectedPath, onOpenFile }: WorkspaceTreeP
   const isLoadingRoot = loading.has(root);
 
   return (
-    <div className="flex flex-col min-h-0 flex-1">
+    <div className="workspace-tree flex flex-col min-h-0 flex-1">
       {/* 搜索与新建：与笔记面板保持同一套观感 */}
       <div className="px-3 pb-2 shrink-0 space-y-1">
         <div className="flex items-center gap-2 px-2.5 h-8 rounded-lg bg-paper-warm/80 border border-paper-deep/40 focus-within:border-bamboo/30 focus-within:bg-cloud transition-all">

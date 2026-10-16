@@ -4,8 +4,13 @@
 写在 JSX 上的 Tailwind 工具类。想在不动这些文件的前提下调整观感，改
 **`src/styles/custom.css`** 就够了 —— 它是一份空壳，默认什么都不改。
 
-文件开头有一份**目录**和一张**变量速查表**（22 个可改变量：名字 / 出厂值 / 管什么），
-要改什么直接对着表抄即可。
+文件里有两份可直接照抄的清单：
+
+1. **变量速查表**（22 个可改变量：名字 / 出厂值 / 管什么）—— 改**颜色 / 字体 / 圆角**；
+2. **语义钩子清单**（一百多个稳定类名，覆盖标题栏、侧栏、笔记卡片、工具栏、编辑区、
+   预览区、状态栏、各面板、菜单与弹层）—— 改**尺寸 / 间距 / 显隐 / 选中态**。
+
+两者不是竞品：**只是想换配色就改变量，想动某个部件的形态才用钩子。**
 
 ## 它是怎么接进去的
 
@@ -38,16 +43,62 @@ import "./styles/custom.css"; // ← 位置不能调换
 
 字体与圆角（`--font-*`、`--app-*-radius`）**没有**分主题定义，写 `:root` 就是全主题生效。
 
-## 稳定类名
+## 语义钩子：界面每一块都有稳定的类名
 
-想单独调某一块，用这些语义类，别去盖 Tailwind 工具类（工具类不是接口，改版就可能变）：
+**界面里绝大多数间距 / 字号确实是直接写在 JSX 上的 Tailwind 工具类**（`px-4`、
+`text-[11px]`…）。但这不是说界面无从下手 —— 全界面一百多个**区块与状态**都带一个
+**稳定的语义类名**，就是 `custom.css` 第 3 节那张清单：
 
-- 窗口外壳：`.app-window-shell` / `.app-main-frame` / `.app-surface-frame`
-- 预览：`.md-body` / `.md-table` / `.md-divider` / `.md-quote` / `.md-caption`
-- 提示框：`.markdown-alert` 及 `-note` `-tip` `-important` `-warning` `-caution`
-- 其它：`.popup-menu`（菜单与浮层）、`.outline-item`、`.katex`、`.scrollbar-hidden`
+```
+窗口外壳    .main-window / .main-surface / .main-body
+标题栏      .titlebar / .titlebar-brand / .titlebar-title / .titlebar-actions / .titlebar-button
+活动栏      .activity-bar / .activity-bar-item
+侧栏        .sidebar / .sidebar-header / .sidebar-title / .sidebar-resizer
+列表        .note-list / .note-group / .note-group-header / .explorer-item / .explorer-item-title
+文档工具栏  .doc-toolbar / .doc-toolbar-group / .doc-toolbar-button / .doc-tab
+内容区      .content-area / .editor-pane / .editor-toolbar / .editor-tool / .preview-pane
+状态栏      .status-bar / .status-text / .status-action
+侧栏面板    .side-panel / .side-panel-view / .side-panel-header / .side-panel-body
+浮层        .context-menu / .context-menu-item / .modal / .toast-entry / .command-palette
+各面板      .settings-panel / .settings-section / .market-panel / .plugin-panel / .about-panel
+```
 
-工具类硬要盖也行，但得提权重（`.app-window-shell .px-4 { … }`）或上 `!important`。
+**清单以 `src/styles/custom.css` 第 3 节为准**（那里每个名字都写明了管哪块），这里不重复。
+
+### 它们和「工具类」的区别
+
+| | 语义钩子 | Tailwind 工具类 |
+| --- | --- | --- |
+| 是什么 | 「这里是什么」的记号，**本身不带样式** | 实现细节（`px-2.5 h-8 rounded-lg`） |
+| 改版会不会变 | 不会，是**接口** | 会 |
+| 状态（选中 / 禁用 / 拖拽） | 有（`.is-selected` / `.is-hovered` / `.is-dragging`…） | **没有** —— 状态只活在 JS 里，DOM 上一点痕迹都没有 |
+
+最后一行才是关键：以前想给「选中的那条笔记」加个左边框，外部 CSS **无论怎么写都做不到** ——
+因为 DOM 上根本没有东西能指认它。现在 `.explorer-item.is-selected` 就是那个指认。
+
+### 权重：钩子够用，工具类才需要提权重
+
+钩子和 Tailwind 工具类**同权重**（都只是一个类），而 `custom.css` 排在 `App.css` 之后，
+所以直接写就能赢：
+
+```css
+.explorer-item { padding: 8px 10px; }      /* 盖过 px-3 py-2.5 */
+.doc-toolbar-button { border-radius: 999px; }
+```
+
+赢不了的只有两种，分别有对应写法：
+
+- **伪类**（`hover:bg-paper-warm`、`group-hover:opacity-100`）—— 要写成 `.explorer-item:hover`；
+- **`!important`** —— 只能也上 `!important`，或者加一层祖先提权重
+  （`.app-window-shell .px-4 { … }`）。
+
+另外，**不能用类名表达的 UI 状态用伪类本来就有**：`.doc-toolbar-button:disabled`、
+`.editor-input::placeholder`。
+
+### 什么时候还是该改变量
+
+只是想换**颜色 / 字体 / 圆角**的话，第 1 节的主题变量更省事，也不必跟权重较劲。
+钩子管的是**尺寸、间距、显隐，以及 Tailwind 表达不了的状态**。
 
 ## 另一条路：做成插件
 

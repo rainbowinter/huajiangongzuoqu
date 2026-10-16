@@ -21,17 +21,17 @@ export function Modal({
 }) {
   return (
     <div
-      className="fixed inset-0 z-[9500] flex items-center justify-center bg-ink/20 backdrop-blur-[2px]"
+      className="modal-backdrop fixed inset-0 z-[9500] flex items-center justify-center bg-ink/20 backdrop-blur-[2px]"
       onClick={onCancel}
       role="presentation"
     >
       <div
-        className="w-[400px] max-h-[70vh] overflow-y-auto rounded-2xl bg-cloud/98 border border-paper-deep/40 shadow-xl p-5"
+        className="modal w-[400px] max-h-[70vh] overflow-y-auto rounded-2xl bg-cloud/98 border border-paper-deep/40 shadow-xl p-5"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-label={title}
       >
-        <h3 className="text-[13px] text-ink mb-3">{title}</h3>
+        <h3 className="modal-title text-[13px] text-ink mb-3">{title}</h3>
         {children}
       </div>
     </div>
@@ -54,12 +54,12 @@ export function ModalActions({
   danger?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-end gap-2 mt-4">
+    <div className="modal-actions flex items-center justify-end gap-2 mt-4">
       <button
         type="button"
         disabled={busy}
         onClick={onCancel}
-        className="px-3 h-7 rounded-lg text-[11px] text-ink-ghost hover:text-ink-soft hover:bg-paper-warm transition-colors cursor-pointer disabled:opacity-40"
+        className="modal-button px-3 h-7 rounded-lg text-[11px] text-ink-ghost hover:text-ink-soft hover:bg-paper-warm transition-colors cursor-pointer disabled:opacity-40"
       >
         取消
       </button>
@@ -67,10 +67,10 @@ export function ModalActions({
         type="button"
         disabled={busy}
         onClick={onConfirm}
-        className={`px-3 h-7 rounded-lg text-[11px] transition-colors cursor-pointer disabled:opacity-40 ${
+        className={`modal-button px-3 h-7 rounded-lg text-[11px] transition-colors cursor-pointer disabled:opacity-40 ${
           danger
-            ? "text-rust bg-rust-mist/50 hover:bg-rust-mist"
-            : "text-bamboo bg-bamboo-mist/50 hover:bg-bamboo-mist"
+            ? "is-danger text-rust bg-rust-mist/50 hover:bg-rust-mist"
+            : "is-primary text-bamboo bg-bamboo-mist/50 hover:bg-bamboo-mist"
         }`}
       >
         {confirmLabel}

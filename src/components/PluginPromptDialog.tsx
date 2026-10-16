@@ -56,7 +56,7 @@ export function PluginPromptDialog() {
 
   return (
     <div className="fixed inset-0 z-[9500] flex items-center justify-center bg-ink/20 backdrop-blur-[2px]">
-      <div className="w-[380px] rounded-2xl bg-cloud/98 border border-paper-deep/40 shadow-xl p-5">
+      <div className="prompt-dialog w-[380px] rounded-2xl bg-cloud/98 border border-paper-deep/40 shadow-xl p-5">
         {pending.title ? (
           <p className="text-[13px] font-medium text-ink mb-2">{pending.title}</p>
         ) : null}

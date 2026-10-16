@@ -217,7 +217,7 @@ export function PluginFileView({ path, type }: PluginFileViewProps) {
   const name = path.split(/[\\/]/).pop() ?? path;
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 min-w-0">
+    <div className="plugin-view flex-1 flex flex-col min-h-0 min-w-0">
       {/* 插件声明了控件才有这一排 —— 没声明就与从前一模一样，预览区直接顶到最上面。 */}
       <PluginViewToolbar
         items={toolbarItems}

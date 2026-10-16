@@ -37,5 +37,12 @@ export default defineConfig(async () => ({
   },
   test: {
     setupFiles: ["./src/locales/test-setup.ts"],
+    // 默认（`css: false`）Vitest 把 `.css` 一律 stub 成空模块，**连 `?raw` 都拿不到内容**。
+    // 这里只放行「样式即接口」的那两份文件，`semanticHooks.test.ts` 要读它们的真实文本：
+    // `custom.css` 里写着语义钩子清单，`App.css` 里是本来就带样式的那批既有语义类。
+    // 其余 CSS 仍旧一律 stub，所有测试的行为不变。
+    // ⚠️ 这两条**不要加 `$` 锚点**：Vitest 拿去匹配的 id 末尾还挂着 `?raw` 查询串，
+    // 锚死在结尾就一条都匹配不上，`?raw` 又退回空模块。
+    css: { include: [/custom\.css/, /App\.css/] },
   },
 }));

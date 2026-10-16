@@ -194,7 +194,7 @@ function PluginRow({
   const canExpand = hasPermissions || hasSettings || manageable;
 
   return (
-    <div className="px-3 py-2 rounded-xl hover:bg-paper-warm transition-colors">
+    <div className={`plugin-card px-3 py-2 rounded-xl hover:bg-paper-warm transition-colors ${manifest.enabled ? "is-enabled " : ""}${status === "failed" || status === "invalid" ? "is-broken" : ""}`}>
       {/* 图标单独一列、且比正文大得多：**它才是列表里区分插件的主要视觉**。
           两列布局（图标 | 正文）比「图标挤在名字前面」能给出立体感，名字也不会被图标推得
           缩进不齐。 */}
@@ -656,7 +656,7 @@ export function PluginCommandPanel({ onClose, onOpenDoc }: PluginCommandPanelPro
   ];
 
   return (
-    <aside className="w-[360px] h-full shrink-0 border-l border-paper-deep/30 bg-cloud/92 backdrop-blur-sm flex flex-col">
+    <aside className="plugin-panel w-[360px] h-full shrink-0 border-l border-paper-deep/30 bg-cloud/92 backdrop-blur-sm flex flex-col">
       <div className="px-4 pt-3 pb-2 flex items-center justify-between shrink-0">
         <span className="text-[13px] font-medium text-ink">插件</span>
         <div className="flex items-center gap-1">

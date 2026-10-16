@@ -8,7 +8,7 @@ interface OutlinePanelProps {
 
 export function OutlinePanel({ items, onJump, onClose }: OutlinePanelProps) {
   return (
-    <aside className="w-[240px] h-full shrink-0 border-l border-paper-deep/30 bg-cloud/92 backdrop-blur-sm flex flex-col">
+    <aside className="outline-panel w-[240px] h-full shrink-0 border-l border-paper-deep/30 bg-cloud/92 backdrop-blur-sm flex flex-col">
       <div className="px-4 pt-3 pb-2 flex items-center justify-between shrink-0">
         <span className="text-[13px] font-medium text-ink">目录</span>
         <button

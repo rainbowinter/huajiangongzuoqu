@@ -3761,37 +3761,37 @@ export function MainWindow({
     ) : null;
 
   return (
-    <div className="w-full h-screen flex flex-col">
-      <div className="relative noise-bg bg-cloud overflow-hidden flex flex-col flex-1">
+    <div className="main-window w-full h-screen flex flex-col">
+      <div className="main-surface relative noise-bg bg-cloud overflow-hidden flex flex-col flex-1">
         <BackgroundLayer config={settingsConfig} />
         <div
-          className={`relative z-10 flex items-center justify-between h-11 bg-paper/55 backdrop-blur-[1px] border-b border-paper-deep/30 shrink-0 select-none cursor-default ${
+          className={`titlebar relative z-10 flex items-center justify-between h-11 bg-paper/55 backdrop-blur-[1px] border-b border-paper-deep/30 shrink-0 select-none cursor-default ${
             isMacOS ? "pl-20 pr-5" : "pl-5 pr-0"
           }`}
           onMouseDown={handleTitleBarMouseDown}
         >
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="titlebar-brand flex items-center gap-3 min-w-0">
             <span className="text-[15px] font-serif font-medium text-ink-soft tracking-wide leading-none">
               花笺
             </span>
             <span className="text-[11px] text-ink-ghost font-body leading-none translate-y-px">
               —
             </span>
-            <span className="text-[11px] text-ink-faint font-body truncate max-w-[240px] leading-none translate-y-px">
+            <span className="titlebar-title text-[11px] text-ink-faint font-body truncate max-w-[240px] leading-none translate-y-px">
               {title ||
                 selectedNote?.preview ||
                 t("common.untitledNote", { defaultValue: "无标题笔记" })}
             </span>
           </div>
-          <div className="flex items-center">
+          <div className="titlebar-actions flex items-center">
             {/* 窗口置顶。放在插件工具组的左边：它是「整个界面」的开关，不属于任何
                 单个文件的工具。 */}
             <button
               onClick={() => void handleTogglePin()}
               aria-pressed={windowPinned}
-              className={`w-10 h-11 flex items-center justify-center transition-all cursor-pointer ${
+              className={`titlebar-button w-10 h-11 flex items-center justify-center transition-all cursor-pointer ${
                 windowPinned
-                  ? "text-bamboo bg-bamboo-mist/50"
+                  ? "is-active text-bamboo bg-bamboo-mist/50"
                   : "text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50"
               }`}
               title={
@@ -3816,7 +3816,7 @@ export function MainWindow({
             </button>
             <button
               onClick={handleOpenPlugins}
-              className="w-10 h-11 flex items-center justify-center text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50 transition-all cursor-pointer"
+              className="titlebar-button w-10 h-11 flex items-center justify-center text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50 transition-all cursor-pointer"
               title="插件"
             >
               <svg
@@ -3834,7 +3834,7 @@ export function MainWindow({
             </button>
             <button
               onClick={() => void handleOpenSettings()}
-              className="w-10 h-11 flex items-center justify-center text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer"
+              className="titlebar-button w-10 h-11 flex items-center justify-center text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer"
               title={t("main.window.settings", { defaultValue: "设置" })}
             >
               <svg
@@ -3857,9 +3857,9 @@ export function MainWindow({
                 数据目录这些本来就属于「关于」该说的。 */}
             <button
               onClick={handleOpenAbout}
-              className={`w-10 h-11 flex items-center justify-center transition-all cursor-pointer ${
+              className={`titlebar-button w-10 h-11 flex items-center justify-center transition-all cursor-pointer ${
                 visibleSidePanel === "about"
-                  ? "text-bamboo bg-bamboo-mist/50"
+                  ? "is-active text-bamboo bg-bamboo-mist/50"
                   : "text-ink-ghost hover:text-ink-faint hover:bg-paper-warm"
               }`}
               title={t("main.about.title", { defaultValue: "关于" })}
@@ -3888,7 +3888,7 @@ export function MainWindow({
 
                 <button
                   onClick={handleMinimize}
-                  className="w-11 h-11 flex items-center justify-center text-ink-ghost hover:text-ink-soft hover:bg-paper-warm transition-all cursor-pointer"
+                  className="window-control w-11 h-11 flex items-center justify-center text-ink-ghost hover:text-ink-soft hover:bg-paper-warm transition-all cursor-pointer"
                   title={t("main.window.minimize", { defaultValue: "最小化" })}
                 >
                   <svg width="12" height="12" viewBox="0 0 12 12">
@@ -3897,7 +3897,7 @@ export function MainWindow({
                 </button>
                 <button
                   onClick={handleMaximize}
-                  className="w-11 h-11 flex items-center justify-center text-ink-ghost hover:text-ink-soft hover:bg-paper-warm transition-all cursor-pointer"
+                  className="window-control w-11 h-11 flex items-center justify-center text-ink-ghost hover:text-ink-soft hover:bg-paper-warm transition-all cursor-pointer"
                   title={
                     isMaximized
                       ? t("main.window.restore", { defaultValue: "还原" })
@@ -3931,7 +3931,7 @@ export function MainWindow({
                 </button>
                 <button
                   onClick={handleClose}
-                  className="w-11 h-11 flex items-center justify-center text-ink-ghost hover:text-red-500 hover:bg-danger-bg transition-all cursor-pointer"
+                  className="window-control is-close w-11 h-11 flex items-center justify-center text-ink-ghost hover:text-red-500 hover:bg-danger-bg transition-all cursor-pointer"
                   title={t("main.window.close", { defaultValue: "关闭" })}
                 >
                   <svg
@@ -3951,7 +3951,7 @@ export function MainWindow({
           </div>
         </div>
 
-        <div className="relative z-10 flex flex-1 min-h-0">
+        <div className="main-body relative z-10 flex flex-1 min-h-0">
           <ActivityBar
             items={activityItems}
             activeId={activeExplorer}
@@ -3961,10 +3961,15 @@ export function MainWindow({
             onRemove={(id) => void handleRemoveWorkspaceFolder(id)}
           />
           <div
-            className="border-r border-paper-deep/30 bg-paper/40 shrink-0 overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+            className={`sidebar ${
+              sidebarCollapsed ? "is-collapsed" : ""
+            } border-r border-paper-deep/30 bg-paper/40 shrink-0 overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]`}
             style={{ width: sidebarCollapsed ? 0 : sidebarWidth }}
           >
-            <div className="flex flex-col h-full" style={{ width: `${sidebarWidth}px` }}>
+            <div
+              className="sidebar-inner flex flex-col h-full"
+              style={{ width: `${sidebarWidth}px` }}
+            >
               {/* 侧栏自己的标题行，两个视图共用。
 
                   收起按钮放在这里、而不是主工具栏那一排：它管的是**这一栏**，和
@@ -3973,10 +3978,10 @@ export function MainWindow({
 
                   这里原本还有个 ×（从侧栏移除工作文件夹）。它挪去了活动栏图标的右键
                   菜单 —— 移除是低频且不可逆的操作，不该和常用按钮挤在同一行。 */}
-              <div className="flex items-center justify-between gap-2 px-3 py-1.5 shrink-0">
+              <div className="sidebar-header flex items-center justify-between gap-2 px-3 py-1.5 shrink-0">
                 <div className="min-w-0 flex-1">
                   <span
-                    className="block text-[11px] font-display font-medium text-ink-faint truncate"
+                    className="sidebar-title block text-[11px] font-display font-medium text-ink-faint truncate"
                     title={activeExplorer === EXPLORER_NOTES ? undefined : activeExplorer}
                   >
                     {activeExplorer === EXPLORER_NOTES
@@ -3989,7 +3994,7 @@ export function MainWindow({
                       免得外面的 truncate 再从尾部削一刀，把特意保下来的那几段吃掉。 */}
                   {activeExplorer !== EXPLORER_NOTES && (
                     <span
-                      className="block text-[10px] leading-4 text-ink-ghost/70 truncate"
+                      className="sidebar-subtitle block text-[10px] leading-4 text-ink-ghost/70 truncate"
                       title={activeExplorer}
                     >
                       {shortenPath(activeExplorer, (sidebarWidth - 64) / 5.5)}
@@ -4023,7 +4028,7 @@ export function MainWindow({
                   下面这一大段沿用原有缩进，交给 oxfmt 统一整理。 */}
               {activeExplorer === EXPLORER_NOTES ? (
                 <>
-                  <div className="px-3 pt-3 pb-2 shrink-0">
+                  <div className="note-search px-3 pt-3 pb-2 shrink-0">
                     <div className="flex items-center gap-2 px-2.5 h-8 rounded-lg bg-paper-warm/80 border border-paper-deep/40 focus-within:border-bamboo/30 focus-within:bg-cloud transition-all">
                       <svg
                         width="13"
@@ -4174,11 +4179,11 @@ export function MainWindow({
                     </div>
                   )}
 
-                  <div className="flex-1 overflow-y-auto px-2 pb-2">
+                  <div className="note-list flex-1 overflow-y-auto px-2 pb-2">
                     <div className="space-y-0.5">
                       {listedExternalFiles.length > 0 && (
                         <>
-                          <div className="px-3 py-1.5 text-[10px] text-ink-ghost/50 font-mono tracking-wider uppercase">
+                          <div className="note-group-header px-3 py-1.5 text-[10px] text-ink-ghost/50 font-mono tracking-wider uppercase">
                             {t("main.externalFiles.title", { defaultValue: "外部文件" })}
                           </div>
                           {listedExternalFiles.map((file) => {
@@ -4201,23 +4206,23 @@ export function MainWindow({
                                 }}
                                 onMouseEnter={() => setHoveredId(file.id)}
                                 onMouseLeave={() => setHoveredId(null)}
-                                className={`w-full text-left rounded-xl px-3 py-2.5 transition-all duration-[600ms] cursor-pointer group relative ${
+                                className={`explorer-item w-full text-left rounded-xl px-3 py-2.5 transition-all duration-[600ms] cursor-pointer group relative ${
                                   isSelected
-                                    ? "bg-bamboo-mist/70"
+                                    ? "is-selected bg-bamboo-mist/70"
                                     : isHovered
-                                      ? "bg-paper-warm/70"
+                                      ? "is-hovered bg-paper-warm/70"
                                       : "bg-transparent"
                                 }`}
                               >
                                 <div
-                                  className={`absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-r-full bg-bamboo/60 transition-all duration-[600ms] ${
+                                  className={`explorer-item-accent absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-r-full bg-bamboo/60 transition-all duration-[600ms] ${
                                     isSelected ? "h-5 opacity-100" : "h-0 opacity-0"
                                   }`}
                                 />
 
                                 <div className="flex items-baseline justify-between mb-0.5">
                                   <span
-                                    className={`text-[13px] font-display font-medium truncate pr-2 transition-colors flex items-center gap-1.5 ${
+                                    className={`explorer-item-title text-[13px] font-display font-medium truncate pr-2 transition-colors flex items-center gap-1.5 ${
                                       isSelected ? "text-bamboo" : "text-ink-soft"
                                     }`}
                                   >
@@ -4262,7 +4267,7 @@ export function MainWindow({
                                   </button>
                                 </div>
 
-                                <p className="text-[11px] text-ink-ghost leading-relaxed line-clamp-2 group-hover:text-ink-faint transition-colors pl-[18px]">
+                                <p className="explorer-item-subtitle text-[11px] text-ink-ghost leading-relaxed line-clamp-2 group-hover:text-ink-faint transition-colors pl-[18px]">
                                   {file.filePath}
                                 </p>
                               </div>
@@ -4276,8 +4281,10 @@ export function MainWindow({
                           return (
                             <div
                               key="__uncategorized__"
-                              className={`rounded-lg transition-all duration-200 ${
-                                dragOverCategory === "" ? "bg-bamboo/10 ring-1 ring-bamboo/20" : ""
+                              className={`note-group rounded-lg transition-all duration-200 ${
+                                dragOverCategory === ""
+                                  ? "is-drag-over bg-bamboo/10 ring-1 ring-bamboo/20"
+                                  : ""
                               }`}
                               onDragOver={(e) => {
                                 e.preventDefault();
@@ -4333,14 +4340,14 @@ export function MainWindow({
                         const isCollapsed = collapsedCategories.has(group.category);
 
                         return (
-                          <div key={group.category} className="px-2 mb-0.5">
+                          <div key={group.category} className="note-group px-2 mb-0.5">
                             <div
-                              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg group/cat cursor-pointer select-none transition-all duration-200 ${
+                              className={`note-group-header flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg group/cat cursor-pointer select-none transition-all duration-200 ${
                                 dragOverCategory === group.category
-                                  ? "bg-bamboo/15 border border-bamboo/40 ring-1 ring-bamboo/20"
+                                  ? "is-drag-over bg-bamboo/15 border border-bamboo/40 ring-1 ring-bamboo/20"
                                   : isCollapsed
                                     ? "bg-transparent border border-bamboo/15"
-                                    : "bg-bamboo/8 border border-bamboo/15 rounded-b-none"
+                                    : "is-open bg-bamboo/8 border border-bamboo/15 rounded-b-none"
                               }`}
                               onClick={() => toggleCategoryCollapse(group.category)}
                               onContextMenu={(e) => {
@@ -4440,7 +4447,7 @@ export function MainWindow({
                                 }}
                               >
                                 {group.notes.length === 0 ? (
-                                  <div className="px-3 py-3 text-center text-[11px] text-ink-ghost/50">
+                                  <div className="note-empty px-3 py-3 text-center text-[11px] text-ink-ghost/50">
                                     {t("main.category.emptyFolder", { defaultValue: "空文件夹" })}
                                   </div>
                                 ) : (
@@ -4485,7 +4492,7 @@ export function MainWindow({
                       {!isLoading &&
                         filteredNotes.length === 0 &&
                         listedExternalFiles.length === 0 && (
-                          <div className="px-3 py-8 text-center text-[12px] text-ink-ghost leading-relaxed">
+                          <div className="note-empty px-3 py-8 text-center text-[12px] text-ink-ghost leading-relaxed">
                             {searchQuery
                               ? t("main.search.noResults", { defaultValue: "没有匹配的笔记" })
                               : t("main.search.empty", { defaultValue: "还没有笔记" })}
@@ -4507,7 +4514,7 @@ export function MainWindow({
 
           {!sidebarCollapsed && (
             <div
-              className={`w-1 shrink-0 cursor-col-resize group relative ${isResizingSidebar ? "bg-bamboo/30" : "hover:bg-bamboo/20"} transition-colors`}
+              className={`sidebar-resizer w-1 shrink-0 cursor-col-resize group relative ${isResizingSidebar ? "is-dragging bg-bamboo/30" : "hover:bg-bamboo/20"} transition-colors`}
               onMouseDown={(e) => {
                 e.preventDefault();
                 setIsResizingSidebar(true);
@@ -4519,15 +4526,15 @@ export function MainWindow({
             </div>
           )}
 
-          <div className="flex-1 flex flex-col min-w-0">
+          <div className="main-column flex-1 flex flex-col min-w-0">
             {/* 允许换行：插件多了之后（样式/统计/目录…）这一行放不下。原来固定 h-10
                 且不换行，按钮会被压到逐字竖排，插件页签还会和视图切换叠在一起。 */}
             <div
-              className={`flex flex-wrap items-center gap-x-1 gap-y-0.5 px-4 py-1 border-b border-paper-deep/20 shrink-0 bg-paper/20 ${
-                toolbarIdle ? "hidden" : "min-h-10"
+              className={`doc-toolbar flex flex-wrap items-center gap-x-1 gap-y-0.5 px-4 py-1 border-b border-paper-deep/20 shrink-0 bg-paper/20 ${
+                toolbarIdle ? "is-idle hidden" : "min-h-10"
               }`}
             >
-              <div className="flex flex-wrap items-center gap-1 min-w-0">
+              <div className="doc-toolbar-group flex flex-wrap items-center gap-1 min-w-0">
                 {documentContext === "note" ? (
                   <button
                     onMouseDown={(event) => event.preventDefault()}
@@ -4558,7 +4565,7 @@ export function MainWindow({
                       }
                     }}
                     disabled={!selectedId || isExternal}
-                    className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="doc-toolbar-button w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                     title={t("notepad.button.insertImage", { defaultValue: "插入图片" })}
                   >
                     <svg
@@ -4584,7 +4591,7 @@ export function MainWindow({
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={handleUndo}
                       disabled={!canUndoNow}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                      className="doc-toolbar-button w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                       title={t("main.editor.undo", { defaultValue: "撤销（Ctrl+Z）" })}
                       aria-label={t("main.editor.undoLabel", { defaultValue: "撤销" })}
                     >
@@ -4609,7 +4616,7 @@ export function MainWindow({
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={handleRedo}
                       disabled={!canRedoNow}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                      className="doc-toolbar-button w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                       title={t("main.editor.redo", { defaultValue: "重做（Ctrl+Y）" })}
                       aria-label={t("main.editor.redoLabel", { defaultValue: "重做" })}
                     >
@@ -4645,9 +4652,9 @@ export function MainWindow({
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => setExportMenuOpen((open) => !open)}
                       disabled={!selectedId}
-                      className={`w-7 h-7 flex items-center justify-center rounded-lg transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                      className={`doc-toolbar-button w-7 h-7 flex items-center justify-center rounded-lg transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
                         exportMenuOpen
-                          ? "text-bamboo bg-bamboo-mist/50"
+                          ? "is-active text-bamboo bg-bamboo-mist/50"
                           : "text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/40"
                       }`}
                       title={t("main.editor.export", { defaultValue: "导出…" })}
@@ -4675,7 +4682,7 @@ export function MainWindow({
                       <div
                         ref={exportMenuRef}
                         role="menu"
-                        className="absolute left-0 top-8 z-50 min-w-[168px] py-1.5 bg-cloud/95 backdrop-blur-sm border border-paper-deep/50 rounded-lg shadow-lg animate-menu-enter"
+                        className="context-menu absolute left-0 top-8 z-50 min-w-[168px] py-1.5 bg-cloud/95 backdrop-blur-sm border border-paper-deep/50 rounded-lg shadow-lg animate-menu-enter"
                       >
                         {exportFormats.map((format) => (
                           <button
@@ -4686,7 +4693,7 @@ export function MainWindow({
                               setExportMenuOpen(false);
                               void handleExport(format);
                             }}
-                            className="w-full text-left px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer"
+                            className="context-menu-item w-full text-left px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer"
                           >
                             {format === "md"
                               ? t("main.editor.saveAsMarkdown", { defaultValue: "另存为 Markdown" })
@@ -4746,7 +4753,7 @@ export function MainWindow({
                   <button
                     onClick={() => setDeleteConfirm(true)}
                     disabled={!selectedId}
-                    className="w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-red-400 hover:bg-danger-bg transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="doc-toolbar-button is-danger w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:text-red-400 hover:bg-danger-bg transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                     title={t("noteMenu.delete", { defaultValue: "删除笔记" })}
                   >
                     <svg
@@ -4771,9 +4778,9 @@ export function MainWindow({
                   <button
                     key={panel.id}
                     onClick={() => handleToggleStandalonePanel(panel.id)}
-                    className={`px-2.5 h-7 shrink-0 whitespace-nowrap flex items-center justify-center rounded-lg text-[11px] transition-all cursor-pointer ${
+                    className={`doc-tab px-2.5 h-7 shrink-0 whitespace-nowrap flex items-center justify-center rounded-lg text-[11px] transition-all cursor-pointer ${
                       activeStandalonePanelId === panel.id
-                        ? "text-bamboo bg-bamboo-mist/50"
+                        ? "is-active text-bamboo bg-bamboo-mist/50"
                         : "text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/40"
                     }`}
                     title={panel.title}
@@ -4797,7 +4804,7 @@ export function MainWindow({
                       type="button"
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => handleDocumentAction(action)}
-                      className="px-2.5 h-7 shrink-0 whitespace-nowrap flex items-center justify-center rounded-lg text-[11px] text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/40 transition-all cursor-pointer"
+                      className="doc-toolbar-button px-2.5 h-7 shrink-0 whitespace-nowrap flex items-center justify-center rounded-lg text-[11px] text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/40 transition-all cursor-pointer"
                       title={`${action.title}（插件 ${action.plugin}）`}
                     >
                       {action.icon ?? action.title}
@@ -4809,7 +4816,7 @@ export function MainWindow({
                   会把两组分别顶到两端、中间留出一大片空白。 */}
               {showPreviewPane ? (
                 <SlidingButtonGroup
-                  className="ml-auto shrink-0"
+                  className="doc-toolbar-right ml-auto shrink-0"
                   options={viewModeOptions}
                   value={viewMode}
                   onChange={setViewMode}
@@ -4823,21 +4830,21 @@ export function MainWindow({
             {docView ? (
               <div
                 key={`doc-${docView.title}`}
-                className="animate-note-enter px-6 pt-4 pb-2 shrink-0 border-b border-paper-deep/15 flex items-start justify-between gap-4"
+                className="doc-header animate-note-enter px-6 pt-4 pb-2 shrink-0 border-b border-paper-deep/15 flex items-start justify-between gap-4"
               >
                 <div className="min-w-0">
-                  <div className="text-[20px] font-display font-bold text-ink tracking-wide truncate">
+                  <div className="doc-header-title text-[20px] font-display font-bold text-ink tracking-wide truncate">
                     {docView.title}
                   </div>
                   <div className="mt-1.5">
-                    <span className="text-[10px] text-ink-ghost font-mono">
+                    <span className="doc-header-label text-[10px] text-ink-ghost font-mono">
                       {t("main.doc.label", { defaultValue: "说明文档 · 只读" })}
                     </span>
                   </div>
                 </div>
                 <button
                   onClick={() => setDocView(null)}
-                  className="shrink-0 px-3 h-7 rounded-lg text-[11px] text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/40 transition-all cursor-pointer"
+                  className="doc-header-close shrink-0 px-3 h-7 rounded-lg text-[11px] text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/40 transition-all cursor-pointer"
                   title={t("main.doc.closeHint", { defaultValue: "关掉文档，回到原来的笔记" })}
                 >
                   {t("main.doc.close", { defaultValue: "关闭" })}
@@ -4846,7 +4853,7 @@ export function MainWindow({
             ) : (
             <div
               key={noteTransitionKey}
-              className="animate-note-enter px-6 pt-4 pb-2 shrink-0 border-b border-paper-deep/15"
+              className="doc-header animate-note-enter px-6 pt-4 pb-2 shrink-0 border-b border-paper-deep/15"
             >
               <input
                 type="text"
@@ -4863,9 +4870,9 @@ export function MainWindow({
                 }}
                 placeholder={t("common.untitledNote", { defaultValue: "无标题笔记" })}
                 disabled={!selectedId}
-                className="w-full text-[20px] font-display font-bold text-ink placeholder:text-ink-ghost/50 tracking-wide disabled:opacity-60"
+                className="doc-header-title w-full text-[20px] font-display font-bold text-ink placeholder:text-ink-ghost/50 tracking-wide disabled:opacity-60"
               />
-              <div className="flex items-center gap-3 mt-1.5">
+              <div className="doc-header-meta flex items-center gap-3 mt-1.5">
                 <span className="text-[10px] text-ink-ghost font-mono tabular-nums truncate max-w-[200px]">
                   {selectedExternalFile
                     ? t("main.externalFile.label", {
@@ -4888,12 +4895,12 @@ export function MainWindow({
                 <span className="text-[10px] text-ink-ghost/40">·</span>
                 <span
                   key={saveState}
-                  className={`text-[10px] font-mono tabular-nums animate-status-fade ${
+                  className={`save-state text-[10px] font-mono tabular-nums animate-status-fade ${
                     saveState === "error"
-                      ? "text-red-400"
+                      ? "is-error text-red-400"
                       : saveState === "dirty"
-                        ? "text-amber-500/70"
-                        : "text-bamboo/60"
+                        ? "is-dirty text-amber-500/70"
+                        : "is-saved text-bamboo/60"
                   }`}
                 >
                   {saveStateLabel[saveState]}
@@ -4905,7 +4912,7 @@ export function MainWindow({
             <div
               key={effectiveViewMode}
               ref={splitContainerRef}
-              className="flex-1 flex min-h-0 animate-view-fade"
+              className="content-area flex-1 flex min-h-0 animate-view-fade"
             >
               {docView ? (
                 // 只读文档：直接渲染内存里那段 Markdown。**不走 FilePreview** ——
@@ -4920,14 +4927,14 @@ export function MainWindow({
                 </div>
               ) : standalonePreview && selectedFileType && activeFilePath ? (
                 zoomableStandalone ? (
-                  <div className="relative flex flex-col min-h-0 min-w-0 flex-1">
+                  <div className="preview-pane relative flex flex-col min-h-0 min-w-0 flex-1">
                     {previewZoomBadge}
                     {/* 照片的纸张式缩放。内容层用 inset-0 撑满滚动视口 —— 图片的
                         object-contain 需要一个**有确定高度**的父级才能把大图缩进屏内，
                         高度留 auto 的话 max-h-full 就是空的，竖图只能滚着看。 */}
                     <div
                       ref={previewScrollRef}
-                      className="relative flex-1 overflow-auto"
+                      className="preview-scroll relative flex-1 overflow-auto"
                       style={{ scrollbarGutter: "stable" }}
                     >
                       <div
@@ -4959,7 +4966,7 @@ export function MainWindow({
                   <FilePreview key={activeFilePath} path={activeFilePath} type={selectedFileType} />
                 )
               ) : !selectedId && !isLoading ? (
-                <div className="flex-1 flex items-center justify-center text-[13px] text-ink-ghost">
+                <div className="empty-state flex-1 flex items-center justify-center text-[13px] text-ink-ghost">
                   {t("main.editor.emptyHint", { defaultValue: "选择或新建一篇笔记" })}
                 </div>
               ) : (
@@ -4969,12 +4976,12 @@ export function MainWindow({
                   {!standalonePreview &&
                     (effectiveViewMode === "edit" || effectiveViewMode === "split") && (
                       <div
-                        className="flex flex-col min-h-0 shrink-0"
+                        className="editor-pane flex flex-col min-h-0 shrink-0"
                         style={{
                           width: effectiveViewMode === "split" ? `${splitRatio * 100}%` : "100%",
                         }}
                       >
-                        <div className="flex items-center gap-0.5 px-4 pt-2 pb-1 shrink-0">
+                        <div className="editor-toolbar flex items-center gap-0.5 px-4 pt-2 pb-1 shrink-0">
                           {/* 只有笔记与 .md 才给 Markdown 格式化按钮。开着 .py 时那一排
                               全是灰的，留着只占地方 —— 所以整排不渲染。 */}
                           {markdownEditorActive &&
@@ -4994,7 +5001,7 @@ export function MainWindow({
                                     );
                                   }
                                 }}
-                                className={`w-6 h-6 flex items-center justify-center rounded text-[11px] text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer ${button.style}`}
+                                className={`editor-tool w-6 h-6 flex items-center justify-center rounded text-[11px] text-ink-ghost hover:text-ink-faint hover:bg-paper-warm transition-all cursor-pointer ${button.style}`}
                               >
                                 {button.label}
                               </button>
@@ -5014,9 +5021,9 @@ export function MainWindow({
                                 onClick={(event) =>
                                   handleTogglePopover(popover, event.currentTarget)
                                 }
-                                className={`h-6 px-2 flex items-center justify-center rounded text-[11px] transition-all cursor-pointer ${
+                                className={`editor-tool h-6 px-2 flex items-center justify-center rounded text-[11px] transition-all cursor-pointer ${
                                   openPopover?.id === popover.id
-                                    ? "text-bamboo bg-bamboo-mist/60"
+                                    ? "is-active text-bamboo bg-bamboo-mist/60"
                                     : "text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50"
                                 }`}
                               >
@@ -5037,7 +5044,7 @@ export function MainWindow({
                                     showToast(`插件工具栏按钮执行失败：${String(error)}`),
                                   );
                               }}
-                              className="h-6 px-2 flex items-center justify-center rounded text-[11px] text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50 transition-all cursor-pointer"
+                              className="editor-tool h-6 px-2 flex items-center justify-center rounded text-[11px] text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/50 transition-all cursor-pointer"
                             >
                               {button.icon ?? button.title}
                             </button>
@@ -5045,7 +5052,7 @@ export function MainWindow({
                         </div>
 
                         <div
-                          className="relative flex-1 min-h-0 overflow-hidden px-5 pb-4"
+                          className="editor-scroll relative flex-1 min-h-0 overflow-hidden px-5 pb-4"
                           // 有行旁注时把正文整体右移，腾出左边那一栏。
                           // 没有行旁注时**一个像素都不动** —— 默认观感保持原样。
                           style={
@@ -5176,7 +5183,7 @@ export function MainWindow({
                               if (markdownEditorActive && handleMarkdownShortcut(event)) return;
                               dispatchCommandKeybinding(event);
                             }}
-                            className={`relative w-full h-full text-ink-soft placeholder:text-ink-ghost/40 ${editorFontClass}`}
+                            className={`editor-input relative w-full h-full text-ink-soft placeholder:text-ink-ghost/40 ${editorFontClass}`}
                             style={{
                               fontSize: `${settingsConfig?.fontSize ?? 14}px`,
                               tabSize: `var(--tab-indent-size, 2)`,
@@ -5273,7 +5280,7 @@ export function MainWindow({
 
                   {effectiveViewMode === "split" && (
                     <div
-                      className={`w-1.5 shrink-0 cursor-col-resize group relative flex items-center justify-center ${isResizingSplit ? "bg-bamboo/30" : "hover:bg-bamboo/20"} transition-colors`}
+                      className={`pane-resizer w-1.5 shrink-0 cursor-col-resize group relative flex items-center justify-center ${isResizingSplit ? "is-dragging bg-bamboo/30" : "hover:bg-bamboo/20"} transition-colors`}
                       onMouseDown={(e) => {
                         e.preventDefault();
                         setIsResizingSplit(true);
@@ -5293,7 +5300,7 @@ export function MainWindow({
 
                   {showPreviewPane &&
                     (effectiveViewMode === "preview" || effectiveViewMode === "split") && (
-                      <div className="relative flex flex-col min-h-0 min-w-0 flex-1">
+                      <div className="preview-pane relative flex flex-col min-h-0 min-w-0 flex-1">
                         {previewZoomBadge}
                         {effectiveViewMode === "split" && (
                           <div className="px-4 pt-2.5 pb-1 shrink-0">
@@ -5343,7 +5350,7 @@ export function MainWindow({
                             ref={previewScrollRef}
                             onScroll={handlePreviewScroll}
                             onMouseUp={handlePreviewSelect}
-                            className="flex-1 overflow-auto px-6 pt-1 pb-6"
+                            className="preview-scroll flex-1 overflow-auto px-6 pt-1 pb-6"
                           >
                             {previewBody}
                           </div>
@@ -5354,45 +5361,49 @@ export function MainWindow({
               )}
             </div>
 
-            <div className="flex items-center justify-between px-4 h-7 border-t border-paper-deep/20 bg-paper/30 shrink-0">
-              <div className="flex items-center gap-3">
-                <span className="text-[10px] text-ink-ghost font-mono tabular-nums">
+            <div className="status-bar flex items-center justify-between px-4 h-7 border-t border-paper-deep/20 bg-paper/30 shrink-0">
+              <div className="status-bar-left flex items-center gap-3">
+                <span className="status-text text-[10px] text-ink-ghost font-mono tabular-nums">
                   {t("main.statusBar.lineNumber", {
                     count: lineCount,
                     defaultValue: "Ln {{count}}",
                   })}
                 </span>
                 <span className="text-[10px] text-ink-ghost/40">|</span>
-                <span className="text-[10px] text-ink-ghost font-mono">{statusFormatLabel}</span>
+                <span className="status-text text-[10px] text-ink-ghost font-mono">
+                  {statusFormatLabel}
+                </span>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="status-bar-right flex items-center gap-3">
                 {selectedId && !isExternal && content.includes("images/") && (
                   <>
                     <button
                       type="button"
                       onClick={() => void handleCleanUnusedImages()}
-                      className="text-[10px] text-ink-ghost hover:text-bamboo font-mono cursor-pointer transition-colors"
+                      className="status-action text-[10px] text-ink-ghost hover:text-bamboo font-mono cursor-pointer transition-colors"
                     >
                       {t("main.images.cleanUnused", { defaultValue: "清理未使用图片" })}
                     </button>
                     <span className="text-[10px] text-ink-ghost/40">|</span>
                   </>
                 )}
-                <span className="text-[10px] text-ink-ghost font-mono">
+                <span className="status-text text-[10px] text-ink-ghost font-mono">
                   {t("main.statusBar.encoding", { defaultValue: "UTF-8" })}
                 </span>
                 <span className="text-[10px] text-ink-ghost/40">|</span>
-                <span className="text-[10px] text-ink-ghost font-mono tabular-nums">
+                <span className="status-text text-[10px] text-ink-ghost font-mono tabular-nums">
                   {t("main.statusBar.byteSize", { size: byteSize, defaultValue: "{{size}} KB" })}
                 </span>
               </div>
             </div>
           </div>
           {settingsConfig && activePanelId === "settings" && settingsOverlay && (
-            <div className="absolute inset-0 z-20" onClick={handleCloseSettings} />
+            <div className="side-panel-scrim absolute inset-0 z-20" onClick={handleCloseSettings} />
           )}
           <div
-            className={`relative shrink-0 overflow-hidden h-full transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+            className={`side-panel ${
+              sidePanelExpanded ? "is-open" : ""
+            } ${settingsOverlay ? "is-overlay" : ""} relative shrink-0 overflow-hidden h-full transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
               sidePanelExpanded || mountedSidePanel ? "border-l border-paper-deep/20" : "border-l-0"
             } ${
               settingsOverlay
@@ -5401,10 +5412,10 @@ export function MainWindow({
             }`}
           >
             <div
-              className={`absolute inset-0 w-[360px] h-full transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+              className={`side-panel-view absolute inset-0 w-[360px] h-full transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
                 mountedSidePanel === "settings"
                   ? sidePanelContentVisible && visibleSidePanel === "settings"
-                    ? "translate-x-0 opacity-100"
+                    ? "is-active translate-x-0 opacity-100"
                     : "pointer-events-none translate-x-4 opacity-0"
                   : "pointer-events-none translate-x-4 opacity-0"
               }`}
@@ -5420,10 +5431,10 @@ export function MainWindow({
               ) : null}
             </div>
             <div
-              className={`absolute inset-0 w-[360px] h-full transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+              className={`side-panel-view absolute inset-0 w-[360px] h-full transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
                 mountedSidePanel === "plugins"
                   ? sidePanelContentVisible && visibleSidePanel === "plugins"
-                    ? "translate-x-0 opacity-100"
+                    ? "is-active translate-x-0 opacity-100"
                     : "pointer-events-none translate-x-4 opacity-0"
                   : "pointer-events-none translate-x-4 opacity-0"
               }`}
@@ -5433,10 +5444,10 @@ export function MainWindow({
               ) : null}
             </div>
             <div
-              className={`absolute inset-0 w-[360px] h-full transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+              className={`side-panel-view absolute inset-0 w-[360px] h-full transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
                 mountedSidePanel === "about"
                   ? sidePanelContentVisible && visibleSidePanel === "about"
-                    ? "translate-x-0 opacity-100"
+                    ? "is-active translate-x-0 opacity-100"
                     : "pointer-events-none translate-x-4 opacity-0"
                   : "pointer-events-none translate-x-4 opacity-0"
               }`}
@@ -5450,10 +5461,10 @@ export function MainWindow({
               ) : null}
             </div>
             <div
-              className={`absolute inset-0 w-[360px] h-full transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+              className={`side-panel-view absolute inset-0 w-[360px] h-full transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
                 mountedSidePanel === "standalone"
                   ? sidePanelContentVisible && visibleSidePanel === "standalone"
-                    ? "translate-x-0 opacity-100"
+                    ? "is-active translate-x-0 opacity-100"
                     : "pointer-events-none translate-x-4 opacity-0"
                   : "pointer-events-none translate-x-4 opacity-0"
               }`}
@@ -5463,12 +5474,14 @@ export function MainWindow({
                     const panel = standalonePanels.find((p) => p.id === activeStandalonePanelId);
                     return panel ? (
                       <div className="w-full h-full flex flex-col bg-cloud/92 backdrop-blur-sm">
-                        <div className="px-4 pt-3 pb-2 flex items-center justify-between shrink-0">
-                          <span className="text-[13px] font-medium text-ink">{panel.title}</span>
+                        <div className="side-panel-header px-4 pt-3 pb-2 flex items-center justify-between shrink-0">
+                          <span className="side-panel-title text-[13px] font-medium text-ink">
+                            {panel.title}
+                          </span>
                           <button
                             type="button"
                             onClick={() => setActivePanelId(null)}
-                            className="w-6 h-6 flex items-center justify-center rounded-lg text-ink-ghost hover:text-ink-soft hover:bg-paper-warm transition-colors cursor-pointer"
+                            className="side-panel-close w-6 h-6 flex items-center justify-center rounded-lg text-ink-ghost hover:text-ink-soft hover:bg-paper-warm transition-colors cursor-pointer"
                           >
                             <svg
                               width="12"
@@ -5484,7 +5497,7 @@ export function MainWindow({
                           </button>
                         </div>
                         <div
-                          className="px-3 pb-3 flex-1 min-h-0 overflow-y-auto text-[12px] text-ink-soft"
+                          className="side-panel-body px-3 pb-3 flex-1 min-h-0 overflow-y-auto text-[12px] text-ink-soft"
                           // v2 面板的 HTML 来自沙箱 Worker，必须消毒后再注入主世界——
                           // 否则插件一句 onerror 就能在宿主权限下执行，沙箱会被完全绕过。
                           // v1 面板维持原样（可信遗留）。
@@ -5590,7 +5603,7 @@ export function MainWindow({
           ref={popoverRef}
           role="dialog"
           aria-label={activePopover.title}
-          className="popup-menu fixed z-[9999] bg-cloud/95 backdrop-blur-sm border border-paper-deep/50 rounded-lg shadow-lg animate-menu-enter overflow-x-hidden overflow-y-auto"
+          className="context-menu popup-menu fixed z-[9999] bg-cloud/95 backdrop-blur-sm border border-paper-deep/50 rounded-lg shadow-lg animate-menu-enter overflow-x-hidden overflow-y-auto"
           style={{
             left: popoverPosition?.x ?? openPopover.anchor.x,
             top: popoverPosition?.y ?? openPopover.anchor.y,
@@ -5627,7 +5640,7 @@ export function MainWindow({
       {noteMenu && noteMenuTarget && (
         <div
           ref={noteMenuRef}
-          className={`popup-menu fixed z-[9999] min-w-[168px] py-1.5 bg-cloud/95 backdrop-blur-sm border border-paper-deep/50 rounded-lg overflow-x-hidden overflow-y-auto select-none ${noteMenuClosing ? "animate-menu-exit" : "animate-menu-enter"}`}
+          className={`context-menu popup-menu fixed z-[9999] min-w-[168px] py-1.5 bg-cloud/95 backdrop-blur-sm border border-paper-deep/50 rounded-lg overflow-x-hidden overflow-y-auto select-none ${noteMenuClosing ? "animate-menu-exit" : "animate-menu-enter"}`}
           style={{
             left: noteMenuPosition?.x ?? noteMenu.x,
             top: noteMenuPosition?.y ?? noteMenu.y,
@@ -5642,9 +5655,9 @@ export function MainWindow({
                 <button
                   key={item.action}
                   onClick={() => handleNoteMenuAction(item.action)}
-                  className={`w-full flex items-center justify-between px-3 py-1.5 text-[12px] font-body transition-colors cursor-pointer ${
+                  className={`context-menu-item w-full flex items-center justify-between px-3 py-1.5 text-[12px] font-body transition-colors cursor-pointer ${
                     item.tone === "danger"
-                      ? "text-red-400 hover:bg-danger-bg hover:text-red-500"
+                      ? "is-danger text-red-400 hover:bg-danger-bg hover:text-red-500"
                       : "text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo"
                   } ${index > 0 ? "border-t border-paper-deep/20" : ""}`}
                 >
@@ -5670,7 +5683,7 @@ export function MainWindow({
                             );
                           });
                       }}
-                      className="w-full flex items-center justify-between px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer border-t border-paper-deep/20"
+                      className="context-menu-item w-full flex items-center justify-between px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer border-t border-paper-deep/20"
                     >
                       <span>{item.title}</span>
                       <span className="text-[10px] text-ink-ghost">{item.plugin}</span>
@@ -5683,7 +5696,7 @@ export function MainWindow({
             <div key="move" className="animate-menu-slide-left">
               <button
                 onClick={() => setNoteMenuMode("main")}
-                className="w-full flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-body text-ink-ghost hover:bg-paper-warm transition-colors cursor-pointer border-b border-paper-deep/20"
+                className="context-menu-item w-full flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-body text-ink-ghost hover:bg-paper-warm transition-colors cursor-pointer border-b border-paper-deep/20"
               >
                 <svg
                   width="10"
@@ -5701,7 +5714,7 @@ export function MainWindow({
               </button>
               <button
                 onClick={() => void handleMoveNote(noteMenuTarget.id, "")}
-                className="w-full text-left px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer"
+                className="context-menu-item w-full text-left px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer"
               >
                 {t("main.category.uncategorized", { defaultValue: "未分类" })}
               </button>
@@ -5709,7 +5722,7 @@ export function MainWindow({
                 <button
                   key={cat}
                   onClick={() => void handleMoveNote(noteMenuTarget.id, cat)}
-                  className="w-full text-left px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer"
+                  className="context-menu-item w-full text-left px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer"
                 >
                   {cat}
                 </button>
@@ -5722,7 +5735,7 @@ export function MainWindow({
       {categoryMenu && (
         <div
           ref={categoryMenuRef}
-          className={`popup-menu fixed z-[9999] min-w-[140px] py-1.5 bg-cloud/95 backdrop-blur-sm border border-paper-deep/50 rounded-lg overflow-x-hidden overflow-y-auto select-none ${categoryMenuClosing ? "animate-menu-exit" : "animate-menu-enter"}`}
+          className={`context-menu popup-menu fixed z-[9999] min-w-[140px] py-1.5 bg-cloud/95 backdrop-blur-sm border border-paper-deep/50 rounded-lg overflow-x-hidden overflow-y-auto select-none ${categoryMenuClosing ? "animate-menu-exit" : "animate-menu-enter"}`}
           data-hover-suppressed={categoryMenuHoverSuppressed ? "" : undefined}
           style={{
             left: categoryMenuPosition?.x ?? categoryMenu.x,

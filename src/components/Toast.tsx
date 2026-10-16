@@ -63,7 +63,7 @@ function ToastEntry({ item, onDismiss }: { item: ToastItem; onDismiss: (id: numb
   const type = item.type ?? "error";
 
   return (
-    <div className={`toast-entry ${exiting ? "toast-exit" : "toast-enter"}`} role="alert">
+    <div className={`toast-entry ${type === "error" ? "is-error" : type === "info" ? "is-info" : "is-warning"} ${exiting ? "toast-exit" : "toast-enter"}`} role="alert">
       <div className="flex items-start gap-2.5 min-w-0">
         <span className={`mt-px shrink-0 ${iconColor[type]}`}>
           <svg
@@ -123,7 +123,7 @@ export function ToastContainer() {
   if (items.length === 0) return null;
 
   return (
-    <div className="fixed top-12 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
+    <div className="toast-region fixed top-12 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
       {items.map((item) => (
         <div key={item.id} className="pointer-events-auto">
           <ToastEntry item={item} onDismiss={handleDismiss} />

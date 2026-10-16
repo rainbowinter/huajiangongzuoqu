@@ -28,7 +28,7 @@ export function ExplorerFolderRow({
       type="button"
       onClick={onToggle}
       title={name}
-      className="w-full flex items-center gap-1.5 py-1.5 my-0.5 rounded-lg text-left transition-colors duration-200 cursor-pointer select-none hover:bg-bamboo/10"
+      className={`explorer-folder w-full flex items-center gap-1.5 py-1.5 my-0.5 rounded-lg text-left transition-colors duration-200 cursor-pointer select-none hover:bg-bamboo/10${open ? " is-open" : ""}`}
       style={{ paddingLeft: 10 + depth * 12, paddingRight: 10 }}
     >
       <svg
@@ -143,13 +143,13 @@ export function ExplorerItem({
       onContextMenu={onContextMenu}
       onMouseEnter={onHoverChange ? () => onHoverChange(true) : undefined}
       onMouseLeave={onHoverChange ? () => onHoverChange(false) : undefined}
-      className={`w-full text-left transition-all duration-[600ms] cursor-pointer group relative ${
+      className={`explorer-item w-full text-left transition-all duration-[600ms] cursor-pointer group relative ${
         inset ? "rounded-lg mx-1 px-2.5 py-2" : "rounded-xl px-3 py-2.5"
-      } ${selected ? "bg-bamboo-mist/70" : hovered ? "bg-paper-warm/70" : "bg-transparent"}`}
+      } ${selected ? "is-selected bg-bamboo-mist/70" : hovered ? "is-hovered bg-paper-warm/70" : "bg-transparent"}`}
       style={inset ? layoutStyle : undefined}
     >
       <div
-        className={`absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-r-full transition-all duration-[600ms] ${
+        className={`explorer-item-accent absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-r-full transition-all duration-[600ms] ${
           selected ? "h-5 opacity-100" : "h-0 opacity-0"
         }`}
         // 60% 透明度与改造前的 `bg-bamboo/60` 等价；换成强调色的十六进制后，
@@ -159,14 +159,14 @@ export function ExplorerItem({
 
       <div className="flex items-baseline justify-between mb-0.5">
         <span
-          className={`text-[13px] font-display font-medium truncate pr-2 transition-colors flex items-center gap-1.5 min-w-0 ${
+          className={`explorer-item-title text-[13px] font-display font-medium truncate pr-2 transition-colors flex items-center gap-1.5 min-w-0 ${
             selected ? "" : "text-ink-soft"
           }`}
           style={selected ? { color: accentColor } : undefined}
         >
           {badge ? (
             <span
-              className="shrink-0 px-1 py-px rounded text-[9px] font-mono leading-none"
+              className="explorer-item-badge shrink-0 px-1 py-px rounded text-[9px] font-mono leading-none"
               style={{
                 backgroundColor: `color-mix(in oklab, ${accentColor} 18%, transparent)`,
                 color: accentColor,
@@ -178,13 +178,13 @@ export function ExplorerItem({
           <span className="truncate">{title}</span>
         </span>
         {meta ? (
-          <span className="text-[10px] text-ink-ghost font-mono tabular-nums shrink-0">{meta}</span>
+          <span className="explorer-item-meta text-[10px] text-ink-ghost font-mono tabular-nums shrink-0">{meta}</span>
         ) : null}
       </div>
 
       {subtitle ? (
         <p
-          className={`text-[11px] text-ink-ghost leading-relaxed group-hover:text-ink-faint transition-colors ${
+          className={`explorer-item-subtitle text-[11px] text-ink-ghost leading-relaxed group-hover:text-ink-faint transition-colors ${
             subtitleLines === 1 ? "truncate" : "line-clamp-2"
           }`}
         >
@@ -193,7 +193,7 @@ export function ExplorerItem({
       ) : null}
 
       {details && details.length > 0 ? (
-        <div className="flex items-center gap-2 mt-1">
+        <div className="explorer-item-details flex items-center gap-2 mt-1">
           {details.map((detail, index) => (
             <Fragment key={index}>
               {index > 0 ? <span className="text-[10px] text-ink-ghost/40">·</span> : null}

@@ -137,7 +137,7 @@ function ToolbarMenu({
           const rect = event.currentTarget.getBoundingClientRect();
           setAnchor({ x: rect.left, y: rect.bottom + 4 });
         }}
-        className={`${BUTTON_BASE} gap-1.5 ${open ? BUTTON_ACTIVE : BUTTON_IDLE}`}
+        className={`view-toolbar-button ${BUTTON_BASE} gap-1.5 ${open ? `is-active ${BUTTON_ACTIVE}` : BUTTON_IDLE}`}
       >
         {iconOf(icons, item.id, value) ? (
           <Icon svg={iconOf(icons, item.id, value)!} />
@@ -248,8 +248,8 @@ function MenuOption({
       aria-checked={selected}
       title={option.title ?? option.label}
       onClick={onPick}
-      className={`w-full flex items-center gap-2 px-2.5 h-7 text-left text-[11.5px] transition-colors cursor-pointer ${
-        selected ? "text-bamboo bg-bamboo-mist/50" : "text-ink-soft hover:bg-paper-warm"
+      className={`view-toolbar-button w-full flex items-center gap-2 px-2.5 h-7 text-left text-[11.5px] transition-colors cursor-pointer ${
+        selected ? "is-active text-bamboo bg-bamboo-mist/50" : "text-ink-soft hover:bg-paper-warm"
       }`}
     >
       {iconOf(icons, menuId, option.value) ? (
@@ -279,7 +279,7 @@ export function PluginViewToolbar({ items, state, onCommand, icons }: PluginView
   if (items.length === 0) return null;
 
   return (
-    <div className="flex items-center gap-0.5 px-4 pt-2 pb-1 shrink-0">
+    <div className="view-toolbar flex items-center gap-0.5 px-4 pt-2 pb-1 shrink-0">
       {items.map((item, index) => {
         if (item.kind === "separator") {
           // 分隔线没有 id（`parseViewToolbar` 也不给它分配），key 只能靠位置。
@@ -331,7 +331,7 @@ export function PluginViewToolbar({ items, state, onCommand, icons }: PluginView
             // 编辑器那排按钮也这么做：按下鼠标不抢焦点，工具栏用起来才不打断输入。
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => onCommand(item.id)}
-            className={`${BUTTON_BASE} gap-1.5 ${active ? BUTTON_ACTIVE : BUTTON_IDLE}`}
+            className={`view-toolbar-button ${BUTTON_BASE} gap-1.5 ${active ? `is-active ${BUTTON_ACTIVE}` : BUTTON_IDLE}`}
           >
             {iconOf(icons, item.id) ? <Icon svg={iconOf(icons, item.id)!} /> : null}
             {state.values[item.id] ?? item.label}

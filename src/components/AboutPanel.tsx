@@ -56,14 +56,14 @@ function Row({
   );
 
   if (!onOpen) {
-    return <div className="flex items-center justify-between gap-3 px-3 py-2">{content}</div>;
+    return <div className="about-row flex items-center justify-between gap-3 px-3 py-2">{content}</div>;
   }
 
   return (
     <button
       type="button"
       onClick={onOpen}
-      className="group w-full flex items-center justify-between gap-3 px-3 py-2 hover:bg-bamboo-mist/40 transition-colors cursor-pointer"
+      className="about-row group w-full flex items-center justify-between gap-3 px-3 py-2 hover:bg-bamboo-mist/40 transition-colors cursor-pointer"
     >
       {content}
     </button>
@@ -105,7 +105,7 @@ export function AboutPanel({ onClose, onOpenDoc, notesDir }: AboutPanelProps) {
   const releasePage = releasePageFromEndpoint(endpoint);
 
   return (
-    <div className="w-full h-full flex flex-col bg-cloud/92 backdrop-blur-sm">
+    <div className="about-panel w-full h-full flex flex-col bg-cloud/92 backdrop-blur-sm">
       <div className="px-4 pt-3 pb-2 flex items-center justify-between shrink-0 border-b border-paper-deep/20">
         <span className="text-[13px] font-medium text-ink">
           {t("main.about.title", { defaultValue: "关于" })}

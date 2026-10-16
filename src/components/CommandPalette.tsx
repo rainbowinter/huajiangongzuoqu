@@ -103,7 +103,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
       onMouseDown={onClose}
     >
       <div
-        className="w-[520px] max-h-[60vh] flex flex-col rounded-2xl bg-cloud/98 border border-paper-deep/40 shadow-xl overflow-hidden"
+        className="command-palette w-[520px] max-h-[60vh] flex flex-col rounded-2xl bg-cloud/98 border border-paper-deep/40 shadow-xl overflow-hidden"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="px-4 py-3 border-b border-paper-deep/30 shrink-0">
@@ -113,11 +113,11 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="输入命令名称…"
-            className="w-full bg-transparent outline-none text-[13px] text-ink placeholder:text-ink-ghost"
+            className="command-palette-input w-full bg-transparent outline-none text-[13px] text-ink placeholder:text-ink-ghost"
           />
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto py-1">
+        <div className="command-palette-list flex-1 min-h-0 overflow-y-auto py-1">
           {results.length === 0 ? (
             <p className="text-[12px] text-ink-ghost text-center py-6">
               {commands.length === 0 ? "暂无可用命令" : "没有匹配的命令"}
@@ -129,8 +129,8 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
                 type="button"
                 onMouseEnter={() => setIndex(position)}
                 onClick={() => run(command)}
-                className={`w-full px-4 py-2 flex items-center justify-between gap-3 text-left transition-colors cursor-pointer ${
-                  position === index ? "bg-bamboo-mist/50" : "hover:bg-paper-warm"
+                className={`command-palette-item w-full px-4 py-2 flex items-center justify-between gap-3 text-left transition-colors cursor-pointer ${
+                  position === index ? "is-active bg-bamboo-mist/50" : "hover:bg-paper-warm"
                 }`}
               >
                 <span className="min-w-0">

@@ -207,7 +207,7 @@ export function FilePreview({ path, type }: FilePreviewProps) {
 
   if (type.kind === "none") {
     return (
-      <div className={centered}>
+      <div className={`file-preview file-preview-message ${centered}`}>
         <p className="text-[12px] text-ink-ghost">
           {t("main.filePreview.unsupported", { defaultValue: "该格式暂不支持预览" })}
         </p>
@@ -224,7 +224,7 @@ export function FilePreview({ path, type }: FilePreviewProps) {
 
   if (type.kind === "image") {
     return (
-      <div className={centered}>
+      <div className={`file-preview file-preview-media ${centered}`}>
         <img
           src={convertFileSrc(path)}
           alt={name}
@@ -238,7 +238,7 @@ export function FilePreview({ path, type }: FilePreviewProps) {
     const src = convertFileSrc(path);
     const isAudio = /\.(mp3|wav|ogg|flac|m4a)$/i.test(path);
     return (
-      <div className={centered}>
+      <div className={`file-preview file-preview-media ${centered}`}>
         {isAudio ? (
           <audio src={src} controls className="w-full max-w-[520px]" />
         ) : (
@@ -250,7 +250,7 @@ export function FilePreview({ path, type }: FilePreviewProps) {
 
   if (error) {
     return (
-      <div className={centered}>
+      <div className={`file-preview file-preview-message ${centered}`}>
         <p className="text-[12px] text-ink-ghost leading-relaxed text-center">{error}</p>
       </div>
     );
@@ -258,7 +258,7 @@ export function FilePreview({ path, type }: FilePreviewProps) {
 
   if (customHtml === null) {
     return (
-      <div className={centered}>
+      <div className={`file-preview file-preview-message ${centered}`}>
         <p className="text-[12px] text-ink-ghost">
           {t("common.loading", { defaultValue: "载入中…" })}
         </p>
@@ -268,7 +268,7 @@ export function FilePreview({ path, type }: FilePreviewProps) {
 
   return (
     <div
-      className="flex-1 overflow-auto p-4"
+      className="file-preview flex-1 overflow-auto p-4"
       // 插件产出的 HTML 与插件面板走同一道消毒闸：这里同样是注入主世界。
       dangerouslySetInnerHTML={{ __html: sanitizePluginHtml(customHtml) }}
     />

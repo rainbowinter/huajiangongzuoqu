@@ -248,7 +248,7 @@ export function ContextMenuProvider({ children }: { children: React.ReactNode })
       {menu && (
         <div
           ref={menuRef}
-          className={`fixed z-[9999] min-w-[152px] py-1.5 bg-cloud/95 backdrop-blur-sm border border-paper-deep/50 rounded-lg overflow-x-hidden overflow-y-auto select-none ${menuClosing ? "animate-menu-exit" : "animate-menu-enter"}`}
+          className={`context-menu fixed z-[9999] min-w-[152px] py-1.5 bg-cloud/95 backdrop-blur-sm border border-paper-deep/50 rounded-lg overflow-x-hidden overflow-y-auto select-none ${menuClosing ? "animate-menu-exit" : "animate-menu-enter"}`}
           style={{
             left: menuPosition?.x ?? menu.x,
             top: menuPosition?.y ?? menu.y,
@@ -265,9 +265,11 @@ export function ContextMenuProvider({ children }: { children: React.ReactNode })
                 key={item.label}
                 onClick={() => void item.action()}
                 disabled={item.disabled}
-                className={`w-full flex items-center justify-between px-3 py-1.5 text-[12px] font-body transition-colors cursor-pointer disabled:text-ink-ghost/40 disabled:cursor-default disabled:hover:bg-transparent ${
+                className={`context-menu-item w-full flex items-center justify-between px-3 py-1.5 text-[12px] font-body transition-colors cursor-pointer disabled:text-ink-ghost/40 disabled:cursor-default disabled:hover:bg-transparent ${
+                  item.disabled ? "is-disabled " : ""
+                }${
                   "tone" in item && item.tone === "danger"
-                    ? "text-red-400 hover:bg-danger-bg hover:text-red-500"
+                    ? "is-danger text-red-400 hover:bg-danger-bg hover:text-red-500"
                     : "text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo"
                 }`}
               >

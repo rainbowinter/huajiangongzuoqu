@@ -104,7 +104,7 @@ export function SettingsPanel({
   );
 
   return (
-    <aside className="w-[360px] h-full shrink-0 border-l border-paper-deep/30 bg-cloud/92 backdrop-blur-sm flex flex-col">
+    <aside className="settings-panel w-[360px] h-full shrink-0 border-l border-paper-deep/30 bg-cloud/92 backdrop-blur-sm flex flex-col">
       <div className="flex items-center justify-between h-11 px-4 border-b border-paper-deep/25">
         <h2 className="text-[13px] font-display font-medium text-ink-soft">
           {t("settings.title", { defaultValue: "应用设置" })}
@@ -130,7 +130,7 @@ export function SettingsPanel({
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-hidden px-4 py-4 space-y-5">
-        <section className="space-y-2">
+        <section className="settings-section space-y-2">
           <label className="block text-[11px] font-body text-ink-faint">
             {t("settings.theme.label", { defaultValue: "主题" })}
           </label>
@@ -145,7 +145,7 @@ export function SettingsPanel({
           />
         </section>
 
-        <section className="space-y-2">
+        <section className="settings-section space-y-2">
           <label className="block text-[11px] font-body text-ink-faint">
             {t("settings.accentColor.label", { defaultValue: "主题色" })}
           </label>
@@ -177,7 +177,7 @@ export function SettingsPanel({
           </div>
         </section>
 
-        <section className="space-y-2">
+        <section className="settings-section space-y-2">
           <label className="block text-[11px] font-body text-ink-faint">
             {t("settings.dataDir", { defaultValue: "数据目录" })}
           </label>
@@ -198,7 +198,7 @@ export function SettingsPanel({
           </div>
         </section>
 
-        <section className="space-y-2">
+        <section className="settings-section space-y-2">
           <label className="block text-[11px] font-body text-ink-faint">
             {t("settings.locale.label", { defaultValue: "语言" })}
           </label>
@@ -209,7 +209,7 @@ export function SettingsPanel({
           />
         </section>
 
-        <section className="space-y-2">
+        <section className="settings-section space-y-2">
           <ToggleRow
             label={t("settings.closeToTray", { defaultValue: "关闭到托盘" })}
             checked={config.closeToTray}
@@ -268,7 +268,7 @@ export function SettingsPanel({
         </section>
 
         {/* 快捷键功能设置区域，与上方常规设置分开 */}
-        <section className="space-y-2">
+        <section className="settings-section space-y-2">
           <ToggleRow
             label={t("settings.tileCtrlClose", { defaultValue: "Ctrl+右键快速关闭磁贴" })}
             checked={config.tileCtrlClose}
@@ -299,7 +299,7 @@ export function SettingsPanel({
           </div>
         </section>
 
-        <section className="space-y-2">
+        <section className="settings-section space-y-2">
           <label className="block text-[11px] font-body text-ink-faint">
             {t("settings.fontSize.editor", { defaultValue: "编辑器字号" })}
           </label>
@@ -319,7 +319,7 @@ export function SettingsPanel({
           </div>
         </section>
 
-        <section className="space-y-2">
+        <section className="settings-section space-y-2">
           <label className="block text-[11px] font-body text-ink-faint">
             {t("settings.fontSize.surface", { defaultValue: "小窗/磁贴字号" })}
           </label>
@@ -339,7 +339,7 @@ export function SettingsPanel({
           </div>
         </section>
 
-        <section className="space-y-2">
+        <section className="settings-section space-y-2">
           <label className="block text-[11px] font-body text-ink-faint">
             {t("settings.tabIndentSize", { defaultValue: "Tab 缩进宽��" })}
           </label>
@@ -359,7 +359,7 @@ export function SettingsPanel({
           </div>
         </section>
 
-        <section className="space-y-3">
+        <section className="settings-section space-y-3">
           <h3 className="text-[11px] font-body text-ink-faint">
             {t("settings.renderColors.title", { defaultValue: "预览配色" })}
           </h3>
@@ -398,7 +398,7 @@ export function SettingsPanel({
 
         <UpdateSettingsSection controller={update} />
 
-        <section className="space-y-2">
+        <section className="settings-section space-y-2">
           <label className="block text-[11px] font-body text-ink-faint">
             {t("settings.tileColor.label", { defaultValue: "磁贴颜色" })}
           </label>
@@ -434,7 +434,7 @@ export function SettingsPanel({
           )}
         </section>
 
-        <section className="space-y-2">
+        <section className="settings-section space-y-2">
           <label className="block text-[11px] font-body text-ink-faint">
             {t("settings.background.label", { defaultValue: "背景图片" })}
           </label>
@@ -537,7 +537,7 @@ export function SettingsPanel({
           />
         </section>
 
-        <section className="space-y-2">
+        <section className="settings-section space-y-2">
           <label className="block text-[11px] font-body text-ink-faint">
             {t("settings.defaultView.label", { defaultValue: "默认视图" })}
           </label>
@@ -548,7 +548,7 @@ export function SettingsPanel({
           />
         </section>
 
-        <section className="pt-2 border-t border-paper-deep/25">
+        <section className="settings-section pt-2 border-t border-paper-deep/25">
           <p className="text-[10px] leading-relaxed text-ink-ghost/75">
             <span>
               {t("settings.fontNotice", {
@@ -579,7 +579,7 @@ interface ToggleRowProps {
 
 function ToggleRow({ label, checked, onChange }: ToggleRowProps) {
   return (
-    <label className="flex items-center justify-between h-9 rounded-lg px-2.5 bg-paper-warm/45 border border-paper-deep/25 cursor-pointer">
+    <label className="settings-row flex items-center justify-between h-9 rounded-lg px-2.5 bg-paper-warm/45 border border-paper-deep/25 cursor-pointer">
       <span className="text-[12px] text-ink-soft">{label}</span>
       <input
         type="checkbox"
@@ -653,7 +653,7 @@ interface RangeRowProps {
 
 function RangeRow({ label, value, min, max, step, format, onChange }: RangeRowProps) {
   return (
-    <div className="flex items-center gap-3 h-9 rounded-lg px-2.5 bg-paper-warm/45 border border-paper-deep/25">
+    <div className="settings-row flex items-center gap-3 h-9 rounded-lg px-2.5 bg-paper-warm/45 border border-paper-deep/25">
       <span className="w-9 text-[11px] text-ink-faint">{label}</span>
       <input
         type="range"

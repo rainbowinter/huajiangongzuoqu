@@ -82,7 +82,7 @@ export function ActivityBar({
   }, [menu, popupRef]);
 
   return (
-    <div className="w-11 shrink-0 flex flex-col items-center gap-1 pt-2 pb-2 bg-paper/40 border-r border-paper-deep/20">
+    <div className="activity-bar w-11 shrink-0 flex flex-col items-center gap-1 pt-2 pb-2 bg-paper/40 border-r border-paper-deep/20">
       {items.map((item, index) => {
         const active = item.id === activeId;
         return (
@@ -103,9 +103,9 @@ export function ActivityBar({
                 event.preventDefault();
                 setMenu({ id: item.id, x: event.clientX, y: event.clientY });
               }}
-              className={`relative w-9 h-9 flex items-center justify-center rounded-lg transition-colors cursor-pointer ${
+              className={`activity-bar-item relative w-9 h-9 flex items-center justify-center rounded-lg transition-colors cursor-pointer ${
                 active
-                  ? "text-bamboo bg-bamboo-mist/70"
+                  ? "is-active text-bamboo bg-bamboo-mist/70"
                   : "text-ink-ghost hover:text-ink-soft hover:bg-paper-warm"
               }`}
             >
@@ -123,7 +123,7 @@ export function ActivityBar({
         title={addTitle}
         aria-label={addTitle}
         onClick={onAdd}
-        className="mt-auto w-9 h-9 flex items-center justify-center rounded-lg text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/60 transition-colors cursor-pointer"
+        className="activity-bar-add mt-auto w-9 h-9 flex items-center justify-center rounded-lg text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/60 transition-colors cursor-pointer"
       >
         <svg
           width="16"
@@ -141,7 +141,7 @@ export function ActivityBar({
       {menu ? (
         <div
           ref={popupRef}
-          className="popup-menu fixed z-[9999] min-w-[168px] py-1.5 bg-cloud/95 backdrop-blur-sm border border-paper-deep/50 rounded-lg overflow-x-hidden overflow-y-auto select-none animate-menu-enter"
+          className="context-menu popup-menu fixed z-[9999] min-w-[168px] py-1.5 bg-cloud/95 backdrop-blur-sm border border-paper-deep/50 rounded-lg overflow-x-hidden overflow-y-auto select-none animate-menu-enter"
           style={{
             left: popupPosition?.x ?? menu.x,
             top: popupPosition?.y ?? menu.y,
@@ -157,7 +157,7 @@ export function ActivityBar({
               setMenu(null);
               onRemove?.(target);
             }}
-            className="w-full flex items-center px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer"
+            className="context-menu-item w-full flex items-center px-3 py-1.5 text-[12px] font-body text-ink-soft hover:bg-bamboo-mist/60 hover:text-bamboo transition-colors cursor-pointer"
           >
             {t("main.workspace.remove", { defaultValue: "从侧栏移除（不删除文件）" })}
           </button>

@@ -961,9 +961,9 @@ export function NotePad({
   const isTile = surfaceMode === "tile";
   const tileTitle = title.trim();
   const enterClass = hasEnteredOnce.current ? "" : "animate-window-enter";
-  const surfaceWrapperClassName = `w-full h-screen flex flex-col bg-transparent p-0 ${isExiting ? "animate-window-exit" : enterClass}`;
+  const surfaceWrapperClassName = `notepad-window w-full h-screen flex flex-col bg-transparent p-0 ${isExiting ? "animate-window-exit" : enterClass}`;
   const padSurfaceClassName =
-    "app-surface-frame relative noise-bg w-full h-full min-h-0 bg-cloud overflow-hidden flex flex-col flex-1 border border-paper-deep/70 shadow-[0_1px_10px_rgba(26,26,24,0.06)] transition-all duration-200 ease-out";
+    "notepad-surface app-surface-frame relative noise-bg w-full h-full min-h-0 bg-cloud overflow-hidden flex flex-col flex-1 border border-paper-deep/70 shadow-[0_1px_10px_rgba(26,26,24,0.06)] transition-all duration-200 ease-out";
 
   return (
     <div className={surfaceWrapperClassName}>
@@ -1009,15 +1009,15 @@ export function NotePad({
         <div className={padSurfaceClassName} data-surface-mode={surfaceMode}>
           <>
             <div
-              className="flex items-center justify-between px-4 pt-3 pb-0 cursor-default"
+              className="titlebar flex items-center justify-between px-4 pt-3 pb-0 cursor-default"
               onMouseDown={handleDrag}
             >
               <div className="flex items-center gap-0.5">
                 <button
                   onClick={resetDraft}
-                  className={`relative px-3.5 py-1.5 text-[13px] rounded-t-lg transition-all duration-200 cursor-pointer ${
+                  className={`titlebar-button relative px-3.5 py-1.5 text-[13px] rounded-t-lg transition-all duration-200 cursor-pointer ${
                     mode === "new"
-                      ? "text-bamboo font-medium"
+                      ? "is-active text-bamboo font-medium"
                       : "text-ink-ghost hover:text-ink-faint"
                   }`}
                 >
@@ -1028,9 +1028,9 @@ export function NotePad({
                 </button>
                 <button
                   onClick={() => setMode("open")}
-                  className={`relative px-3.5 py-1.5 text-[13px] rounded-t-lg transition-all duration-200 cursor-pointer ${
+                  className={`titlebar-button relative px-3.5 py-1.5 text-[13px] rounded-t-lg transition-all duration-200 cursor-pointer ${
                     mode === "open"
-                      ? "text-bamboo font-medium"
+                      ? "is-active text-bamboo font-medium"
                       : "text-ink-ghost hover:text-ink-faint"
                   }`}
                 >
@@ -1044,7 +1044,7 @@ export function NotePad({
               <div className="ml-auto flex items-center gap-1.5">
                 <button
                   onClick={() => void handlePin()}
-                  className="group w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-200 cursor-pointer text-ink-ghost hover:text-ink-faint hover:bg-paper-warm"
+                  className="titlebar-button group w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-200 cursor-pointer text-ink-ghost hover:text-ink-faint hover:bg-paper-warm"
                   title={t("notepad.tooltip.pinToTile", { defaultValue: "转为磁贴" })}
                 >
                   <svg
@@ -1064,7 +1064,7 @@ export function NotePad({
 
                 <button
                   onClick={() => void handleClose()}
-                  className="group w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:bg-danger-bg hover:text-red-400 transition-all duration-200 cursor-pointer"
+                  className="titlebar-button group w-7 h-7 flex items-center justify-center rounded-lg text-ink-ghost hover:bg-danger-bg hover:text-red-400 transition-all duration-200 cursor-pointer"
                   title={t("notepad.tooltip.close", { defaultValue: "关闭" })}
                 >
                   <svg
@@ -1087,7 +1087,7 @@ export function NotePad({
             {mode === "new" ? (
               <div
                 data-pad-editor-body="true"
-                className="px-4 pt-3 pb-2 flex flex-col flex-1 min-h-0"
+                className="editor-pane px-4 pt-3 pb-2 flex flex-col flex-1 min-h-0"
               >
                 <input
                   ref={titleRef}
@@ -1108,7 +1108,7 @@ export function NotePad({
                   style={{ fontSize: `${surfaceFontSize}px` }}
                 />
 
-                <div className="relative flex-1 min-h-0">
+                <div className="editor-scroll relative flex-1 min-h-0">
                   <div
                     aria-hidden="true"
                     className="absolute left-0 right-0 pointer-events-none font-body leading-relaxed"
@@ -1173,7 +1173,7 @@ export function NotePad({
                     }
                   }}
                   placeholder={t("notepad.placeholder.content", { defaultValue: "写点什么……" })}
-                  className="relative w-full h-full leading-relaxed text-ink-soft font-body placeholder:text-ink-ghost/50"
+                  className="editor-input relative w-full h-full leading-relaxed text-ink-soft font-body placeholder:text-ink-ghost/50"
                   style={{
                     fontSize: `${surfaceFontSize}px`,
                     tabSize: `var(--tab-indent-size, 2)`,
@@ -1184,7 +1184,7 @@ export function NotePad({
                 />
                 </div>
 
-                <div className="flex items-center justify-between mt-auto pt-2 border-t border-paper-deep/30 shrink-0">
+                <div className="status-bar flex items-center justify-between mt-auto pt-2 border-t border-paper-deep/30 shrink-0">
                   <span className="text-[11px] text-ink-ghost font-mono tabular-nums truncate max-w-[170px]">
                     {`${countNoteChars(content)} ${t("common.wordCountUnit", { defaultValue: "字" })} · ${statusLabel[status]}`}
                   </span>

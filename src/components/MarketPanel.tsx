@@ -157,7 +157,7 @@ function CatalogBody({
   );
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className="market-panel flex flex-col gap-1">
       {/* 搜索框常驻在列表顶上：插件多起来之后，靠肉眼在几十行里找一个是找不动的。 */}
       <div className="relative px-1 pb-1">
         <input
@@ -295,7 +295,7 @@ function MarketRow({
   return (
     <div
       ref={rowRef}
-      className={`px-3 py-2 rounded-xl transition-colors ${
+      className={`market-item px-3 py-2 rounded-xl transition-colors ${dim ? "is-installed " : ""}${
         focused ? "bg-bamboo-mist/25 ring-1 ring-bamboo/30" : "hover:bg-paper-warm"
       }`}
     >
