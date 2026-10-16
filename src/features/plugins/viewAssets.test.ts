@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vitest";
 import { registerViewExtension } from "./registry";
-import { ownerOfFileType, viewExtensionOwners, viewToolbarFor } from "./viewAssets";
+import {
+  mergeToolbarStates,
+  ownerOfFileType,
+  viewDataPlugins,
+  viewToolbarFor,
+} from "./viewAssets";
 
 describe("从文件类型 id 里取插件名", () => {
   test("v2Host 加的前缀", () => {
@@ -52,6 +57,7 @@ describe("视图工具栏的合并", () => {
     const dispose = registerViewExtension({
       typeId: "pdf-viewer:pdf",
       plugin: "pdf-annotations",
+      data: false,
       css: [],
       js: [],
       toolbar: [
@@ -74,6 +80,7 @@ describe("视图工具栏的合并", () => {
     const dispose = registerViewExtension({
       typeId: "pdf-viewer:pdf",
       plugin: "pdf-annotations",
+      data: false,
       css: [],
       js: [],
       toolbar: [
@@ -95,22 +102,24 @@ describe("视图工具栏的合并", () => {
     const dispose = registerViewExtension({
       typeId: "别的插件:docx",
       plugin: "pdf-annotations",
+      data: false,
       css: [],
       js: [],
       toolbar: [{ kind: "button", id: "marker", label: "标注" }],
     });
     try {
       expect(viewToolbarFor(type("pdf-viewer:pdf", base))).toEqual(base);
-      expect(viewExtensionOwners(type("pdf-viewer:pdf"))).toEqual([]);
+      expect(viewDataPlugins(type("pdf-viewer:pdf"))).toEqual([]);
     } finally {
       dispose.dispose();
     }
   });
 
-  test("扩展的插件名按注册顺序列出来 —— 视图那边按它各开一条数据通道", () => {
+  test("要数据通道的插件按注册顺序列出来 —— 只有声明了 data:true 的才算", () => {
     const one = registerViewExtension({
       typeId: "pdf-viewer:pdf",
       plugin: "alpha",
+      data: true,
       css: [],
       js: [],
       toolbar: [],
@@ -118,15 +127,63 @@ describe("视图工具栏的合并", () => {
     const two = registerViewExtension({
       typeId: "pdf-viewer:pdf",
       plugin: "beta",
+      // 只叠样式、不碰磁盘的扩展**不该**出现在这里。
+      data: false,
+      css: [],
+      js: [],
+      toolbar: [],
+    });
+    const three = registerViewExtension({
+      typeId: "pdf-viewer:pdf",
+      plugin: "gamma",
+      data: true,
       css: [],
       js: [],
       toolbar: [],
     });
     try {
-      expect(viewExtensionOwners(type("pdf-viewer:pdf"))).toEqual(["alpha", "beta"]);
+      expect(viewDataPlugins(type("pdf-viewer:pdf"))).toEqual(["alpha", "gamma"]);
     } finally {
       one.dispose();
       two.dispose();
+      three.dispose();
     }
+  });
+});
+
+// ---------------------------------------------------------------- 状态合并
+
+/**
+ * 视图里两个插件**各报各的**状态（`{ t: "state", plugin }`），所以宿主这边也按插件各存
+ * 一份、用的时候摊开。合并前是「后报的盖掉先报的」，症状是查看器的「缩放 103% / 1 / 14」
+ * 在小字上报出来又忽然空掉 —— 因为批注插件刚报了一份只有 tool/color 的表。
+ */
+describe("按插件的工具栏状态合并", () => {
+  test("各报各的，谁也不盖谁", () => {
+    expect(
+      mergeToolbarStates({
+        base: { values: { zoom: "103%", page: "1 / 14" }, pressed: ["fit-width"] },
+        "pdf-annotations": { values: { tool: "rect", color: "#ffd400" }, pressed: [] },
+      }),
+    ).toEqual({
+      values: { zoom: "103%", page: "1 / 14", tool: "rect", color: "#ffd400" },
+      pressed: ["fit-width"],
+    });
+  });
+
+  test("一个插件都还没报 / 只有一个报了，都成立", () => {
+    expect(mergeToolbarStates({})).toEqual({ values: {}, pressed: [] });
+    expect(
+      mergeToolbarStates({ "pdf-annotations": { values: { tool: "ink" }, pressed: [] } }),
+    ).toEqual({ values: { tool: "ink" }, pressed: [] });
+  });
+
+  test("pressed 取并集（两个插件都可能点亮自己那个开关）", () => {
+    expect(
+      mergeToolbarStates({
+        base: { values: {}, pressed: ["fit-width"] },
+        other: { values: {}, pressed: ["marker"] },
+      }).pressed,
+    ).toEqual(["fit-width", "marker"]);
   });
 });

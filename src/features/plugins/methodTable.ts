@@ -214,6 +214,14 @@ export interface ViewExtensionContribution {
   css?: string[];
   js?: string[];
   toolbar?: ViewToolbarItem[];
+  /**
+   * 要不要一条**私有数据通道**（`floralView.extension("<插件名>")`）。
+   *
+   * 要的话得声明 `workspace:cache` 权限：那条通道写的是**用户文件夹里**的
+   * `__floral-notepaper__/`，与「你的代码在沙箱里跑」是两件事，用户该在权限清单里看见它。
+   * 不声明就只是并点样式和按钮，碰不到磁盘。
+   */
+  data?: boolean;
 }
 
 /** `typeId` 的形状：`<插件名>:<类型 id>`，两段都是普通名字。 */
@@ -243,13 +251,15 @@ export function parseViewExtension(raw: unknown): ViewExtensionContribution | un
   const css = paths(record.css);
   const js = paths(record.js);
   const toolbar = parseViewToolbar(record.toolbar);
-  if (!css && !js && !toolbar) return undefined;
+  // `data` 也是「做了什么」，单独要一条数据通道时它也成立。
+  if (!css && !js && !toolbar && record.data !== true) return undefined;
 
   return {
     typeId,
     ...(css ? { css } : {}),
     ...(js ? { js } : {}),
     ...(toolbar ? { toolbar } : {}),
+    ...(record.data === true ? { data: true } : {}),
   };
 }
 
@@ -630,7 +640,10 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
     handler: (ctx, args) => {
       const extension = parseViewExtension(args[0]);
       if (!extension) {
-        throw invalidArgument("files.extendView", "要给出 typeId，以及 css / js / toolbar 之一");
+        throw invalidArgument(
+          "files.extendView",
+          "要给出 typeId，以及 css / js / toolbar / data 之一",
+        );
       }
       return ctx.bridge.registerViewExtension(extension);
     },

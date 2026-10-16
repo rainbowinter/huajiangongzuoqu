@@ -806,16 +806,27 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
         });
       }
 
+      // 要数据通道就得多一道权限：那条通道写的是**用户文件夹里**的
+      // `__floral-notepaper__/`，与「代码在沙箱里跑」是两件事。
+      if (extension.data && !isGranted(declared, granted, "workspace:cache")) {
+        throw Object.assign(new Error("要用视图的数据通道（写文件旁边的缓存）需要 workspace:cache 权限"), {
+          code: "permissionDenied",
+          details: { permission: "workspace:cache" },
+        });
+      }
+
       const dispose = registerViewExtension({
         typeId: extension.typeId,
         plugin: owner,
         css: extension.css ?? [],
         js: extension.js ?? [],
         toolbar: extension.toolbar ?? [],
+        data: extension.data === true,
       });
 
       // 视图文档是按类型 id 缓存的，扩展一变就得让它重拼 —— 否则「装了批注插件但界面
-      // 还是老的」要等下次重启。这里只清这一种类型，实在没有别的办法知道谁在读它。
+      // 还是老的」要等下次重启。缓存没记「谁在读哪一份」，整张清掉最省事：这只会发生在
+      // 插件加载/卸载的时候，代价是下次打开视图多读一遍文件。
       clearViewDocumentCache();
       return registrations.add(dispose);
     },

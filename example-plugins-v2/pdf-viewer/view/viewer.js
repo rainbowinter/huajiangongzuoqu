@@ -66,6 +66,8 @@
     single: false,
     /** 第一页在当前旋转下、比例 1 时的宽度 —— 「适应宽度」与「是不是正在适应宽度」都靠它。 */
     baseWidth: 0,
+    /** 每页当前的 PageViewport。扩展插件的坐标换算要用（`floralPdfView.toPdf`）。 */
+    viewports: new Map(),
     /** 已经画出来的页（1 基）。 */
     painted: new Set(),
     rendering: new Set(),
@@ -149,6 +151,7 @@
     state.generation += 1;
     state.painted.clear();
     state.rendering.clear();
+    state.viewports.clear();
     for (const holder of [...pages()]) holder.remove();
 
     const first = await state.pdf.getPage(1);
@@ -164,6 +167,7 @@
       const holder = document.createElement("section");
       holder.className = "page";
       holder.dataset.index = String(index);
+      state.viewports.set(index, viewport);
       holder.style.width = `${Math.floor(viewport.width)}px`;
       holder.style.height = `${Math.floor(viewport.height)}px`;
       holder.append(
@@ -188,6 +192,8 @@
     applyMode();
     await paintVisible();
     updateState();
+    // 页面刚重建过，位置全变了 —— 扩展插件（批注那类）得把自己的图层重摆一遍。
+    notifyPages();
   }
 
   /**
@@ -476,6 +482,54 @@
     await buildPages();
     scroller.scrollTop = 0;
   }
+
+  // ---------------------------------------------------------------- 给扩展插件的口子
+  //
+  // 批注那类插件是被 `api.files.extendView` 拼进**这个帧**的：它的代码和这里在同一个
+  // module 里，但两边各包一层 IIFE，互相看不见。所以这里显式交出一小块 API ——
+  // **只给必要的**：什么时候页面重建了、以及两个方向的坐标换算。
+  //
+  // 为什么不把 `state` 整个交出去：那是这个查看器的内部结构，改一次就会连带弄坏别人。
+  // 而坐标换算是这里唯一真正需要「知道视口」的事 —— 缩放、旋转之后，同一块批注要落在
+  // 同一个地方，就只能存 PDF 的用户空间坐标，换算交给知道当前视口的人做。
+  const pageHandlers = [];
+
+  function notifyPages() {
+    const pages = [...scroller.querySelectorAll(".page")].map((element) => ({
+      index: Number(element.dataset.index),
+      element,
+    }));
+    for (const handler of pageHandlers) {
+      try {
+        handler(pages);
+      } catch (error) {
+        floralView.log("error", `扩展插件处理页面变化时出错：${error?.message ?? error}`);
+      }
+    }
+  }
+
+  globalThis.floralPdfView = {
+    /** 页面（重新）建好之后叫一次，之后每次重建也会再叫。回调收到 [{ index, element }]。 */
+    onPages(handler) {
+      pageHandlers.push(handler);
+      // 注册时若已经有页面，立刻给一次 —— 不然扩展得等到下一次缩放才画得上东西。
+      if (state.pdf) notifyPages();
+    },
+    /** 页内像素坐标（相对那一页的左上角）→ PDF 用户空间。缩放/旋转都不影响它。 */
+    toPdf(index, x, y) {
+      const viewport = state.viewports.get(index);
+      if (!viewport) return null;
+      return viewport.convertToPdfPoint(x, y);
+    },
+    /** 反过来：PDF 用户空间 → 页内像素坐标（按当前缩放与旋转）。 */
+    toPage(index, x, y) {
+      const viewport = state.viewports.get(index);
+      if (!viewport) return null;
+      return viewport.convertToViewportPoint(x, y);
+    },
+    /** 当前文档有几页（没打开文档时是 0）。 */
+    pageCount: () => state.pdf?.numPages ?? 0,
+  };
 
   scroller.addEventListener("scroll", trackCurrentPage, { passive: true });
 

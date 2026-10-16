@@ -21,8 +21,6 @@ export interface ViewToolbarState {
   pressed: readonly string[];
 }
 
-export const EMPTY_TOOLBAR_STATE: ViewToolbarState = { values: {}, pressed: [] };
-
 interface PluginViewToolbarProps {
   items: readonly ViewToolbarItem[];
   state: ViewToolbarState;

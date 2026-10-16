@@ -109,9 +109,11 @@ warn 日志。
 
 ## 现在还没做的
 
-* **马克笔与悬浮批注**：需要先给插件体系加「批注存储」这条通道
-  （`PluginView` 里的 `loadAnnotations` / `saveAnnotations` 现在还是空实现）。
-  批注会存**应用数据目录**，不写进 PDF 本身。
+* **马克笔与悬浮批注**：**做成另一个插件了**（`pdf-annotations`，见
+  [`Docs/pdf-annotations.md`](./pdf-annotations.md)）—— 它用 `files.extendView` 并进这个
+  视图，数据存在 PDF 旁边的 `__floral-notepaper__/` 里（不是本文档原先设想的应用数据目录：
+  那样批注会锁在这台机器上）。这个插件只负责把坐标换算的口子
+  （`globalThis.floralPdfView`）交出去。
 * **cMaps 与标准字体**：pdf.js 遇到日韩编码或非内置字体时会去取
   `cMapUrl` / `standardFontDataUrl` 指向的文件，而视图取不到外部资源 —— 那些字会缺。
   要支持的话得把这几份数据也内联进来（它们是几百 KB 到几 MB），等真遇到问题再说。

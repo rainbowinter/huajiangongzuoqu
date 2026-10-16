@@ -46,8 +46,8 @@ interface PluginViewProps {
   loadData: (plugin: string) => Promise<unknown>;
   /** 某个插件要存数据。宿主负责校验与落盘。 */
   onSaveData: (plugin: string, data: unknown) => void;
-  /** 视图报上来的工具栏状态。 */
-  onState: (values: Record<string, string>, pressed: string[]) => void;
+  /** 视图报上来的工具栏状态。`plugin` 是**哪个插件**报的（`null` = 视图所有者）。 */
+  onState: (plugin: string | null, values: Record<string, string>, pressed: string[]) => void;
   /** 宿主往视图下命令的口子，由宿主工具栏填。 */
   apiRef?: RefObject<PluginViewApi | null>;
   onToast: (message: string) => void;
@@ -144,7 +144,7 @@ export function PluginView(props: PluginViewProps) {
           break;
 
         case "state":
-          latest.current.onState(message.values, message.pressed);
+          latest.current.onState(message.plugin, message.values, message.pressed);
           break;
 
         case "toast":

@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { FileType } from "../features/workspace/fileTypes";
-import { loadViewDocument, viewExtensionOwners, viewToolbarFor } from "../features/plugins/viewAssets";
+import {
+  loadViewDocument,
+  mergeToolbarStates,
+  viewDataPlugins,
+  viewToolbarFor,
+} from "../features/plugins/viewAssets";
 import { readThemeTokens } from "../features/plugins/themeTokens";
 import { getErrorMessage, readExternalFileBytes } from "../features/notes/api";
 import {
@@ -10,11 +15,7 @@ import {
   writeWorkspaceCache,
 } from "../features/workspace/api";
 import { PluginView, type PluginViewApi } from "./PluginView";
-import {
-  EMPTY_TOOLBAR_STATE,
-  PluginViewToolbar,
-  type ViewToolbarState,
-} from "./PluginViewToolbar";
+import { PluginViewToolbar, type ViewToolbarState } from "./PluginViewToolbar";
 import { showToast } from "./Toast";
 
 /**
@@ -80,13 +81,19 @@ export function PluginFileView({ path, type }: PluginFileViewProps) {
   const [document, setDocument] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { theme, tokens } = useViewTheme();
-  // 工具栏的状态由**视图**说了算，这里只是替它拿着（见 PluginViewToolbar 的文件头）。
-  const [toolbarState, setToolbarState] = useState<ViewToolbarState>(EMPTY_TOOLBAR_STATE);
+  /**
+   * 工具栏的状态由**视图**说了算，这里只是替它拿着（见 PluginViewToolbar 的文件头）。
+   *
+   * ⚠️ 按插件分开存：一个视图里可能同时跑着两个插件的代码，各报各的。合成一张表的话，
+   * 后报的那份会把前一份整个盖掉 —— 表现是「缩放比例」这类小字忽然空了。
+   * 合并是安全的：合并后的 id 不会重（`viewToolbarFor` 已经把重名的丢掉了）。
+   */
+  const [toolbarStates, setToolbarStates] = useState<Record<string, ViewToolbarState>>({});
   // 往视图里下命令的口子，由 PluginView 挂上来。
   const apiRef = useRef<PluginViewApi | null>(null);
   // 顶上那排控件是**基础插件与扩展插件共用**的（`viewToolbarFor` 把两边合起来）。
   const toolbarItems = viewToolbarFor(type);
-  const extensionOwners = viewExtensionOwners(type);
+  const extensionOwners = viewDataPlugins(type);
 
   useEffect(() => {
     let cancelled = false;
@@ -132,7 +139,7 @@ export function PluginFileView({ path, type }: PluginFileViewProps) {
       {/* 插件声明了控件才有这一排 —— 没声明就与从前一模一样，预览区直接顶到最上面。 */}
       <PluginViewToolbar
         items={toolbarItems}
-        state={toolbarState}
+        state={mergeToolbarStates(toolbarStates)}
         onCommand={(id, value) => apiRef.current?.post({ t: "command", id, value })}
       />
       <PluginView
@@ -142,7 +149,9 @@ export function PluginFileView({ path, type }: PluginFileViewProps) {
         theme={theme}
         tokens={tokens}
         apiRef={apiRef}
-        onState={(values, pressed) => setToolbarState({ values, pressed })}
+        onState={(plugin, values, pressed) =>
+          setToolbarStates((current) => ({ ...current, [plugin ?? ""]: { values, pressed } }))
+        }
         // 工作区里的文件优先走工作区通道；从「打开方式」进来的不在任何工作区里，会退回外部通道。
         loadBytes={() =>
           readWorkspaceFileBytes(path).catch(() => readExternalFileBytes(path))

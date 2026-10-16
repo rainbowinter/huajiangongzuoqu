@@ -1,0 +1,11 @@
+{
+  "name": "pdf-annotations",
+  "version": "0.1.0",
+  "apiVersion": 2,
+  "main": "index.js",
+  "description": "在 PDF 上做标注：矩形、圆形、自由笔、文字选区高亮，还能钉批注",
+  "author": "花笺",
+  "icon": "icon.svg",
+  "requires": ["pdf-viewer"],
+  "permissions": ["files:view", "workspace:cache"]
+}

@@ -3,6 +3,7 @@ import {
   dispatchPluginCall,
   METHOD_TABLE,
   methodDescriptors,
+  parseViewExtension,
   methodsByNamespace,
   NO_PERMISSION_METHODS,
   type PluginCallContext,
@@ -412,5 +413,76 @@ describe("超时", () => {
 
     expect(error.code).toBe("pluginTimeout");
     expect(error.details?.method).toBe("__test.hang");
+  });
+});
+
+// ---------------------------------------------------------------- 视图扩展
+
+/**
+ * `files.extendView` 的声明解析（`parseViewExtension`）。
+ *
+ * 原则与 `view.toolbar` 那套一样：**认不出来的一律丢掉，不猜**。丢掉的是坏的那一项，
+ * 不是整份声明 —— 少一个按钮，好过插件整个装不上。
+ */
+describe("视图扩展声明的解析", () => {
+  const ok = {
+    typeId: "pdf-viewer:pdf",
+    css: ["view/a.css"],
+    js: ["view/a.js"],
+  };
+
+  test("最小的一份：typeId + 一样东西", () => {
+    expect(parseViewExtension(ok)).toEqual(ok);
+  });
+
+  test("typeId 必须是 `<插件名>:<类型 id>` —— 没有前缀就不知道扩展的是谁", () => {
+    expect(parseViewExtension({ ...ok, typeId: "pdf" })).toBeUndefined();
+    expect(parseViewExtension({ ...ok, typeId: "pdf-viewer:" })).toBeUndefined();
+    expect(parseViewExtension({ ...ok, typeId: 42 })).toBeUndefined();
+    expect(parseViewExtension({ ...ok, typeId: "../evil:pdf" })).toBeUndefined();
+  });
+
+  test("什么都没给 = 一次什么都没做的调用，整份作废", () => {
+    expect(parseViewExtension({ typeId: "pdf-viewer:pdf" })).toBeUndefined();
+    expect(parseViewExtension({ typeId: "pdf-viewer:pdf", css: [] })).toBeUndefined();
+  });
+
+  test("只要一条数据通道也算「做了什么」—— 但必须是字面量 true", () => {
+    expect(parseViewExtension({ typeId: "pdf-viewer:pdf", data: true })).toEqual({
+      typeId: "pdf-viewer:pdf",
+      data: true,
+    });
+    // 真值不算：声明里写错类型时宁可没有数据通道，也别让插件拿到一条半开的。
+    expect(parseViewExtension({ typeId: "pdf-viewer:pdf", data: "yes" })).toBeUndefined();
+  });
+
+  test("路径这一步只筛「非空字符串」，把关的是后端", () => {
+    // ⚠️ 这里**故意不**再写一遍路径规则：绝对路径、`..`、符号链接逃逸、体积上限，
+    // 全由 Rust 的 `plugins::paths::safe_join_file` 判（canonicalize 之后再确认结果还在
+    // 插件目录里）。两处各写一套，迟早会漂移成「前端放过去、后端拒掉」这种最难查的错。
+    expect(parseViewExtension({ ...ok, js: ["C:/abs.js"] })?.js).toEqual(["C:/abs.js"]);
+    expect(parseViewExtension({ ...ok, css: ["../../secret.css"] })?.css).toEqual([
+      "../../secret.css",
+    ]);
+
+    // 但「空的 / 不是字符串」要在这里筛掉：它们进了列表只会让后端读一个空路径。
+    expect(parseViewExtension({ ...ok, js: ["", 42, null] })).toEqual({
+      typeId: "pdf-viewer:pdf",
+      css: ["view/a.css"],
+    });
+  });
+
+  test("toolbar 走与 view.toolbar 同一套解析（认不出的项单独丢掉）", () => {
+    const parsed = parseViewExtension({
+      typeId: "pdf-viewer:pdf",
+      toolbar: [{ kind: "button", id: "marker", label: "标注" }, { kind: "nope" }],
+    });
+    expect(parsed?.toolbar).toEqual([{ kind: "button", id: "marker", label: "标注" }]);
+  });
+
+  test("不是对象 / 是数组 —— 都不是一份声明", () => {
+    expect(parseViewExtension(null)).toBeUndefined();
+    expect(parseViewExtension("pdf-viewer:pdf")).toBeUndefined();
+    expect(parseViewExtension([ok])).toBeUndefined();
   });
 });

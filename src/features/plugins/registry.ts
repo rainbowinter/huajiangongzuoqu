@@ -261,6 +261,8 @@ export interface PluginViewExtension {
   js: string[];
   /** 追加到那一排的控件（id 与基础插件的撞了的话，**基础插件赢**）。 */
   toolbar: ViewToolbarItem[];
+  /** 这个插件要不要一条私有数据通道（`floralView.extension("<插件名>")`）。 */
+  data: boolean;
 }
 
 const viewExtensions = new OwnedRegistry<PluginViewExtension>();

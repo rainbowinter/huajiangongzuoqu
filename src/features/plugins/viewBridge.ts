@@ -24,8 +24,11 @@ export type ViewMessage =
   /**
    * 工具栏要显示的东西。`values[id]` 覆盖那一项的显示文本（按钮也能覆盖，于是
    * 「单页 / 连续」这种一个按钮两种状态不必拆成两个），`pressed` 是点亮的开关 id。
+   *
+   * ⚠️ `plugin` 不能省：一个视图里可能同时跑着两个插件的代码，各报各的状态。不带归属
+   * 的话，后报的那份会把前一份**整张表**盖掉（「缩放比例」被涂掉那种）。
    */
-  | { t: "state"; values: Record<string, string>; pressed: string[] };
+  | { t: "state"; plugin: string | null; values: Record<string, string>; pressed: string[] };
 
 /** 宿主 → 视图。 */
 export type HostMessage =
@@ -118,6 +121,14 @@ export function parseViewMessage(raw: unknown): ViewMessage | null {
     case "state": {
       // 两个字段都不是形状对的对象/数组，就是一条空消息 —— 丢掉。
       if (!isRecord(raw.values) && !Array.isArray(raw.pressed)) return null;
+      // 没带 `plugin` 就是视图所有者自己；带了就必须是个像样的名字。
+      const plugin =
+        raw.plugin === undefined || raw.plugin === null
+          ? null
+          : typeof raw.plugin === "string" && PLUGIN_NAME_PATTERN.test(raw.plugin)
+            ? raw.plugin
+            : undefined;
+      if (plugin === undefined) return null;
       const values: Record<string, string> = {};
       if (isRecord(raw.values)) {
         for (const [key, value] of Object.entries(raw.values).slice(0, MAX_STATE_ENTRIES)) {
@@ -131,7 +142,7 @@ export function parseViewMessage(raw: unknown): ViewMessage | null {
             .filter((id): id is string => typeof id === "string" && id.length > 0 && id.length <= MAX_STATE_KEY)
             .slice(0, MAX_STATE_ENTRIES)
         : [];
-      return { t: "state", values, pressed };
+      return { t: "state", plugin, values, pressed };
     }
 
     default:
@@ -177,9 +188,12 @@ window.floralView = {
    * 各写各的，各收各的。**名字是自己报的** —— 宿主认不了「你到底是哪个插件」，这一点写在
    * 文档里：扩展方与被扩展方本来就共享同一个沙箱帧，属于同一个信任域。
    */
-  data: (plugin) => ({
+  extension: (plugin) => ({
     write: (data) => floralViewMessage({ t: "saveData", plugin, data }),
     onData: (handler) => { floralDataListeners.push({ plugin, handler }); },
+    // 工具栏上属于这个插件的那几项要显示什么，也**按插件各报各的** —— 不带名字的话，
+    // 两边各报一次就把对方那张表整个盖掉了。
+    setState: (values, pressed) => floralViewMessage({ t: "state", plugin, values: values || {}, pressed: pressed || [] }),
   }),
 };
 window.addEventListener("message", (event) => {

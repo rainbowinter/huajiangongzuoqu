@@ -169,6 +169,7 @@ describe("工具栏的状态消息", () => {
   test("values 覆盖显示文本、pressed 点亮开关", () => {
     expect(parseViewMessage({ t: "state", values: { zoom: "120%" }, pressed: ["spread"] })).toEqual({
       t: "state",
+      plugin: null,
       values: { zoom: "120%" },
       pressed: ["spread"],
     });
@@ -181,6 +182,7 @@ describe("工具栏的状态消息", () => {
     // 只有一个字段是好的也收下：视图只想改半边是正常的。
     expect(parseViewMessage({ t: "state", values: { a: "1" } })).toEqual({
       t: "state",
+      plugin: null,
       values: { a: "1" },
       pressed: [],
     });
@@ -189,7 +191,7 @@ describe("工具栏的状态消息", () => {
   test("values 的值不是字符串的项丢掉，别的留着", () => {
     expect(
       parseViewMessage({ t: "state", values: { ok: "1", bad: 2, worse: null } }),
-    ).toEqual({ t: "state", values: { ok: "1" }, pressed: [] });
+    ).toEqual({ t: "state", plugin: null, values: { ok: "1" }, pressed: [] });
   });
 
   test("项数封顶：工具栏本就十几个控件，发一百个就是有人在灌", () => {
@@ -216,6 +218,7 @@ describe("工具栏的状态消息", () => {
   test("pressed 里不是字符串的丢掉", () => {
     expect(parseViewMessage({ t: "state", pressed: ["a", 1, null, "b"] })).toEqual({
       t: "state",
+      plugin: null,
       values: {},
       pressed: ["a", "b"],
     });

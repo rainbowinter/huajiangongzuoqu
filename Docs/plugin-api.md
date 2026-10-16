@@ -27,7 +27,8 @@ plugins/hello/
   "author": "你",
   "homepage": "https://example.com/hello",
   "icon": "icon.svg",
-  "permissions": ["ui:toast"]
+  "permissions": ["ui:toast"],
+  "requires": []
 }
 ```
 
@@ -49,6 +50,21 @@ floral.register({
 ```
 
 放进目录后，在插件面板点「刷新」即可加载。
+
+### 依赖别的插件：`requires`
+
+一个插件可能非要用上另一个（批注插件要 PDF 阅读器、扩展视图的那个要**被扩展**的那个）。
+写上依赖，宿主就会按顺序加载，并在缺件时明确说出来：
+
+```json
+{ "name": "pdf-annotations", "requires": ["pdf-viewer"] }
+```
+
+- 只认**目录名**（这一版不做版本约束）。支持多级依赖，宿主按拓扑序加载。
+- 依赖**没装或没启用**时，这个插件**不会被加载**，面板上那一行写明缺谁。比让它跑起来
+  再莫名其妙地失败好得多。
+- 依赖成环时相关的几个都跳过，并说明原因。
+- 它**不是权限**，也不是安装：市场里装 A 不会顺手把 B 装上，用户得自己装。
 
 > 目录名就是插件的唯一标识。`plugin.json` 里的 `name` 只用于展示；两者不一致时
 > 插件仍能加载，但面板上会提示。读取代码、定位数据一律以目录名为准。
@@ -82,6 +98,7 @@ v2 插件**默认没有任何权限**。清单里没声明的权限一律不生�
 | -------------------------------------- | ------------------------------------------------------------------- |
 | `workspace:read`                       | `workspace.listNotes` / `getNote` / `getActiveNote`                 |
 | `workspace:write`                      | 新建 / 更新 / 删除 / 移动分类 / `openNote`（蕴含 `workspace:read`） |
+| `workspace:cache`                      | 在**文件旁边**的 `__floral-notepaper__/` 里读写这个插件自己的数据   |
 | `categories:read` / `categories:write` | 分类的列举与创建                                                    |
 | `editor:read`                          | 读正文、选区、光标；注册选区转换器                                  |
 | `editor:write`                         | 插入、包裹、按范围替换、设选区、聚焦（蕴含 `editor:read`）          |
@@ -152,6 +169,18 @@ await api.workspace.createCategory(name);
 await api.workspace.openNote(id); // 在主窗口打开
 await api.workspace.getActiveNote(); // 本窗口当前笔记，可能为 null
 ```
+
+跟着**文件**走的缓存（要 `workspace:cache` 权限，见
+[`Docs/workspace-cache.md`](./workspace-cache.md)）：
+
+```js
+await api.workspace.cacheGet("E:\\笔记\\论文.pdf"); // 上次存的东西，没有则 null
+await api.workspace.cacheSet("E:\\笔记\\论文.pdf", { marks: [] });
+await api.workspace.cacheDelete("E:\\笔记\\论文.pdf"); // 删掉了返回 true
+```
+
+路径是**那个文件**的路径（工作区里的、或从「打开方式」进来的都行），键是**调用它的
+插件名** —— 插件之间互相看不见对方的缓存。
 
 ### `api.editor` — 当前窗口的编辑器
 
@@ -527,8 +556,19 @@ await api.files.registerType({
 `html` / `css` / `js` / `worker` 的路径都相对插件目录，且都会被校验（不许绝对路径、不许
 `..`、单个文件有大小上限）。
 
-与宿主的往来只有一条通道：`window.floralView`（`docs/plugin-view-sandbox.md` 里有完整
-列表）。文件内容是**主动要**的 —— 插件拿不到路径：
+与宿主的往来只有一条通道：`window.floralView`（宿主注入的一段桥接，就这么几个方法）：
+
+| 方法 | 干什么 |
+|---|---|
+| `ready()` | **必须调一次**：宿主收到它才发 `init` |
+| `onMessage(handler)` | 收宿主来的消息（`init` / `document` / `documentError` / `theme`） |
+| `requestDocument()` | 要文件内容（`document`，`message.bytes` 是 `ArrayBuffer`） |
+| `onCommand(handler)` | 收工具栏发来的命令（`{ id, value }`） |
+| `setState(values, pressed)` | 报工具栏状态（基础插件用；扩展插件用下面那个） |
+| `toast(message)` / `log(level, message)` | 提示 / 写宿主控制台（`error` 会被转发出来） |
+| `extension("<插件名>")` | 扩展插件的私有数据通道：`{ write, onData, setState }` |
+
+文件内容是**主动要**的 —— 插件拿不到路径：
 
 ```js
 floralView.onMessage((message) => {
@@ -563,14 +603,33 @@ view: {
 }
 ```
 
-四种控件：
+五种控件：
 
 | `kind` | 长什么样 | `id` 有什么用 |
 |---|---|---|
 | `button` | 一排小按钮 | 点了发 `command`；带 `toggle: true` 时会被 `pressed` 点亮 |
 | `readout` | 只读小字（`3 / 14`） | 文本来自 `state.values[id]` |
 | `input` | 输入框，**回车**提交 | 提交时发 `command`，值在 `message.value` |
+| `menu` | 按钮 + 下拉菜单 | 选一项发 `command`，值在 `message.value`；按钮文字来自 `state.values[id]` |
 | `separator` | 一条竖线 | 不需要 `id` |
+
+`menu` 是给「一个控件里选一样东西」用的（选工具、选颜色），选项带 `color` 时画成色块：
+
+```js
+{
+  kind: "menu", id: "tool", label: "指针", title: "标注方式",
+  options: [
+    { value: "pointer", label: "指针" },
+    { value: "rect", label: "矩形" },
+    { value: "ink", label: "自由笔" },
+    // 颜色选择器不必是另一种控件：带上 color 就行（一个色块 + 名字）
+    { value: "#ffd400", label: "黄", color: "#ffd400" },
+  ],
+}
+```
+
+选项个数上限 24，`value` 会原样出现在 `message.value` 里；当前选中的那一项由
+`state.values[id]` 决定（把它的 `value` 推回来即可）。
 
 宿主不猜、也不记账：它只负责「把点击翻译成命令」与「照 `state` 显示」，**当前页码、缩放比例
 这些事实一律以视图报上来的为准**（否则两边一旦分歧，就是越点越离谱）。
@@ -592,6 +651,19 @@ floralView.setState({ zoom: "120%", page: "3 / 14" }, ["fit"]);
 
 当前页码、缩放比例这些状态**宿主不替你存**：插件被重新加载、文件被换掉，视图会重建，
 再报一遍即可。
+
+这排控件是**两个插件共用**的（别家扩展了你的视图时），两边各报各的状态：
+
+```js
+// 基础插件（注册视图的那个）：不带归属，报自己那一排
+floralView.setState({ zoom: "103%" }, ["fit-width"]);
+
+// 扩展插件：带插件名，只报自己那几项
+floralView.extension("pdf-annotations").setState({ tool: "rect", color: "#ffd400" }, []);
+```
+
+不带名字的 `setState` 会被当成**基础插件**报的。宿主按插件各存一份再摊平，所以两边
+不会互相盖掉（「缩放比例」这类小字忽然空掉，就是没按插件分开的典型症状）。
 
 #### 主题：`theme` / `init.tokens`
 
@@ -620,6 +692,44 @@ floralView.onMessage((message) => {
 `style.setProperty` —— 那会让 `var(--bg)` 变成无效值，整条声明连同后面几组一起失效。
 `theme` 与 `init` 是**两条独立的消息**：`init` 在插件这边意味着「从头来一遍」，
 换主题时可不能重开文档。
+
+#### 扩展别人的视图：`api.files.extendView()`
+
+有些能力**不该自己造一遍**：想给 PDF 加批注，不必重新实现一遍 PDF 渲染 —— 把代码并进
+**已经有那个视图的插件**里就行。
+
+```js
+await api.files.extendView({
+  typeId: "pdf-viewer:pdf", // 目标视图（**带插件名前缀**，见 ownerOfFileType）
+  css: ["view/annotate.css"], // 并进同一个 <style> 序列
+  js: ["view/annotate.js"], // 拼进**同一个**内联 module，排在基础插件的 js 之后
+  toolbar: [/* 与 view.toolbar 同一种结构，接在基础插件那一排后面 */],
+  data: true, // 要一条私有数据通道（落在文件旁边的 __floral-notepaper__ 里）
+});
+```
+
+- **同一帧、同一模块**：两边的代码真的跑在一起，所以基础插件的顶层名字你够得着
+  （pdf-viewer 就把坐标换算显式挂在 `globalThis.floralPdfView` 上给扩展用）。你自己的
+  代码请**包一层 IIFE**，重名会让整个模块报错、视图全白。
+- **工具栏是共用的**：id 撞了**基础插件赢**，扩展那一项被丢掉并在控制台警告一次。
+  状态也按插件分开报（见上面 `view.toolbar` 一节），各报各的。
+- **目标插件没装**：扩展先存着，等那个视图建出来时再合并 —— 加载顺序不该决定谁能扩展谁。
+  反过来，你想扩展的插件自己也有 `requires` 约束的话（见下节），把依赖写上更稳。
+- **`data: true`** 是唯一要额外权限的部分：它给一条属于**你这个插件**的数据通道
+  （写的是用户文件夹里的 `__floral-notepaper__/`），所以要 `workspace:cache`。
+  通道本身在视图里用：
+
+  ```js
+  const store = floralView.extension("pdf-annotations"); // 名字自己报，用插件名
+  store.onData((data) => { state.marks = data?.marks ?? []; render(); }); // 宿主推回上次存的
+  store.write({ version: 1, marks: state.marks }); // 存（宿主原子落盘）
+  store.setState({ tool: "rect" }, []); // 只想报工具栏状态也走它
+  ```
+
+  数据落点是 `<文件所在工作区根>/__floral-notepaper__/<插件名>/…`，**跟着文件走**
+  （见 [`Docs/workspace-cache.md`](./workspace-cache.md)）。同一个帧里的两个插件共享一切，
+  所以「谁是哪个插件」由名字自己说了算 —— 这不算漏洞：扩展方与被扩展方本来就同属一个
+  信任域。
 
 ### `api.fonts` — 自带字体
 

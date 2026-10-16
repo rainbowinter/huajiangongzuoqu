@@ -1,0 +1,184 @@
+/**
+ * 标注层。
+ *
+ * 它叠在 pdf-viewer 的**画布与文字层之上**（`z-index` 比文字层的 1 更高）——
+ * 不靠 DOM 顺序，因为文字层是异步画的、有可能在标注层之后才追加进来。
+ *
+ * ⚠️ **层本身不吃鼠标事件**（`pointer-events: none`）：那样文字才选得中、拖拽也才落得到
+ * 页面上。只有**标注自己**在「指针」模式下才接管点击（去点那个 × 删掉它）。
+ */
+
+.anno-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* 只有「指针」模式下标注才点得到：画笔模式下的拖拽必须一路穿到页面上。 */
+body[data-anno-tool="pointer"] .anno-layer .anno {
+  pointer-events: auto;
+}
+
+body[data-anno-tool="rect"] .page,
+body[data-anno-tool="ellipse"] .page,
+body[data-anno-tool="ink"] .page {
+  cursor: crosshair;
+}
+
+body[data-anno-tool="text"] .page {
+  cursor: text;
+}
+
+body[data-anno-tool="pin"] .page {
+  cursor: copy;
+}
+
+/* ---------------------------------------------------------------- 标注本体 */
+
+.anno {
+  position: absolute;
+  box-sizing: border-box;
+}
+
+.anno-rect,
+.anno-text {
+  border-radius: 2px;
+}
+
+.anno-ellipse {
+  border-radius: 50%;
+}
+
+/* 悬停时描一圈，好让人看清「这一块是个可以点掉的东西」。 */
+body[data-anno-tool="pointer"] .anno:hover {
+  outline: 1px solid color-mix(in srgb, currentColor 45%, transparent);
+}
+
+.anno-del {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  display: none;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: #c0392b;
+  color: #fff;
+  font: 11px/1 system-ui, sans-serif;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
+}
+
+body[data-anno-tool="pointer"] .anno:hover .anno-del {
+  display: flex;
+}
+
+/* 自由笔：整页一张 svg，折线自己带描边。 */
+.anno-ink {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.anno-ink polyline {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* 正在拖拽的那个：虚线预览，让人知道还没落下。 */
+.anno-draft {
+  border: 1px dashed currentColor;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  opacity: 0.8;
+}
+
+/* ---------------------------------------------------------------- 图钉批注 */
+
+.anno-pin {
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  border: 1.5px solid rgb(255 255 255 / 0.9);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
+}
+
+.anno-pin-hit {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  border-radius: 50%;
+}
+
+/* 悬停/floating 时把批注文字浮出来 —— 不必点开就能看。 */
+.anno-pin-note {
+  position: absolute;
+  left: 14px;
+  top: 10px;
+  max-width: 220px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: #1d1d1b;
+  color: #f2efe9;
+  font: 11px/1.5 "HarmonyOS Sans SC", system-ui, sans-serif;
+  white-space: pre-wrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+  z-index: 3;
+}
+
+body[data-anno-tool="pointer"] .anno-pin-hit:hover + .anno-pin-note {
+  opacity: 1;
+}
+
+/* 写字那个小框。 */
+.anno-editor {
+  position: absolute;
+  z-index: 4;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--bar, #fbf9f4);
+  border: 1px solid var(--line, #eae4d8);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.18);
+  pointer-events: auto;
+}
+
+.anno-editor input {
+  width: 180px;
+  height: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--bg, #f5f1e8);
+  color: var(--ink, #1a1a18);
+  font: 11px/1 "HarmonyOS Sans SC", system-ui, sans-serif;
+}
+
+.anno-editor input:focus {
+  outline: none;
+}
+
+.anno-editor button {
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-soft, #3d3d38);
+  font: 11px/1 "HarmonyOS Sans SC", system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.anno-editor button:hover {
+  background: color-mix(in srgb, var(--ink, #1a1a18) 8%, transparent);
+}

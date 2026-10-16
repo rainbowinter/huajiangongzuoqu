@@ -1,4 +1,5 @@
 import type { FileType, ViewToolbarItem } from "../workspace/fileTypes";
+import type { ViewToolbarState } from "../../components/PluginViewToolbar";
 import { readPluginAsset } from "./api";
 import { listViewExtensions } from "./registry";
 import { buildViewDocument, isCompleteViewSpec } from "./viewBridge";
@@ -66,9 +67,37 @@ export function viewToolbarFor(type: FileType): ViewToolbarItem[] {
   return merged;
 }
 
-/** 往这个视图里并了资源的插件名（视图那边要按名字各自开一条数据通道）。 */
-export function viewExtensionOwners(type: FileType): string[] {
-  return extensionsFor(type.id).map((extension) => extension.plugin);
+/**
+ * 要**私有数据通道**的那些插件（视图那边按名字各自开一条、各推一份已存的数据）。
+ *
+ * 只有声明了 `data: true` 的才算 —— 只叠样式和按钮的扩展碰不到磁盘。
+ */
+export function viewDataPlugins(type: FileType): string[] {
+  return extensionsFor(type.id)
+    .filter((extension) => extension.data)
+    .map((extension) => extension.plugin);
+}
+
+/**
+ * 把各插件各报的那张状态表摊成一张。
+ *
+ * 视图里可能同时跑着两个插件（被扩展的 + 扩展它的），工具栏的状态**按插件分开报**
+ * （`{ t: "state", plugin }`）—— 合成一份存的话后报的会把先报的整个盖掉，表现是
+ * 「缩放比例」这类小字忽然空了。这里只是把它们贴在一起。
+ *
+ * 两个插件报出**同一个 id** 是不可能的：`viewToolbarFor` 合并工具栏时就把扩展里与基础
+ * 插件重名的项丢掉了，而视图只会报自己声明的那些 id。所以 `pressed` 直接取并集即可。
+ */
+export function mergeToolbarStates(
+  states: Record<string, ViewToolbarState>,
+): ViewToolbarState {
+  const values: Record<string, string> = {};
+  const pressed: string[] = [];
+  for (const state of Object.values(states)) {
+    Object.assign(values, state.values);
+    pressed.push(...state.pressed);
+  }
+  return { values, pressed };
 }
 
 export function loadViewDocument(type: FileType): Promise<string> {
