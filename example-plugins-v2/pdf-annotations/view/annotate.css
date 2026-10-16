@@ -124,6 +124,7 @@ body[data-anno-tool="pointer"] .anno-ink-hit {
  */
 
 .anno-pin {
+  position: relative;
   width: 18px;
   height: 18px;
   margin: -9px 0 0 -9px;
@@ -134,6 +135,20 @@ body[data-anno-tool="pointer"] .anno-ink-hit {
   transition:
     transform 0.16s ease-out,
     opacity 0.16s ease-out;
+}
+
+/*
+ * 圆点只有 18px，而展开卡片现在**只能靠点它**（不再有悬停展开），太难点。
+ * 往外扩一圈透明的命中区：外观一点不变，可点范围从 18px 变成 30px。
+ *
+ * 用 `border-radius: 50%` 而不是方框 —— 圆点是 `rotate(-45deg)` 的，方框的命中区
+ * 会跟着转成一个菱形，圆形则转不转都一样。
+ */
+.anno-pin::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
 }
 
 /*
@@ -150,6 +165,10 @@ body[data-anno-tool="pointer"] .anno-ink-hit {
   top: 10px;
   width: max-content;
   max-width: 220px;
+  /* ⚠️ 这张卡不是 `.anno`（那个类带 `border-box`），要自己写一遍。
+     不写的话 `max-width: 220px` 只管**内容**，加上 5px×2 内边距和 1.5px×2 边框，
+     实际盒子是 238px —— 量出来「上限 220 却宽 238」就是这么来的。 */
+  box-sizing: border-box;
   padding: 5px 8px;
   border-radius: 8px;
   border: 1.5px solid color-mix(in srgb, #1a1a18 22%, transparent);
@@ -157,6 +176,14 @@ body[data-anno-tool="pointer"] .anno-ink-hit {
   color: #1a1a18;
   font: 11px/1.5 "HarmonyOS Sans SC", system-ui, sans-serif;
   white-space: pre-wrap;
+  /*
+   * ⚠️ `max-width` 只有配上这个才有用。批注里一旦有个长到没边的「词」
+   *（一串 `aaaa…`、一条 URL），`white-space: pre-wrap` 依然**只在空白处换行**，
+   * 于是那一行径直冲出 `max-width: 220px` 的盒子 —— 用户看到的就是「字超出框」。
+   * `anywhere` 允许在**任意字符之间**断开，并且断行结果会参与 min-content 计算，
+   * 配合上面的 `width: max-content` 正好：短的照旧撑满一行，长的乖乖折行。
+   */
+  overflow-wrap: anywhere;
   box-shadow: 0 4px 14px rgb(0 0 0 / 0.18);
   cursor: text;
 
@@ -183,15 +210,31 @@ body[data-anno-tool="pointer"] .anno-ink-hit {
 }
 
 /*
- * 展开：悬停路过看一眼，或者**选中**把它钉住 —— 想一边读批注一边选正文 / 滚页面、
- * 双击改文字，都得靠选中的这一份。触屏上更是只有这条路。
+ * 悬停时圆点鼓一点，表示「这玩意儿能点」。**只动圆点、不展开卡片** ——
+ * 卡片只归 `.is-selected` 管。
+ *
+ * ⚠️ 要有 `:not(.is-selected)`：`.anno-pin-wrap.is-selected .anno-pin` 的权重是 (0,3,0)，
+ * 而这条带 `body[data-anno-tool]` 的是 (0,4,1) —— 不排除选中态的话，悬停会把
+ * 「收起圆点」那条盖回去，卡片展开时圆点还赖在那里。
+ */
+body[data-anno-tool="pointer"] .anno-pin-wrap:not(.is-selected):hover .anno-pin {
+  transform: rotate(-45deg) scale(1.18);
+}
+
+/*
+ * 展开：**点一下选中**就展开，而且是钉住的那种 —— 想一边读批注一边选正文 / 滚页面、
+ * 双击改文字，都得靠它。再点页面空白或按 Esc 收起来。
+ *
+ * ⚠️ 故意**没有 hover 展开**。以前有一条
+ * `body[data-anno-tool="pointer"] .anno-pin-wrap:hover .anno-pin-note`，本意是
+ * 「路过看一眼」，结果和 `title` 那条原生提示叠在一起：卡片刚浮出来，系统提示就画在
+ * 它正上方，把批注文字整个盖住（用户实测的「字被挡住了」）。撤掉之后入口只剩一个，
+ * 顺带也解决了触屏根本没有 hover 的问题。
  *
  * ⚠️ 选择器必须挂在 **wrap** 上，别去细化到里面某一个子元素。这里踩过一次：原来写的是
  * `.anno-pin-hit:hover + .anno-pin-note`，而 wrap 里 hit 与 note 之间还夹着那个圆点
  * （`.anno-pin`），`+` 永远匹配不上 ——「图钉只有一个黄点、怎么也不出字」就是这么来的。
- * 挂在 wrap 上还有个好处：圆点、卡片、任何子元素上悬停都算。
  */
-body[data-anno-tool="pointer"] .anno-pin-wrap:hover .anno-pin-note,
 .anno-pin-wrap.is-selected .anno-pin-note {
   transform: none;
   opacity: 1;
@@ -200,7 +243,6 @@ body[data-anno-tool="pointer"] .anno-pin-wrap:hover .anno-pin-note,
 }
 
 /* 卡片展开时把圆点收掉 —— 视觉上就是那个点长成了这张卡片。 */
-body[data-anno-tool="pointer"] .anno-pin-wrap:hover .anno-pin,
 .anno-pin-wrap.is-selected .anno-pin {
   transform: rotate(-45deg) scale(0.4);
   opacity: 0;

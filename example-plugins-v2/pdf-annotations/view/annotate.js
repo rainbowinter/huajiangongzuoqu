@@ -333,11 +333,13 @@
     wrap.dataset.markId = mark.id;
     wrap.style.cssText = `left:${at[0].toFixed(1)}px;top:${at[1].toFixed(1)}px;width:0;height:0;position:absolute`;
     if (mark.id === state.selectedId) wrap.classList.add("is-selected");
-    // 提示挂在 **wrap** 上：那个原来专门用来吃事件的 `.anno-pin-hit` 其实是死代码 ——
-    // 圆点转 45° 之后外接框比它大，整个把它盖住了（实测 elementFromPoint 七个点全落在
-    // 圆点上），所以 hit 上的 `title` 从来弹不出来。`title` 会顺着祖先找，挂在 wrap
-    // 上则圆点和那张卡片上悬停都能弹。
-    wrap.title = "移上去看批注 · 点一下选中 · 双击编辑";
+    // ⚠️ 这里**不要**再挂 `title`。曾经挂过一句「移上去看批注 · 点一下选中 · 双击编辑」，
+    // 但那是**浏览器原生的系统提示**：它由 WebView 画在所有页面内容之上，位置也不归我们管
+    // —— 卡片一展开，那句话正好压在批注文字上，用户看到的就是「字被挡住了」
+    //（而且它默认样式在深色主题下还极难看）。操作提示改挂在**插件面板**的说明里。
+    //
+    // 同理也**不做 hover 展开**（见 annotate.css）：悬停 + 原生提示两套行为叠在一起时，
+    // 提示会盖住卡片。现在只有一个入口：点圆点 = 选中 + 展开。
 
     const dot = document.createElement("div");
     dot.className = "anno-pin";
@@ -354,8 +356,9 @@
       note.classList.add("from-right");
     }
 
-    // 点一下 = 选中（与矩形 / 自由笔一致）。悬停本来就会把卡片浮出来，选中是把它**钉住**，
-    // 好一边读批注一边选正文、滚页面；触屏上更是只有这条路。
+    // 点一下 = 选中（与矩形 / 自由笔一致），**卡片同时展开**（`.anno-pin-wrap.is-selected`
+    // 那条规则管展开）。展开后是钉住的那种，好一边读批注一边选正文、滚页面；
+    // 再点页面空白或者按 Esc 收起来。触屏上也只有这一条路。
     wrap.addEventListener("click", (event) => {
       event.stopPropagation();
       select(mark.id);
