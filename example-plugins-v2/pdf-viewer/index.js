@@ -27,7 +27,10 @@ floral.register({
       kind: "view",
       view: {
         html: "view/index.html",
-        css: ["view/viewer.css"],
+        // `text-layer.css` 是 pdf.js 官方 `pdf_viewer.css` 里 `.textLayer` 那几条
+        // （`npm run pdfjs` 取的，见 `Docs/pdf-viewer.md`）：TextLayer 类本身在主包里，
+        // 但样式一条都没有，不给的话每个 span 都不定位、字号也全丢。
+        css: ["view/viewer.css", "vendor/text-layer.css"],
         // 顺序有意义：pdf.js 先（它把自己挂到 globalThis.pdfjsLib 上），查看器后。
         js: ["vendor/pdf.global.mjs", "view/viewer.js"],
         // worker 的**源码**。宿主会把它当成文本塞进视图（不执行），查看器自己读出来

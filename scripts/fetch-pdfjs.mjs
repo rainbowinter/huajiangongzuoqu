@@ -44,6 +44,24 @@ const SOURCES = [
   },
 ];
 
+/**
+ * 文字层要的那几张样式表。
+ *
+ * ⚠️ **只有 CSS 要单独取，JS 不用**：`TextLayer` 类与它依赖的 `setLayerDimensions` 本来
+ * 就在主包里（`pdf.global.mjs` 的导出里有），而**样式一条都没有**（核心构建不带它）。
+ * 没有这几条规则的话，文字层的每个 span 都不定位、字号也全丢 —— 选中文字时高亮的位置
+ * 会完全对不上。
+ *
+ * 从 `web/pdf_viewer.css`（100KB，含整套阅读器界面：对话框、编辑器、注释层……）里
+ * **只挑 `.textLayer` 开头的顶层规则**，大约 2KB。整份取回来没有意义：里面还有
+ * `url(images/*.svg)` 这类引用，而沙箱帧（opaque origin）取不到任何外部资源。
+ */
+const VIEWER_CSS = {
+  name: "pdf_viewer.css",
+  url: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/web/pdf_viewer.css`,
+  sha256: "f684e5c55f3baa4516519e8e0d4543726ab2c4223a0ded8c71ed9d5bf3782e7b",
+};
+
 const force = process.argv.slice(2).includes("--force");
 
 function sha256(text) {
@@ -81,6 +99,41 @@ function toGlobalAssignment(source, label) {
     });
 
   return `${source.slice(0, match.index)}globalThis.pdfjsLib={${pairs.join(",")}};\n`;
+}
+
+/**
+ * 从整份 `pdf_viewer.css` 里挑出 `.textLayer` 开头的**顶层**规则。
+ *
+ * 用括号配平逐条扫，而不是正则抠 —— 规则体里既有 `{}`（`@media` 那种）也有嵌套的
+ * `:is(...)`，正则一定会在某条上出错，而出错的后果是**悄悄少一条规则**（文字层看起来
+ * 能用，只是选中时位置有点偏），那种问题非常难查。
+ *
+ * 只收顶层：注释编辑器那一大堆 `:is(.annotationEditorLayer …)` 里也写着 `.textLayer`
+ * 这个字符串，但那是别的层的事。收进来只是白添几十条永不生效的规则。
+ */
+function extractTextLayerCss(source) {
+  const rules = [];
+  let depth = 0;
+  let selectorStart = 0;
+  let blockStart = -1;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "{") {
+      if (depth === 0) blockStart = index;
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        if (source.slice(selectorStart, blockStart).trimStart().startsWith(".textLayer")) {
+          rules.push(source.slice(selectorStart, index + 1).trim());
+        }
+        selectorStart = index + 1;
+      }
+    }
+  }
+
+  return `${rules.join("\n\n")}\n`;
 }
 
 async function download(url) {
@@ -134,11 +187,45 @@ if (!force && existsSync(workerPath)) {
   console.log(`[pdfjs] 已生成 vendor/pdf.worker.min.mjs（${(raw.length / 1024).toFixed(0)} KB）`);
 }
 
-// 插件的 js 是**逐字读进来内联**的，源码里出现结束标签会截断宿主拼的文档。
-for (const name of ["pdf.global.mjs", "pdf.worker.min.mjs"]) {
+// 文字层的样式（只挑 `.textLayer` 那几条，理由见 VIEWER_CSS 的注释）。
+const cssPath = join(vendorDir, "text-layer.css");
+if (!force && existsSync(cssPath)) {
+  console.log(`[pdfjs] 已有 ${cssPath}（--force 可重取）`);
+} else {
+  console.log(`[pdfjs] 下载 ${VIEWER_CSS.name} @ ${PDFJS_VERSION}…`);
+  const raw = await download(VIEWER_CSS.url);
+  const actual = sha256(raw);
+  if (actual !== VIEWER_CSS.sha256) {
+    throw new Error(
+      `${VIEWER_CSS.name} 的 sha256 对不上：期望 ${VIEWER_CSS.sha256}，实际 ${actual}`,
+    );
+  }
+
+  const css = extractTextLayerCss(raw);
+  // 抽出来的东西必须**看着像那套规则**：少了主规则的话文字层会一片错位，而不是报错。
+  for (const required of [".textLayer{", ".textLayer :is(span,br){", ".textLayer ::selection{"]) {
+    if (!css.includes(required)) {
+      throw new Error(`抽出来的文字层样式里没有 ${required} —— 上游把选择器写改了？`);
+    }
+  }
+  writeFileSync(cssPath, css);
+  console.log(
+    `[pdfjs] 已生成 vendor/text-layer.css（${(css.length / 1024).toFixed(1)} KB / ` +
+      `整份 ${(raw.length / 1024).toFixed(0)} KB）`,
+  );
+}
+
+// 插件的 js / css 是**逐字读进来内联**的，源码里出现结束标签会截断宿主拼的文档。
+for (const name of ["pdf.global.mjs", "pdf.worker.min.mjs", "text-layer.css"]) {
   const text = readFileSync(join(vendorDir, name), "utf8");
+  if (name.endsWith(".css")) {
+    if (/<\/style/i.test(text)) {
+      throw new Error(`${name} 里有 </style>，会截断宿主拼的 <style>`);
+    }
+    continue;
+  }
   if (/<\/script|<!--/.test(text)) {
     throw new Error(`${name} 里有会截断 HTML 的片段（结束标签或 <!--），必须转义后再用`);
   }
 }
-console.log("[pdfjs] 校验通过：两份文件里都没有会截断内联 <script> 的片段");
+console.log("[pdfjs] 校验通过：三份文件里都没有会截断内联标签的片段");

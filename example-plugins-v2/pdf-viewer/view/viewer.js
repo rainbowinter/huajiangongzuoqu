@@ -209,6 +209,46 @@
     }
   }
 
+  /**
+   * 给一页铺上**文字层**：叠在画布之上的那一层透明文字。
+   *
+   * 画布上的字是画出来的图形 —— 选不中、搜不了、也拿不到「这是第几行第几个字」。pdf.js
+   * 的 `TextLayer` 按页面里真实的文字位置摆出一堆 span（文字本身是透明的，看到的仍是
+   * canvas），于是**选中、复制、以及按文字选区做高亮**都有了着力点。
+   *
+   * 三个坑：
+   *
+   * 1. **`--scale-factor` 必须在构造之前设好** —— 它一构造就读这个变量去算容器尺寸，
+   *    而每个 span 的字号是 `calc(var(--scale-factor) * …px)`。设晚了或者忘了，
+   *    整层的字号全是默认值，选中的位置会偏得离谱。
+   * 2. 传进去的 **viewport 不要乘 `devicePixelRatio`**：canvas 为了高清才乘那个系数，
+   *    而 `TextLayer` 内部自己会乘（它要知道真实设备像素才能量准字宽）。乘两遍就错了。
+   * 3. `render()` 直接返回 Promise（不是 `{ promise }`），而且**失败不该毁掉这一页** ——
+   *    最坏情况是这页选不中字，画出来的内容该照旧。
+   */
+  async function attachTextLayer(holder, page, viewport, generation) {
+    const container = document.createElement("div");
+    container.className = "textLayer";
+    holder.style.setProperty("--scale-factor", String(state.scale));
+
+    try {
+      const layer = new globalThis.pdfjsLib.TextLayer({
+        // pdf.js 4.x 的参数名是 `textContentSource`（不再叫 `textContent`）。
+        textContentSource: await page.getTextContent(),
+        container,
+        viewport,
+      });
+      await layer.render();
+    } catch (error) {
+      floralView.log("warn", `第 ${holder.dataset.index} 页的文字层没能建起来：${error?.message ?? error}`);
+      return;
+    }
+
+    // 缩放 / 旋转变了就别贴了 —— 这一层的比例是旧的。
+    if (generation !== state.generation) return;
+    holder.append(container);
+  }
+
   async function paint(index) {
     const holder = scroller.querySelector(`.page[data-index="${index}"]`);
     if (!holder || state.painted.has(index) || state.rendering.has(index)) return;
@@ -237,6 +277,9 @@
       // 缩放 / 旋转变了就别贴了 —— 这张是按旧比例画的。
       if (generation !== state.generation) return;
       holder.replaceChildren(canvas);
+      // 文字层叠在画布上：**选中文字、按文字选区做高亮**都要它。画布上的字是死的图形，
+      // 选不中、也拿不到「第几行、在第几个字」。
+      await attachTextLayer(holder, page, viewport, generation);
       state.painted.add(index);
     } catch (error) {
       // 单页失败不该让整个文档白屏：把原因画在那一页上。
