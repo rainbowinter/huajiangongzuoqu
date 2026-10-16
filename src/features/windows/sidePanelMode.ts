@@ -4,7 +4,7 @@
  * `standalone` 是个**统称**：插件贡献的独立面板（公式表、大纲…）都归到它，
  * 具体是哪一个由 `activePanelId` 里的 `standalone:<面板 id>` 前缀带出来。
  */
-export type SidePanelMode = "settings" | "plugins" | "about" | "standalone";
+export type SidePanelMode = "settings" | "plugins" | "about" | "styles" | "standalone";
 
 /**
  * 内建的那几个面板 —— 各自占一整层、由主窗口直接渲染。
@@ -14,7 +14,7 @@ export type SidePanelMode = "settings" | "plugins" | "about" | "standalone";
  * **「按钮点亮了、侧栏也拉开了、里面什么都没有」**，没有任何报错。（这个坑踩过一次：
  * 「关于」加上去的时候漏了。）
  */
-const BUILT_IN: readonly string[] = ["settings", "plugins", "about"];
+const BUILT_IN: readonly string[] = ["settings", "plugins", "about", "styles"];
 
 /**
  * `activePanelId` → 该挂哪一层。

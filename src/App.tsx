@@ -1,8 +1,12 @@
 import { useEffect } from "react";
 import "./App.css";
-// 自定义样式入口。**必须在 App.css 之后**导入：它靠「同优先级下后写的胜出」
-// 来覆盖主题变量，位置调换就没用了。详见文件里的说明。
-import "./styles/custom.css";
+// 全局样式表**不再从源码 import** —— 它改成了运行时注入：`<数据目录>/styles/*.css`
+// 全部注入每个窗口，改完保存约两秒后自动生效，不必重新构建。
+//
+// 源码里那份 `src/styles/custom.css` 现在只是**模板**：首次运行时被复制成
+// `<数据目录>/styles/custom.css`，之后一律以用户那份为准（升级不覆盖）。
+// 详见 `src/features/styles/globalStyles.ts` 与 `src-tauri/src/styles.rs`。
+import { installGlobalStyles } from "./features/styles/globalStyles";
 import { ContextMenuProvider } from "./components/ContextMenu";
 import { disposeListener } from "./components/listeners";
 import { MainWindow } from "./components/MainWindow";
@@ -95,6 +99,15 @@ function App() {
   useEffect(() => {
     restoreCodeFont();
   }, []);
+
+  /**
+   * 全局样式表：`<数据目录>/styles/*.css` 全部注入本窗口，**没有开关**。
+   *
+   * 挂在这里是因为 `App` 是主窗口 / 小窗 / 磁贴**共用的外壳** —— 一处接线三个视图全覆盖。
+   * 每个窗口各注入自己的一份（`document.head` 本来就各窗口独立）。
+   * 文件改动由 Rust 侧的轮询广播出来，这里只管收到就重注入。
+   */
+  useEffect(() => installGlobalStyles(), []);
 
   /**
    * 代码着色主题。放在 App 而不是 MainWindow：所有窗口共用同一套 `.hljs-*` 类名，

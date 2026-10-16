@@ -45,7 +45,8 @@
     ],
     "resources": {
       "../example-plugins-v2": "example-plugins-v2",
-      "../Docs/user": "docs"
+      "../Docs/user": "docs",
+      "../src/styles/custom.css": "templates/custom.css"
     },
     "createUpdaterArtifacts": true,
     "linux": {

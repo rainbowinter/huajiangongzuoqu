@@ -6,6 +6,7 @@ pub mod pdf;
 pub mod plugins;
 pub mod selfupdate;
 pub mod services;
+pub mod styles;
 pub mod updater;
 
 use locales::Locale;
@@ -766,6 +767,14 @@ pub fn run() {
                 Err(error) => eprintln!("[plugins:sync] 取不到资源目录，跳过版本校正：{error}"),
             }
 
+            // 全局样式表：盯着 `<数据目录>/styles/`，变了就广播给所有窗口。
+            //
+            // ⚠️ **必须在这里（而不是更早）起**：播种 `custom.css` 会往数据目录里写文件，
+            // 而 `NoteStore` 构造期的 `migrate_data_dir_if_relocated` 用「目录里有没有文件」
+            // 判断新目录干不干净、有文件就放弃迁移。放到 store 之后就没有这个问题。
+            // 详见 `crate::styles` 模块开头的说明。
+            styles::watch(app.handle());
+
             desktop::setup_desktop(app)?;
             Ok(())
         })
@@ -843,6 +852,9 @@ pub fn run() {
             pdf::print_with_dialog,
             selfupdate::update_endpoint,
             docs::read_bundled_doc,
+            styles::global_styles_bundle,
+            styles::global_styles_dir_path,
+            styles::global_styles_open_dir,
             plugins::market::commands::plugins_market_endpoint,
             plugins::market::commands::plugins_market_catalog,
             plugins::market::commands::plugins_market_install,

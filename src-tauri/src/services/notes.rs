@@ -346,7 +346,7 @@ fn data_dir_from_notes_dir(notes_dir: &str) -> PathBuf {
 // 数据目录里所有需要跟随迁移的条目。
 // plugins/ 与 plugin-data/ 是插件代码与其持久化数据，plugins-state.json 是启停与
 // 授权状态；三者一起随数据目录搬迁，否则用户改一次笔记目录就会丢掉全部插件。
-const DATA_DIR_ITEMS: [&str; 7] = [
+const DATA_DIR_ITEMS: [&str; 8] = [
     "metadata.json",
     "notes",
     "images",
@@ -354,6 +354,9 @@ const DATA_DIR_ITEMS: [&str; 7] = [
     "plugins",
     "plugin-data",
     "plugins-state.json",
+    // 全局样式表（见 `crate::styles`）。**必须在这里** —— 漏了的话换数据目录之后
+    // 用户的 styles/*.css 会留在原地，现象是「样式突然全没了」。
+    "styles",
 ];
 
 // 旧版无论 notesDir 指向哪里，metadata.json、images、backgrounds 都固定存放在旧主目录；

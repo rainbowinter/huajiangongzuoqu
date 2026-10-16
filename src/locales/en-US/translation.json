@@ -177,6 +177,7 @@
       "maximize": "Maximize",
       "minimize": "Minimize",
       "about": "About",
+      "styles": "Styles",
       "quickNotepad": "Quick Note",
       "restore": "Restore",
       "settings": "Settings"
@@ -289,6 +290,15 @@
       "zhHK": "繁體中文"
     },
     "dataDir": "Data directory",
+    "styles": {
+      "title": "Interface styles",
+      "hint": "Every .css file in this folder is applied to every Floral Notepaper window. There is no toggle — move a file out to disable it. Save a change and it takes effect within about two seconds.",
+      "openFolder": "Open folder",
+      "reload": "Reload",
+      "reloaded": "Reloaded",
+      "active": "{{count}} active",
+      "empty": "No stylesheets yet. Drop a .css file in and it takes effect two seconds later."
+    },
     "openAtCursor": "Open near cursor with shortcut",
     "quickNoteShortcut": "Quick Note shortcut",
     "rememberSurfaceSize": "Remember surface size",

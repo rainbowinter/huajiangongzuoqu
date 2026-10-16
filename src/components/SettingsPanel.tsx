@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { checkGlobalShortcut, chooseBackgroundImage } from "../features/settings/api";
 import { CodeFontSection } from "./CodeFontSection";
+import { GlobalStylesSection } from "./GlobalStylesSection";
 import { UpdateSettingsSection } from "../features/update/UpdateSettingsSection";
 import type { UpdateController } from "../features/update/useUpdate";
 import type {
@@ -176,6 +177,9 @@ export function SettingsPanel({
             ))}
           </div>
         </section>
+
+        {/* 全局样式表。放在主题 / 主题色之后 —— 「界面长什么样」的东西挨在一起。 */}
+        <GlobalStylesSection />
 
         <section className="settings-section space-y-2">
           <label className="block text-[11px] font-body text-ink-faint">

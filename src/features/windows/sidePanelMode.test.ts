@@ -11,6 +11,9 @@ describe("侧栏层映射", () => {
     expect(sidePanelModeOf("settings")).toBe("settings");
     expect(sidePanelModeOf("plugins")).toBe("plugins");
     expect(sidePanelModeOf("about")).toBe("about");
+    // ⚠️ 漏进 `BUILT_IN` 的后果是「按钮亮了、侧栏开了、里面空的」——不报错，
+    // 所以每加一个内建面板都必须在这里钉一条。
+    expect(sidePanelModeOf("styles")).toBe("styles");
   });
 
   test("插件贡献的面板（standalone:<id>）统一落到 standalone 那一层", () => {

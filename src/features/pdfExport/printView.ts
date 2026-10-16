@@ -119,7 +119,7 @@ const PRINT_CSS = `
   /*
    * ⚠️ **纸的底色不要在这里写死白色**（原来这几条都带着 background: #ffffff !important，
    * 那是个 bug）。「原样」档（默认那一档）用的是 var(--color-paper) —— 主题、或者
-   * src/styles/custom.css 改过它的时候，屏幕上是一张调过的纸、**导出的 PDF 却是纯白**。
+   * 样式目录里的 custom.css 改过它的时候，屏幕上是一张调过的纸、**导出的 PDF 却是纯白**。
    *
    * 浅色 / 黑白两档不需要写死白色：PAPER_CSS 已经把 --color-paper 钉成 #ffffff，
    * 纸自己就是白的。所以下面 .floral-sheet 那条干脆不写 background，让它用

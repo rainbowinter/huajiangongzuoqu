@@ -179,6 +179,7 @@
       "maximize": "最大化",
       "minimize": "最小化",
       "about": "关于",
+      "styles": "样式",
       "quickNotepad": "快捷便签",
       "restore": "还原",
       "settings": "设置"
@@ -293,6 +294,15 @@
       "zhHK": "繁體中文"
     },
     "dataDir": "数据目录",
+    "styles": {
+      "title": "界面样式",
+      "hint": "这个文件夹里的每一份 .css 都会套用到花笺的每个窗口，没有开关 —— 不想让它生效就把文件移走。改完保存，约两秒后自动生效。",
+      "openFolder": "打开文件夹",
+      "reload": "重新加载",
+      "reloaded": "已重新加载",
+      "active": "当前生效 {{count}} 份",
+      "empty": "文件夹里还没有样式表。丢一份 .css 进去，两秒后它就生效了。"
+    },
     "openAtCursor": "快捷键打开时跟随鼠标位置",
     "quickNoteShortcut": "快捷记录快捷键",
     "rememberSurfaceSize": "记住小窗尺寸",

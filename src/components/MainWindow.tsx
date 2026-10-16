@@ -21,6 +21,7 @@ import { renderMarkdownLines } from "../features/markdown/syntaxHighlight";
 import { showToast } from "./Toast";
 import { PluginCommandPanel } from "./PluginCommandPanel";
 import { AboutPanel } from "./AboutPanel";
+import { StylesPanel } from "./StylesPanel";
 import { CommandPalette } from "./CommandPalette";
 import { FindReplacePanel } from "./FindReplacePanel";
 import { dispatchCommandKeybinding, registerBuiltinCommand } from "../features/commands/registry";
@@ -2763,6 +2764,15 @@ export function MainWindow({
     setActivePanelId(null);
   }, []);
 
+  /** 右侧栏的「样式」——全局样式表（`<数据目录>/styles/*.css`）的只读视图。 */
+  const handleOpenStyles = useCallback(() => {
+    togglePanel("styles");
+  }, [togglePanel]);
+
+  const handleCloseStyles = useCallback(() => {
+    setActivePanelId(null);
+  }, []);
+
   const handleClosePlugins = useCallback(() => {
     setActivePanelId(null);
   }, []);
@@ -3877,6 +3887,33 @@ export function MainWindow({
                 <circle cx="12" cy="12" r="9" />
                 <path d="M12 16v-4" />
                 <path d="M12 8h.01" />
+              </svg>
+            </button>
+
+            {/* 「样式」：开右侧栏，看全局样式表（`<数据目录>/styles/*.css`）现在生效了哪几份。
+                没有开关 —— 目录里有哪几份就有哪几份生效，所以这里只是个查看入口。 */}
+            <button
+              onClick={handleOpenStyles}
+              className={`titlebar-button w-10 h-11 flex items-center justify-center transition-all cursor-pointer ${
+                visibleSidePanel === "styles"
+                  ? "is-active text-bamboo bg-bamboo-mist/50"
+                  : "text-ink-ghost hover:text-ink-faint hover:bg-paper-warm"
+              }`}
+              title={t("main.styles.title", { defaultValue: "样式" })}
+            >
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M12 2 2 7l10 5 10-5-10-5z" />
+                <path d="m2 17 10 5 10-5" />
+                <path d="m2 12 10 5 10-5" />
               </svg>
             </button>
 
@@ -5458,6 +5495,19 @@ export function MainWindow({
                   onOpenDoc={openDocView}
                   notesDir={settingsConfig?.dataDir}
                 />
+              ) : null}
+            </div>
+            <div
+              className={`side-panel-view absolute inset-0 w-[360px] h-full transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                mountedSidePanel === "styles"
+                  ? sidePanelContentVisible && visibleSidePanel === "styles"
+                    ? "is-active translate-x-0 opacity-100"
+                    : "pointer-events-none translate-x-4 opacity-0"
+                  : "pointer-events-none translate-x-4 opacity-0"
+              }`}
+            >
+              {mountedSidePanel === "styles" ? (
+                <StylesPanel onClose={handleCloseStyles} />
               ) : null}
             </div>
             <div

@@ -1,9 +1,9 @@
 {
   "name": "css-modifier",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "apiVersion": 2,
   "main": "index.js",
-  "description": "样式修改器：把 styles/ 目录下的 CSS 注入页面，并支持单篇笔记用 front-matter 挂附加样式",
+  "description": "单篇笔记的附加样式：笔记 front-matter 写 css: 名字，就把 styles/ 下的样式表注入当前窗口。全局样式已改由宿主接管（设置 → 外观 → 界面样式）",
   "author": "花笺",
   "permissions": [
     "ui:style",
@@ -22,13 +22,6 @@
         "title": "笔记附加样式字段",
         "description": "在笔记开头的 front-matter 里用这个字段指定 styles/ 下的样式表名（可不写 .css）",
         "default": "css"
-      },
-      {
-        "key": "injectGlobals",
-        "type": "boolean",
-        "title": "注入全局样式表",
-        "description": "关掉后只保留单篇笔记的附加样式",
-        "default": true
       }
     ]
   }

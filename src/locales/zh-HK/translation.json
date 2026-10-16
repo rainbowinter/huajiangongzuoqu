@@ -177,6 +177,7 @@
       "maximize": "最大化",
       "minimize": "最小化",
       "about": "關於",
+      "styles": "樣式",
       "quickNotepad": "快捷便箋",
       "restore": "還原視窗",
       "settings": "設定"
@@ -289,6 +290,15 @@
       "zhHK": "繁體中文"
     },
     "dataDir": "數據目錄",
+    "styles": {
+      "title": "介面樣式",
+      "hint": "這個資料夾裡的每一份 .css 都會套用到花箋的每個視窗，沒有開關 —— 不想讓它生效就把檔案移走。改完儲存，約兩秒後自動生效。",
+      "openFolder": "開啟資料夾",
+      "reload": "重新載入",
+      "reloaded": "已重新載入",
+      "active": "目前生效 {{count}} 份",
+      "empty": "資料夾裡還沒有樣式表。丟一份 .css 進去，兩秒後它就生效了。"
+    },
     "openAtCursor": "快捷鍵開啟時跟隨滑鼠位置",
     "quickNoteShortcut": "快捷記錄快捷鍵",
     "rememberSurfaceSize": "記住小窗尺寸",

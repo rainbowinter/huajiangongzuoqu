@@ -1,15 +1,24 @@
 /**
- * css-modifier（v2）—— 页面样式修改器
+ * css-modifier（v2）—— 单篇笔记的附加样式
  *
- * 两种生效方式：
+ * 笔记开头的 front-matter 写 `css: <名字>`，就把 `styles/<名字>.css` 注入当前窗口。
+ * 字段名可在插件设置里改（默认 `css`）。
  *
- * 1. **全局**：`styles/` 目录下的每个 `.css` 都注入当前窗口。往目录里丢一份新样式表、
- *    在插件面板点「重新加载」即可，不需要改这个脚本。**在花笺里改完保存会立刻生效**
- *    （宿主推 `plugin:assetsChanged` 过来，见下面的订阅），不用再点按钮。
- * 2. **单篇笔记**：笔记开头的 front-matter 写 `css: <名字>`，则把 `styles/<名字>.css`
- *    注入当前窗口。字段名可在插件设置里改（默认 `css`）。
+ * ## ⚠️ 全局样式已经不归这个插件管了
  *
- * 这里用到的两个能力是本次改造才加进插件系统的，老版本插件 API 没有：
+ * 以前这里还有一半功能：把 `styles/` 下的每份 `.css` 都当**全局样式**注入，并用一个
+ * 「注入全局样式表」总开关统管。那半截**已经删掉**，改由宿主接管：
+ *
+ *   `<数据目录>/styles/*.css` —— 每一份都注入每个窗口，**没有开关**，
+ *   改完保存约两秒后自动生效（宿主在轮询）。
+ *
+ * 用户入口：**设置 → 外观 → 界面样式**，或标题栏的「样式」按钮。
+ *
+ * 为什么挪走：那是「整个界面长什么样」的事，属于宿主而不是某个插件；而且两套
+ * 「往文件夹里丢 CSS」的机制并存时，用户永远分不清该丢哪一个。现在边界很清楚 ——
+ * **全局归宿主，单篇归这个插件**。
+ *
+ * 这里用到的两个能力：
  * - `api.plugin.listAssets(dir)` / `api.plugin.readAsset(path)`
  *   读插件**自己目录**下的文本资源。不需要权限——插件代码本来就是从那个目录加载的。
  * - `api.ui.registerStyle({ id, css })`
@@ -23,10 +32,7 @@ floral.register({
     const STYLE_DIR = "styles";
 
     let noteStyleKey = "css";
-    let injectGlobals = true;
 
-    /** 已注入的全局样式表：文件名 → 注册 id。 */
-    const globals = new Map();
     /** 上一次处理的 front-matter 取值（**含失败的情况**，避免每次按键都重试）。 */
     let noteStyleName = null;
     let noteStyleId = null;
@@ -65,38 +71,17 @@ floral.register({
       return name.toLowerCase().endsWith(".css") ? name : `${name}.css`;
     }
 
-    /** 重新注入全部全局样式表。先撤旧的，保证改完文件不会留下上一版。 */
-    async function applyGlobals() {
-      for (const id of globals.values()) api.ui.dispose(id);
-      globals.clear();
-
-      if (!injectGlobals) return;
-
-      let files = [];
-      try {
-        files = await api.plugin.listAssets(STYLE_DIR);
-      } catch (error) {
-        api.log.warn(`读取 ${STYLE_DIR}/ 失败：${message(error)}`);
-        return;
-      }
-
-      for (const file of files) {
-        if (!file.toLowerCase().endsWith(".css")) continue;
-        try {
-          const css = await api.plugin.readAsset(`${STYLE_DIR}/${file}`);
-          globals.set(file, await api.ui.registerStyle({ id: file, css }));
-        } catch (error) {
-          api.log.error(`注入 ${file} 失败：${message(error)}`);
-        }
-      }
-    }
-
-    /** 让当前窗口的附加样式与笔记 front-matter 保持一致。 */
-    async function applyNoteStyle() {
+    /**
+     * 让当前窗口的附加样式与笔记 front-matter 保持一致。
+     *
+     * `force` 用于「文件被改过」的情况：取值没变，但那份 `.css` 的内容变了，
+     * 得把上一次的注册撤掉重新读一遍。
+     */
+    async function applyNoteStyle(force = false) {
       const name = frontMatterValue(api.editor.getContentSync(), noteStyleKey);
 
       // 取值没变就什么都不做——这个函数挂在内容变化事件上，逐键重注入会很难看。
-      if (name === noteStyleName) return;
+      if (!force && name === noteStyleName) return;
       noteStyleName = name;
 
       if (noteStyleId) {
@@ -119,22 +104,12 @@ floral.register({
     }
 
     async function reload() {
-      await applyGlobals();
-      await applyNoteStyle();
+      // 强制重读：用户点这个按钮通常就是因为「改完文件了」。
+      await applyNoteStyle(true);
       render();
     }
 
     function render() {
-      const files = [...globals.keys()];
-
-      const globalBody = !injectGlobals
-        ? '<p class="cm-empty">全局注入已在设置里关闭。</p>'
-        : files.length
-          ? `<ul class="cm-list">${files
-              .map((file) => `<li class="cm-item">${escapeHtml(file)}</li>`)
-              .join("")}</ul>`
-          : `<p class="cm-empty">${STYLE_DIR}/ 里还没有样式表。把 .css 放进去后点下面的按钮。</p>`;
-
       const noteBody = noteStyleId
         ? `<p class="cm-note">当前笔记附加：<b>${escapeHtml(noteStyleName)}</b></p>`
         : `<p class="cm-empty">当前笔记没有附加样式。在笔记开头写 <code>${escapeHtml(
@@ -143,14 +118,19 @@ floral.register({
 
       return (
         '<div style="padding:12px 4px;font-size:12px;line-height:1.9;">' +
-        '<div style="font-weight:600;margin-bottom:4px;">全局样式表</div>' +
-        globalBody +
-        '<div style="font-weight:600;margin:14px 0 4px;">单篇笔记</div>' +
+        '<div style="font-weight:600;margin-bottom:4px;">单篇笔记附加样式</div>' +
         noteBody +
-        '<button class="cm-reload" style="margin-top:16px;width:100%;height:30px;border:1px solid var(--color-paper-deep);border-radius:8px;background:transparent;color:var(--color-ink-soft);font-size:12px;cursor:pointer;">重新加载</button>' +
-        '<p class="cm-empty" style="margin-top:10px;">在花笺里改完 ' +
+        '<button class="cm-reload" style="margin-top:16px;width:100%;height:30px;border:1px solid var(--color-paper-deep);border-radius:8px;background:transparent;color:var(--color-ink-soft);font-size:12px;cursor:pointer;">重新读取</button>' +
+        '<div style="font-weight:600;margin:18px 0 4px;">全局样式表</div>' +
+        '<p class="cm-empty" style="margin:0;">全局样式**不在这里**。它们放在数据目录下的 ' +
+        "<code>" +
         STYLE_DIR +
-        "/*.css 保存即生效；用外部编辑器改的，回来点上面的按钮。文件位置：插件面板 → 打开插件文件夹 → css-modifier/" +
+        "/</code>（整个界面共用，没有开关，改完约两秒自动生效）。入口：<b>设置 → 外观 → 界面样式</b>，或标题栏的「样式」按钮。</p>" +
+        '<p class="cm-empty" style="margin-top:10px;">本插件只管**单篇笔记**：把 .css 放进插件目录的 ' +
+        STYLE_DIR +
+        "/，再在笔记开头写 <code>" +
+        escapeHtml(noteStyleKey) +
+        ": 文件名</code>。文件位置：插件面板 → 打开插件文件夹 → css-modifier/" +
         STYLE_DIR +
         "/</p>" +
         "</div>"
@@ -161,15 +141,15 @@ floral.register({
       if (typeof values.noteStyleKey === "string" && values.noteStyleKey.trim()) {
         noteStyleKey = values.noteStyleKey.trim();
       }
-      injectGlobals = values.injectGlobals !== false;
-      return reload();
+      return applyNoteStyle();
     });
 
     /**
      * 宿主在「保存了某个插件自己目录里的文件」时推过来 —— 也就是你在花笺里改完
      * `styles/*.css` 保存的那一刻。比对自己的名字过滤一下，然后重读一遍即可。
      *
-     * ⚠️ 只有**在花笺里保存**才会触发。用外部编辑器改文件不会（那要文件监视器）。
+     * ⚠️ 只有**在花笺里保存**才会触发。用外部编辑器改文件不会（那要文件监视器）——
+     * 那种情况请点上面的「重新读取」。
      */
     let pluginName = null;
     void api.plugin.info().then((info) => {
@@ -184,7 +164,7 @@ floral.register({
           .endsWith(".css")
       )
         return;
-      void reload();
+      void applyNoteStyle(true);
     });
 
     // 内容变化是 150ms 尾节流的，不会每一次按键都打过来。
@@ -204,10 +184,13 @@ floral.register({
 
     api.ui.registerCommand({
       id: "css-modifier.reload",
-      title: "重新加载样式表",
+      title: "重新读取笔记附加样式",
       run: async () => {
         await reload();
-        api.ui.showToast(`已加载 ${globals.size} 份全局样式表`, "info");
+        api.ui.showToast(
+          noteStyleId ? `已套用 ${noteStyleName}` : "当前笔记没有附加样式",
+          "info",
+        );
       },
     });
   },
