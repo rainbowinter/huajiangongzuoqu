@@ -72,6 +72,7 @@ function manifest(overrides: Partial<PluginManifest> = {}): PluginManifest {
     permissions: [],
     grantedPermissions: [],
     enabled: true,
+    requires: [],
     autoUpdate: false,
     valid: true,
     warnings: [],

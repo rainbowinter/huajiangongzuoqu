@@ -1,5 +1,6 @@
-import type { FileType } from "../workspace/fileTypes";
+import type { FileType, ViewToolbarItem } from "../workspace/fileTypes";
 import { readPluginAsset } from "./api";
+import { listViewExtensions } from "./registry";
 import { buildViewDocument, isCompleteViewSpec } from "./viewBridge";
 
 /**
@@ -25,6 +26,51 @@ export function ownerOfFileType(typeId: string): string | null {
 /** 同一种文件类型只读一次：pdf.js 那种库读进来是兆级字符串，别每次打开都重来一遍。 */
 const documentCache = new Map<string, Promise<string>>();
 
+/** 往这个视图里并东西的插件（按注册顺序）。谁扩展了谁，只有被扩展的那个类型 id 知道。 */
+function extensionsFor(typeId: string) {
+  return listViewExtensions().filter((extension) => extension.typeId === typeId);
+}
+
+/**
+ * 这个视图顶上那一排控件：基础插件的在前，扩展的按注册顺序接在后面。
+ *
+ * **id 撞了就丢扩展的那一项**，基础插件赢：id 同时是命令名与状态名，两条同名的控件事后
+ * 根本分不出谁是谁。至于分隔线，它本来就没有 id，照单全收。
+ */
+export function viewToolbarFor(type: FileType): ViewToolbarItem[] {
+  const base = type.view?.toolbar ?? [];
+  const merged: ViewToolbarItem[] = [...base];
+  const taken = new Set(base.flatMap((item) => (item.kind === "separator" ? [] : [item.id])));
+  const dropped: string[] = [];
+
+  for (const extension of extensionsFor(type.id)) {
+    for (const item of extension.toolbar) {
+      if (item.kind === "separator") {
+        merged.push(item);
+        continue;
+      }
+      if (taken.has(item.id)) {
+        dropped.push(item.id);
+        continue;
+      }
+      taken.add(item.id);
+      merged.push(item);
+    }
+  }
+
+  if (dropped.length > 0) {
+    // 不静默：作者会想知道自己那一项为什么没出现。
+    console.warn(`[plugin-view] 工具栏 id 与基础插件重名，已丢掉：${dropped.join("、")}`);
+  }
+
+  return merged;
+}
+
+/** 往这个视图里并了资源的插件名（视图那边要按名字各自开一条数据通道）。 */
+export function viewExtensionOwners(type: FileType): string[] {
+  return extensionsFor(type.id).map((extension) => extension.plugin);
+}
+
 export function loadViewDocument(type: FileType): Promise<string> {
   const cached = documentCache.get(type.id);
   if (cached) return cached;
@@ -37,17 +83,37 @@ export function loadViewDocument(type: FileType): Promise<string> {
     }
 
     const read = (relativePath: string) => readPluginAsset(owner, relativePath);
+    const extensions = extensionsFor(type.id);
+    // 扩展的资源在它自己的插件目录里，得用**它**的名字去读。
+    const readFrom = (plugin: string, relativePath: string) => readPluginAsset(plugin, relativePath);
 
-    const [html, css, js, worker] = await Promise.all([
+    const [html, css, js, worker, extCss, extJs] = await Promise.all([
       read(spec.html),
       Promise.all((spec.css ?? []).map(read)),
       Promise.all((spec.js ?? []).map(read)),
       // worker 只是**文本**：pdf.js 那份 1.4MB 的 worker 源码要原样进到帧里，
       // 由插件自己做成 blob 再 new Worker（帧是 opaque origin，外部地址会被 CORS 挡掉）。
       spec.worker ? read(spec.worker) : Promise.resolve(undefined),
+      Promise.all(
+        extensions.map((extension) =>
+          Promise.all(extension.css.map((path) => readFrom(extension.plugin, path))),
+        ),
+      ),
+      Promise.all(
+        extensions.map((extension) =>
+          Promise.all(extension.js.map((path) => readFrom(extension.plugin, path))),
+        ),
+      ),
     ]);
 
-    return buildViewDocument({ html, css, js, worker });
+    return buildViewDocument({
+      html,
+      // 顺序有意义：基础插件的样式与脚本在前，扩展的接在后面（同一个内联 module，
+      // 于是扩展能看见基础插件的顶层名字，反过来则在它之后才求值）。
+      css: [...css, ...extCss.flat()],
+      js: [...js, ...extJs.flat()],
+      worker,
+    });
   })();
 
   documentCache.set(type.id, pending);

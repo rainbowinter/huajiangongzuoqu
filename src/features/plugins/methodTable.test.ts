@@ -53,6 +53,7 @@ function fakeBridge(overrides: Partial<PluginHostBridge> = {}): PluginHostBridge
     workspaceGetActiveNote: vi.fn(async () => null),
     categoriesList: vi.fn(async () => []),
     categoriesCreate: vi.fn(async () => undefined),
+    registerViewExtension: vi.fn(() => "reg-view"),
     cacheGet: vi.fn(async () => null),
     cacheSet: vi.fn(async () => undefined),
     cacheDelete: vi.fn(async () => false),

@@ -37,10 +37,15 @@ interface PluginViewProps {
   tokens: Record<string, string>;
   /** 取文件字节（PDF 这类二进制走这条）。 */
   loadBytes: () => Promise<ArrayBuffer>;
-  /** 取已存的批注。 */
-  loadAnnotations: () => Promise<unknown>;
-  /** 视图要存批注。宿主负责校验权限与落盘。 */
-  onSaveAnnotations: (data: unknown) => void;
+  /**
+   * 往这个视图里并了资源的插件名。打开文件时按名字各推一份它们已存的数据 ——
+   * 一个视图里可能同时跑着两个插件的代码，各要各的。
+   */
+  dataPlugins: readonly string[];
+  /** 取某个插件在这个文件上存的数据。 */
+  loadData: (plugin: string) => Promise<unknown>;
+  /** 某个插件要存数据。宿主负责校验与落盘。 */
+  onSaveData: (plugin: string, data: unknown) => void;
   /** 视图报上来的工具栏状态。 */
   onState: (values: Record<string, string>, pressed: string[]) => void;
   /** 宿主往视图下命令的口子，由宿主工具栏填。 */
@@ -120,10 +125,13 @@ export function PluginView(props: PluginViewProps) {
           queuedRef.current = [];
           for (const command of queued) post(command);
           sendDocument();
-          void latest.current
-            .loadAnnotations()
-            .then((data) => post({ t: "annotations", data }))
-            .catch(() => post({ t: "annotations", data: null }));
+          // 按插件各推一份。失败当作「没存过」——打不开一份旁挂数据不该让视图起不来。
+          for (const plugin of latest.current.dataPlugins) {
+            void latest.current
+              .loadData(plugin)
+              .then((data) => post({ t: "data", plugin, data }))
+              .catch(() => post({ t: "data", plugin, data: null }));
+          }
           break;
         }
 
@@ -131,8 +139,8 @@ export function PluginView(props: PluginViewProps) {
           sendDocument();
           break;
 
-        case "saveAnnotations":
-          latest.current.onSaveAnnotations(message.data);
+        case "saveData":
+          latest.current.onSaveData(message.plugin, message.data);
           break;
 
         case "state":

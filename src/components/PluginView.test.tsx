@@ -15,8 +15,9 @@ function render() {
       theme="light"
       tokens={{ "--color-paper": "#fbf9f4" }}
       loadBytes={async () => new ArrayBuffer(0)}
-      loadAnnotations={async () => null}
-      onSaveAnnotations={noop}
+      dataPlugins={["pdf-annotations"]}
+      loadData={async () => null}
+      onSaveData={noop}
       onState={noop}
       onToast={noop}
       onLog={noop}

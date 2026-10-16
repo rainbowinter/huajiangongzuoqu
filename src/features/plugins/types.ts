@@ -27,6 +27,13 @@ export interface PluginManifest {
   grantedPermissions: string[];
   /** 清单里的 `contributes`，由前端解析。 */
   contributes?: unknown;
+  /**
+   * 它依赖哪些插件（清单里的 `requires`，写的是**插件名**）。
+   *
+   * 这一版只支持名字、不做版本约束。依赖没装或被停用时它**不会被加载** —— 加载器会按
+   * 依赖顺序来，缺依赖的一律跳过并在插件面板里说明。
+   */
+  requires: string[];
   /** 用户是否启用了这个插件。 */
   enabled: boolean;
   /**
@@ -90,7 +97,9 @@ export type PluginStatus =
   /** 因频繁超时/崩溃被宿主暂停。 */
   | "suspended"
   /** v1 插件，跑在主线程，没有沙箱隔离。 */
-  | "legacy";
+  | "legacy"
+  /** 它依赖的插件不在（没装、或用户把它停用了），所以没加载。 */
+  | "missingDependency";
 
 export interface PluginRuntimeRecord {
   manifest: PluginManifest;

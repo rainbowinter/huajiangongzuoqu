@@ -17,7 +17,7 @@ import { TIMEOUTS, type MethodDescriptor, type PluginInfo } from "./protocol";
 import { PermissionError, checkPermission, type Permission } from "./permissions";
 import type { CodeThemePreference } from "../markdown/codeThemes";
 import type { FontFaceOverride } from "../fonts/fontFace";
-import { parseViewToolbar, type FileViewSpec } from "../workspace/fileTypes";
+import { parseViewToolbar, type FileViewSpec, type ViewToolbarItem } from "../workspace/fileTypes";
 
 export interface CommandContribution {
   id: string;
@@ -200,6 +200,60 @@ export function parseViewSpec(raw: unknown): FileViewSpec | undefined {
 }
 
 /**
+ * 「扩展别人的视图」声明（`files.extendView`）。
+ *
+ * 一个插件把自己的 js / css / 工具栏项并进**另一个插件注册的视图**里（同一个沙箱帧、
+ * 同一个内联 module）。典型用途：批注插件往 PDF 阅读器上叠一层高亮 —— 让批注插件自己
+ * 重新实现一遍 PDF 渲染显然不现实。
+ *
+ * 目标用 `typeId` 指（**带插件名前缀**的那个，`pdf-viewer:pdf`，与 `ownerOfFileType`
+ * 同一套约定）。目标还没注册时也收下 —— 加载顺序不该决定谁能扩展谁。
+ */
+export interface ViewExtensionContribution {
+  typeId: string;
+  css?: string[];
+  js?: string[];
+  toolbar?: ViewToolbarItem[];
+}
+
+/** `typeId` 的形状：`<插件名>:<类型 id>`，两段都是普通名字。 */
+const VIEW_TYPE_ID_PATTERN = /^[A-Za-z0-9_.-]{1,64}:[A-Za-z0-9_.-]{1,64}$/;
+
+/**
+ * 解析扩展声明。与 `parseViewSpec` 同一条原则：**认不出来的一律丢掉，不猜**。
+ *
+ * 三样（css / js / toolbar）一样都没有时整份作废 —— 那是一次什么都没做的调用，
+ * 收下只会让人以为生效了。
+ */
+export function parseViewExtension(raw: unknown): ViewExtensionContribution | undefined {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined;
+  const record = raw as Record<string, unknown>;
+
+  const typeId = typeof record.typeId === "string" ? record.typeId.trim() : "";
+  if (!VIEW_TYPE_ID_PATTERN.test(typeId)) return undefined;
+
+  const paths = (value: unknown): string[] | undefined => {
+    if (!Array.isArray(value)) return undefined;
+    const filtered = value.filter(
+      (item): item is string => typeof item === "string" && item.length > 0,
+    );
+    return filtered.length > 0 ? filtered : undefined;
+  };
+
+  const css = paths(record.css);
+  const js = paths(record.js);
+  const toolbar = parseViewToolbar(record.toolbar);
+  if (!css && !js && !toolbar) return undefined;
+
+  return {
+    typeId,
+    ...(css ? { css } : {}),
+    ...(js ? { js } : {}),
+    ...(toolbar ? { toolbar } : {}),
+  };
+}
+
+/**
  * 字体登记声明。
  *
  * 插件只说"我的字体放在哪个文件夹"，其余全由宿主完成：列文件、生成 asset URL、拼
@@ -246,6 +300,8 @@ export interface PluginHostBridge {
   registerStyle(contribution: StyleContribution): string;
   /** 声明一种可识别的文件类型。 */
   registerFileType(contribution: FileTypeContribution): string;
+  /** 把资源并进**另一个插件注册的视图**。 */
+  registerViewExtension(contribution: ViewExtensionContribution): string;
   openPanel(panelId: string): void;
 
   /** 读插件自己目录下的文本资源（样式表、附加脚本、图标 SVG…）。 */
@@ -566,6 +622,20 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
       });
     },
   },
+  // 往**别人的视图**里并资源。权限与 `files.registerType` 提供视图时那一道**同一个**
+  // （`files:view`）：两者交出去的都是会在沙箱里真的跑起来的代码，能力同一量级。
+  "files.extendView": {
+    timeoutMs: TIMEOUTS.io,
+    permission: "files:view",
+    handler: (ctx, args) => {
+      const extension = parseViewExtension(args[0]);
+      if (!extension) {
+        throw invalidArgument("files.extendView", "要给出 typeId，以及 css / js / toolbar 之一");
+      }
+      return ctx.bridge.registerViewExtension(extension);
+    },
+  },
+
   // ---- fonts（插件自带字体）
   //
   // 不需要权限：宿主自己读盘、自己拼 `@font-face`，插件既拿不到路径也塞不进任意 CSS,

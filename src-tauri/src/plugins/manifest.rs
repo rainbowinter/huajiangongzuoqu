@@ -45,6 +45,12 @@ pub struct PluginManifestFile {
     pub homepage: Option<String>,
     #[serde(default)]
     pub permissions: Vec<String>,
+    /// 依赖哪些**插件**（写名字）。宿主按这个排加载顺序，缺依赖就不加载它。
+    ///
+    /// 由前端解析怎么用（`loader.rs` 那侧的顺序与判据都在 `features/plugins/loader.ts`），
+    /// Rust 只管原样带过去 —— 与 `permissions` / `contributes` 同一条规矩。
+    #[serde(default)]
+    pub requires: Vec<String>,
     #[serde(default)]
     pub contributes: Option<serde_json::Value>,
     /// 图标：插件目录下的**相对路径**（`.svg` / `.png` 之类）。没写就用宿主的默认图标。
@@ -67,6 +73,8 @@ pub struct PluginManifest {
     pub homepage: Option<String>,
     pub permissions: Vec<String>,
     pub granted_permissions: Vec<String>,
+    /// 依赖的插件名（清单里的 `requires`，原样带过来）。
+    pub requires: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contributes: Option<serde_json::Value>,
     pub enabled: bool,
@@ -235,6 +243,7 @@ pub fn to_dto(
         homepage: manifest.homepage.clone(),
         permissions: manifest.permissions.clone(),
         granted_permissions,
+        requires: manifest.requires.clone(),
         contributes: manifest.contributes.clone(),
         enabled,
         auto_update,
@@ -262,6 +271,7 @@ mod tests {
             author: None,
             homepage: None,
             permissions: Vec::new(),
+            requires: Vec::new(),
             contributes: None,
             icon: None,
         }

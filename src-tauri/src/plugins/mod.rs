@@ -80,6 +80,7 @@ fn invalid_record(
         homepage: None,
         permissions: Vec::new(),
         granted_permissions: Vec::new(),
+        requires: Vec::new(),
         contributes: None,
         enabled: false,
         // 清单都读不出来，更谈不上自动更新。

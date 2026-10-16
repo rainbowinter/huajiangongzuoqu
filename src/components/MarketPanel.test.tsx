@@ -235,6 +235,7 @@ describe("市场列表的顺序与搜索", () => {
       permissions: [],
       grantedPermissions: [],
       enabled: true,
+      requires: [],
       autoUpdate: false,
       origin: "market",
       valid: true,

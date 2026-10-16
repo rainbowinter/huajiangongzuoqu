@@ -124,6 +124,7 @@ const STATUS_LABEL: Record<PluginStatus, string> = {
   invalid: "清单无效",
   failed: "加载失败",
   suspended: "已暂停",
+  missingDependency: "缺依赖",
 };
 
 const STATUS_TONE: Record<PluginStatus, string> = {
@@ -133,6 +134,9 @@ const STATUS_TONE: Record<PluginStatus, string> = {
   invalid: "text-rust bg-rust-mist/40",
   failed: "text-rust bg-rust-mist/40",
   suspended: "text-rust bg-rust-mist/40",
+  // 缺依赖用琥珀色而不是红色：这不是坏掉了，是「还差一步」——
+  // 把依赖装上/打开它就活过来了。
+  missingDependency: "text-amber bg-paper-warm",
 };
 
 /**

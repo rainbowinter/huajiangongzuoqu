@@ -89,7 +89,7 @@ async function doLoad(): Promise<void> {
     return;
   }
 
-  for (const manifest of manifests) {
+  for (const manifest of loadOrder(manifests)) {
     if (!manifest.enabled) {
       registerLoadedPlugin(manifest, "disabled");
       continue;
@@ -98,6 +98,18 @@ async function doLoad(): Promise<void> {
     if (!manifest.valid) {
       // 坏掉的插件也要在界面上出现，否则用户只会觉得"插件没生效"。
       registerLoadedPlugin(manifest, "invalid", manifest.invalidReason);
+      continue;
+    }
+
+    // 依赖没满足就**不加载**：它会去扩展/调用那个插件，而那个插件根本不在。
+    // 让它半死不活地跑起来，报出来的错会离真正的原因很远。
+    const missing = missingDependencies(manifest, manifests);
+    if (missing.length > 0) {
+      registerLoadedPlugin(
+        manifest,
+        "missingDependency",
+        `需要 ${missing.join("、")}（没装，或者被停用了）`,
+      );
       continue;
     }
 
@@ -113,6 +125,62 @@ async function doLoad(): Promise<void> {
       showToast(`插件 ${manifest.name} 加载失败：${message}`);
     }
   }
+}
+
+/**
+ * 按依赖关系排出加载顺序：**被依赖的先加载**。
+ *
+ * 插件加载是有先后的（后者可能要去找前者注册的文件类型、视图），所以不能只按名字的字母序
+ * 来 —— 那正是这一版之前干的事。这里做拓扑排序：
+ *
+ * * 依赖已经排过的先放；
+ * * **成环的**（A 要 B、B 要 A）一组都放最后 —— 谁也没法先于谁，与其死循环不如让它们
+ *   各自去撞「依赖没满足」那道门，那里给出的提示比「卡住」有用得多；
+ * * 不认识的依赖名**不在这里报错**：同一个名字可能属于一个 `valid: false` 的插件，
+ *   「它坏了」这件事该由那一条自己去说。
+ *
+ * 顺序不稳定不影响正确性（依赖该满足的照样满足），但会让日志难对，所以同一批里保持
+ * 传进来的次序（`Array.prototype.sort` 自 ES2019 起是稳定的）。
+ */
+export function loadOrder(manifests: readonly PluginManifest[]): PluginManifest[] {
+  const byName = new Map(manifests.map((manifest) => [manifest.name, manifest]));
+  const ordered: PluginManifest[] = [];
+  const settled = new Set<string>();
+
+  const visit = (manifest: PluginManifest, chain: Set<string>): void => {
+    if (settled.has(manifest.name)) return;
+    // 环：把这一条原样放进去（下面 missingDependencies 会拦住它），别再往下递归。
+    if (chain.has(manifest.name)) return;
+    chain.add(manifest.name);
+
+    for (const dependency of manifest.requires ?? []) {
+      const target = byName.get(dependency);
+      if (target) visit(target, chain);
+    }
+
+    chain.delete(manifest.name);
+    settled.add(manifest.name);
+    ordered.push(manifest);
+  };
+
+  for (const manifest of manifests) visit(manifest, new Set());
+  return ordered;
+}
+
+/**
+ * 这个插件的依赖里，哪些没被满足。
+ *
+ * 判据是「装了、而且**启用着**」：停用某一个插件时，依赖它的那些也该跟着起不来 ——
+ * 否则它们会对着一个没注册任何东西的宿主报一堆看不懂的错。
+ */
+export function missingDependencies(
+  manifest: PluginManifest,
+  manifests: readonly PluginManifest[],
+): string[] {
+  const available = new Set(
+    manifests.filter((item) => item.enabled && item.valid).map((item) => item.name),
+  );
+  return (manifest.requires ?? []).filter((name) => !available.has(name));
 }
 
 /**

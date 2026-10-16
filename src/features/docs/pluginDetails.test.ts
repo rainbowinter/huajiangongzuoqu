@@ -13,6 +13,7 @@ function manifest(overrides: Partial<PluginManifest> = {}): PluginManifest {
     permissions: ["ui:panel", "editor:write"],
     grantedPermissions: ["ui:panel", "editor:write"],
     enabled: true,
+    requires: [],
     autoUpdate: false,
     valid: true,
     warnings: [],

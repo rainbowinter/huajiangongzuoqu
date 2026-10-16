@@ -72,6 +72,7 @@ import {
   type StatusBarContribution,
   type StyleContribution,
   type ToolbarContribution,
+  type ViewExtensionContribution,
 } from "../methodTable";
 import { isGranted, unknownPermissions } from "../permissions";
 import {
@@ -93,7 +94,9 @@ import {
   registerPopover,
   registerSelectionTransformer,
   registerToolbarButton,
+  registerViewExtension,
 } from "../registry";
+import { clearViewDocumentCache } from "../viewAssets";
 import {
   addStatusBarItemId,
   clearGutterLines,
@@ -791,6 +794,30 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
       document.head.appendChild(element);
 
       return registrations.add(toDisposable(() => element.remove()));
+    },
+
+    registerViewExtension(extension: ViewExtensionContribution) {
+      // 与「提供视图」同一道门：并进去的 js 会在沙箱里真的跑起来，能力同一量级。
+      // 视图那边 `files:view` 是这么判的，这里照抄，两处对不上的话会留下一个绕过口。
+      if (!isGranted(declared, granted, "files:view")) {
+        throw Object.assign(new Error("扩展别人的视图需要 files:view 权限"), {
+          code: "permissionDenied",
+          details: { permission: "files:view" },
+        });
+      }
+
+      const dispose = registerViewExtension({
+        typeId: extension.typeId,
+        plugin: owner,
+        css: extension.css ?? [],
+        js: extension.js ?? [],
+        toolbar: extension.toolbar ?? [],
+      });
+
+      // 视图文档是按类型 id 缓存的，扩展一变就得让它重拼 —— 否则「装了批注插件但界面
+      // 还是老的」要等下次重启。这里只清这一种类型，实在没有别的办法知道谁在读它。
+      clearViewDocumentCache();
+      return registrations.add(dispose);
     },
 
     readPluginAsset: (relativePath) => readPluginAsset(owner, relativePath),

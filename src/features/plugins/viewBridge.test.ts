@@ -45,18 +45,26 @@ describe("校验视图发来的消息", () => {
     expect(message && "message" in message ? message.message.length : 0).toBe(1000);
   });
 
-  test("批注超过上限直接丢 —— 别让一条消息把宿主撑爆", () => {
+  test("数据超过上限直接丢 —— 别让一条消息把宿主撑爆", () => {
     const huge = { blob: "x".repeat(MAX_ANNOTATION_CHARS + 10) };
-    expect(parseViewMessage({ t: "saveAnnotations", data: huge })).toBeNull();
+    expect(parseViewMessage({ t: "saveData", plugin: "demo", data: huge })).toBeNull();
 
-    const ok = parseViewMessage({ t: "saveAnnotations", data: { page: 1 } });
-    expect(ok).toEqual({ t: "saveAnnotations", data: { page: 1 } });
+    const ok = parseViewMessage({ t: "saveData", plugin: "demo", data: { page: 1 } });
+    expect(ok).toEqual({ t: "saveData", plugin: "demo", data: { page: 1 } });
+  });
+
+  test("数据必须带一个像样的插件名 —— 它决定这份数据算谁的", () => {
+    // 少了名字就没法归属：一个视图里可能同时跑着两个插件的代码。
+    expect(parseViewMessage({ t: "saveData", data: { page: 1 } })).toBeNull();
+    expect(parseViewMessage({ t: "saveData", plugin: "", data: 1 })).toBeNull();
+    expect(parseViewMessage({ t: "saveData", plugin: "a/b", data: 1 })).toBeNull();
+    expect(parseViewMessage({ t: "saveData", plugin: "上标", data: 1 })).toBeNull();
   });
 
   test("序列化不了的数据也丢", () => {
     const circular: Record<string, unknown> = {};
     circular.self = circular;
-    expect(parseViewMessage({ t: "saveAnnotations", data: circular })).toBeNull();
+    expect(parseViewMessage({ t: "saveData", plugin: "demo", data: circular })).toBeNull();
   });
 });
 

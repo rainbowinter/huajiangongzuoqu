@@ -11,6 +11,8 @@
  * 面板订阅都依赖它，改成事件总线会牵动一大片 React 代码。
  */
 
+import type { ViewToolbarItem } from "../workspace/fileTypes";
+
 /**
  * ⚠️ **本模块持有全局状态，改动它必须整页刷新，不能做局部热替换。**
  *
@@ -243,6 +245,35 @@ export function registerEditorGutter(owner: string, gutter: PluginEditorGutter):
   return editorGutters.register(owner, gutter);
 }
 
+/**
+ * 往**别人的**视图里加东西的那一份声明（`files.extendView`）。
+ *
+ * 与别的注册表不同，它不是「宿主照着渲染一个控件」，而是「视图拼装时把这些资源并进去」——
+ * 所以没有 `subscribe` 的消费者，只有 `viewAssets` 在拼 srcdoc 时读一次。
+ */
+export interface PluginViewExtension {
+  /** 目标视图的类型 id，**带插件名前缀**（`pdf-viewer:pdf`）。 */
+  typeId: string;
+  /** 谁扩展的。数据通道按它归属，卸载时也按它清。 */
+  plugin: string;
+  /** 相对插件目录的样式表 / 脚本。 */
+  css: string[];
+  js: string[];
+  /** 追加到那一排的控件（id 与基础插件的撞了的话，**基础插件赢**）。 */
+  toolbar: ViewToolbarItem[];
+}
+
+const viewExtensions = new OwnedRegistry<PluginViewExtension>();
+
+export function registerViewExtension(extension: PluginViewExtension): Disposable {
+  return viewExtensions.register(extension.plugin, extension);
+}
+
+/** 所有扩展声明。调用方（`viewAssets`）自己按 `typeId` 过滤。 */
+export function listViewExtensions(): readonly PluginViewExtension[] {
+  return viewExtensions.list();
+}
+
 export function listEditorGutters(): readonly PluginEditorGutter[] {
   return editorGutters.list();
 }
@@ -450,6 +481,7 @@ export function unregisterPlugin(name: string): void {
   popovers.removeOwner(name);
   editorGutters.removeOwner(name);
   decorations.removeOwner(name);
+  viewExtensions.removeOwner(name);
   plugins.removeOwner(name);
 }
 
@@ -472,6 +504,7 @@ export function clearAllPlugins(): void {
   // 色块（React 报 "two children with the same key"）。
   editorGutters.clear();
   decorations.clear();
+  viewExtensions.clear();
   plugins.clear();
 }
 
@@ -486,6 +519,7 @@ export function pluginRegistrySizes(): Record<string, number> {
     noteMenuItems: noteMenuItems.size,
     toolbarButtons: toolbarButtons.size,
     popovers: popovers.size,
+    viewExtensions: viewExtensions.size,
     plugins: plugins.size,
   };
 }

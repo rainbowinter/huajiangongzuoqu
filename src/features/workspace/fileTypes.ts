@@ -151,11 +151,36 @@ export type ViewToolbarItem =
   | { kind: "readout"; id: string; title?: string }
   /** 输入框，回车提交（页码跳转这种）。 */
   | { kind: "input"; id: string; title?: string; placeholder?: string; width?: number }
+  /**
+   * 按钮 + 下拉：**选一个**（标注方式、颜色盘这类）。
+   *
+   * 当前选中的是哪个由 `state.values[id]` 说了算（按钮上就显示那一项的文字），选中一项会发
+   * `{ t: "command", id, value }`。选项带 `color` 时画成色块 —— 于是**同一个控件既能选工具
+   * 也能选颜色**，不必再加一种。
+   */
+  | { kind: "menu"; id: string; label: string; title?: string; options: ViewToolbarOption[] }
   /** 竖线分隔。 */
   | { kind: "separator" };
 
-/** 一份声明里最多几项 —— 工具栏是窄条，几十项也没地方放。 */
-const MAX_TOOLBAR_ITEMS = 16;
+/** `menu` 里的一项。 */
+export interface ViewToolbarOption {
+  /** 选中它时发回去的那个值。 */
+  value: string;
+  label: string;
+  /** 任意合法 CSS 颜色。有它就画一个色块，颜色盘靠这个。 */
+  color?: string;
+  title?: string;
+}
+
+/**
+ * 一份声明里最多几项 —— 工具栏是窄条，几十项也没地方放。
+ *
+ * 24 而不是 16：**这一排是两个插件共用的**（被扩展的视图 + 扩展它的插件，见
+ * `files.extendView`）。PDF 阅读器自己就用掉 13 项，批注再叠几项就顶到旧上限了。
+ */
+const MAX_TOOLBAR_ITEMS = 24;
+/** 一个下拉里最多几项。再长就该翻页或分类了，那是插件自己的事。 */
+const MAX_MENU_OPTIONS = 24;
 /** `id` 只允许这些字符：它要落到 `key`、`data-*` 与消息里，别给自己找转义的麻烦。 */
 const TOOLBAR_ID_PATTERN = /^[A-Za-z0-9_.-]{1,48}$/;
 const MAX_LABEL = 24;
@@ -169,6 +194,37 @@ function boundedText(value: unknown, max: number): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 && trimmed.length <= max ? trimmed : undefined;
+}
+
+/** `menu` 的选项表。一项都认不出来时返回 `undefined`（调用方据此丢掉整个菜单）。 */
+function parseMenuOptions(raw: unknown): ViewToolbarOption[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+
+  const options: ViewToolbarOption[] = [];
+  const seen = new Set<string>();
+
+  for (const entry of raw.slice(0, MAX_MENU_OPTIONS)) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) continue;
+    const record = entry as Record<string, unknown>;
+
+    const value = boundedText(record.value, 48);
+    const label = boundedText(record.label, MAX_LABEL);
+    if (!value || !label || seen.has(value)) continue;
+    seen.add(value);
+
+    // 颜色只当字符串收下，画的时候交给浏览器的 CSSOM —— 它只会在那个元素的
+    // `background-color` 上生效，写歪了顶多是不显示，穿不出一个元素之外。
+    const color = boundedText(record.color, 32);
+    const title = boundedText(record.title, MAX_TITLE);
+    options.push({
+      value,
+      label,
+      ...(color ? { color } : {}),
+      ...(title ? { title } : {}),
+    });
+  }
+
+  return options.length > 0 ? options : undefined;
 }
 
 /**
@@ -228,6 +284,16 @@ export function parseViewToolbar(raw: unknown): ViewToolbarItem[] | undefined {
         ...(placeholder ? { placeholder } : {}),
         ...(width ? { width } : {}),
       });
+      continue;
+    }
+
+    if (record.kind === "menu") {
+      const label = boundedText(record.label, MAX_LABEL);
+      const options = parseMenuOptions(record.options);
+      // 一个可选项都没有的下拉是个死按钮，不如不给。
+      if (!label || !options) continue;
+      seen.add(id);
+      items.push({ kind: "menu", id, label, ...(title ? { title } : {}), options });
     }
   }
 

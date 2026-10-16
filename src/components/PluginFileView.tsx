@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { FileType } from "../features/workspace/fileTypes";
-import { loadViewDocument } from "../features/plugins/viewAssets";
+import { loadViewDocument, viewExtensionOwners, viewToolbarFor } from "../features/plugins/viewAssets";
 import { readThemeTokens } from "../features/plugins/themeTokens";
-import { readExternalFileBytes } from "../features/notes/api";
-import { readWorkspaceFileBytes } from "../features/workspace/api";
+import { getErrorMessage, readExternalFileBytes } from "../features/notes/api";
+import {
+  readWorkspaceCache,
+  readWorkspaceFileBytes,
+  writeWorkspaceCache,
+} from "../features/workspace/api";
 import { PluginView, type PluginViewApi } from "./PluginView";
 import {
   EMPTY_TOOLBAR_STATE,
@@ -80,7 +84,9 @@ export function PluginFileView({ path, type }: PluginFileViewProps) {
   const [toolbarState, setToolbarState] = useState<ViewToolbarState>(EMPTY_TOOLBAR_STATE);
   // 往视图里下命令的口子，由 PluginView 挂上来。
   const apiRef = useRef<PluginViewApi | null>(null);
-  const toolbarItems = type.view?.toolbar ?? [];
+  // 顶上那排控件是**基础插件与扩展插件共用**的（`viewToolbarFor` 把两边合起来）。
+  const toolbarItems = viewToolbarFor(type);
+  const extensionOwners = viewExtensionOwners(type);
 
   useEffect(() => {
     let cancelled = false;
@@ -141,11 +147,20 @@ export function PluginFileView({ path, type }: PluginFileViewProps) {
         loadBytes={() =>
           readWorkspaceFileBytes(path).catch(() => readExternalFileBytes(path))
         }
-        // 批注存储还没接上（它要挑一个落盘格式，见 `Docs/pdf-viewer.md` 里「还没做的」）。
-        // 现在的查看器不存批注，所以这条路径暂时没人走；等马克笔做进来时在这里接上。
-        loadAnnotations={async () => null}
-        onSaveAnnotations={() => {
-          console.warn("[plugin-view] 批注存储尚未接入，这次保存被丢弃");
+        // 数据落在**这个文件旁边**的 `__floral-notepaper__/<插件>/…` 里（见
+        // `Docs/workspace-cache.md`）：文件被拷走、发给别人时，批注跟着走。
+        dataPlugins={extensionOwners}
+        loadData={(plugin) => readWorkspaceCache(path, plugin)}
+        onSaveData={(plugin, data) => {
+          void writeWorkspaceCache(path, plugin, data).catch((error: unknown) => {
+            // 写不进去得说出来：只读位置（U 盘、网盘）上用户的批注是真的会丢。
+            showToast(
+              t("main.view.saveDataFailed", {
+                message: getErrorMessage(error),
+                defaultValue: "这个位置存不了插件的批注数据：{{message}}",
+              }),
+            );
+          });
         }}
         onToast={showToast}
         onLog={(level, message) => {

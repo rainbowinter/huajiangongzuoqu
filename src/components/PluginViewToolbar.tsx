@@ -1,5 +1,6 @@
-import { useState } from "react";
-import type { ViewToolbarItem } from "../features/workspace/fileTypes";
+import { useEffect, useState } from "react";
+import type { ViewToolbarItem, ViewToolbarOption } from "../features/workspace/fileTypes";
+import { useViewportPopupPosition, type PopupPosition } from "./popupPosition";
 
 /**
  * 预览区顶上那排控件 —— **宿主渲染，插件只声明**（`view.toolbar`）。
@@ -72,6 +73,155 @@ function ToolbarInput({
   );
 }
 
+/**
+ * 按钮 + 下拉。
+ *
+ * 下拉**贴在按钮下面**（`useViewportPopupPosition` 会把它夹回视口里），点一项就收起来 ——
+ * 它是个选择器，不是浮层那种要连点好几下的面板。
+ *
+ * 当前选中项来自 `state.values[id]`：**按钮上显示的就是那一项的文字**，所以从外面看
+ * 「现在用的是什么工具 / 什么颜色」一眼就知道，不必点开。
+ */
+function ToolbarMenu({
+  item,
+  value,
+  onCommand,
+}: {
+  item: Extract<ViewToolbarItem, { kind: "menu" }>;
+  value: string;
+  onCommand: (id: string, value?: string) => void;
+}) {
+  const [anchor, setAnchor] = useState<PopupPosition | null>(null);
+  const { popupRef, popupPosition } = useViewportPopupPosition(anchor);
+
+  useEffect(() => {
+    if (!anchor) return;
+    const close = (event: MouseEvent) => {
+      // 点在下拉里交给各选项自己收；点别处（含触发按钮）一律关掉。
+      if (!popupRef.current?.contains(event.target as Node)) setAnchor(null);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAnchor(null);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [anchor, popupRef]);
+
+  const current = item.options.find((option) => option.value === value);
+  const open = anchor !== null;
+
+  return (
+    <>
+      <button
+        type="button"
+        title={item.title ?? item.label}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={(event) => {
+          if (open) {
+            setAnchor(null);
+            return;
+          }
+          const rect = event.currentTarget.getBoundingClientRect();
+          setAnchor({ x: rect.left, y: rect.bottom + 4 });
+        }}
+        className={`${BUTTON_BASE} gap-1.5 ${open ? BUTTON_ACTIVE : BUTTON_IDLE}`}
+      >
+        {current?.color ? <Swatch color={current.color} /> : null}
+        {current?.label ?? item.label}
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          className="w-2.5 h-2.5 opacity-70"
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+
+      {anchor ? (
+        <div
+          ref={popupRef}
+          role="menu"
+          aria-label={item.title ?? item.label}
+          className="popup-menu fixed z-[9999] min-w-[132px] py-1 bg-cloud/95 backdrop-blur-sm border border-paper-deep/50 rounded-lg shadow-lg animate-menu-enter"
+          style={{ left: popupPosition?.x ?? anchor.x, top: popupPosition?.y ?? anchor.y }}
+          // 下拉里的点击不该冒到外面去（外面的监听会把它当成「点了别处」而关掉）。
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          {item.options.map((option) => (
+            <MenuOption
+              key={option.value}
+              option={option}
+              selected={option.value === value}
+              onPick={() => {
+                onCommand(item.id, option.value);
+                setAnchor(null);
+              }}
+            />
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function Swatch({ color }: { color: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="w-3 h-3 rounded-[3px] ring-1 ring-ink/15 shrink-0"
+      style={{ backgroundColor: color }}
+    />
+  );
+}
+
+function MenuOption({
+  option,
+  selected,
+  onPick,
+}: {
+  option: ViewToolbarOption;
+  selected: boolean;
+  onPick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitemradio"
+      aria-checked={selected}
+      title={option.title ?? option.label}
+      onClick={onPick}
+      className={`w-full flex items-center gap-2 px-2.5 h-7 text-left text-[11.5px] transition-colors cursor-pointer ${
+        selected ? "text-bamboo bg-bamboo-mist/50" : "text-ink-soft hover:bg-paper-warm"
+      }`}
+    >
+      {option.color ? <Swatch color={option.color} /> : null}
+      <span className="flex-1 truncate">{option.label}</span>
+      {selected ? (
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="w-3 h-3 shrink-0"
+        >
+          <path d="M20 6 9 17l-5-5" />
+        </svg>
+      ) : null}
+    </button>
+  );
+}
+
 export function PluginViewToolbar({ items, state, onCommand }: PluginViewToolbarProps) {
   if (items.length === 0) return null;
 
@@ -98,6 +248,17 @@ export function PluginViewToolbar({ items, state, onCommand }: PluginViewToolbar
         if (item.kind === "input") {
           return (
             <ToolbarInput
+              key={item.id}
+              item={item}
+              value={state.values[item.id] ?? ""}
+              onCommand={onCommand}
+            />
+          );
+        }
+
+        if (item.kind === "menu") {
+          return (
+            <ToolbarMenu
               key={item.id}
               item={item}
               value={state.values[item.id] ?? ""}

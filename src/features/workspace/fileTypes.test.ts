@@ -296,12 +296,75 @@ describe("校验插件声明的视图工具栏", () => {
   });
 
   it("项数封顶，多的直接砍掉", () => {
-    const many = Array.from({ length: 40 }, (_, index) => ({
+    const many = Array.from({ length: 60 }, (_, index) => ({
       kind: "button",
       id: `b${index}`,
       label: "x",
     }));
 
-    expect(parseViewToolbar(many)).toHaveLength(16);
+    // 24 而不是更小：这一排是**被扩展的视图与扩展它的插件共用**的，
+    // PDF 阅读器自己就用掉 13 项。
+    expect(parseViewToolbar(many)).toHaveLength(24);
+  });
+
+  it("下拉菜单：认得出 value/label，颜色原样带过来", () => {
+    expect(
+      parseViewToolbar([
+        {
+          kind: "menu",
+          id: "tool",
+          label: "标注",
+          title: "标注方式",
+          options: [
+            { value: "rect", label: "矩形" },
+            { value: "pen", label: "自由笔", color: "#ffd400" },
+          ],
+        },
+      ]),
+    ).toEqual([
+      {
+        kind: "menu",
+        id: "tool",
+        label: "标注",
+        title: "标注方式",
+        options: [
+          { value: "rect", label: "矩形" },
+          { value: "pen", label: "自由笔", color: "#ffd400" },
+        ],
+      },
+    ]);
+  });
+
+  it("下拉里一项都认不出来时，整个菜单丢掉（不给一个点开是空的死按钮）", () => {
+    for (const options of [undefined, [], "矩形", [{ value: "a" }], [{ label: "矩形" }], [{}]]) {
+      expect(
+        parseViewToolbar([{ kind: "menu", id: "tool", label: "标注", options }]),
+      ).toBeUndefined();
+    }
+  });
+
+  it("下拉里坏掉的选项丢掉，好的留下；value 重名的只留第一个", () => {
+    const items = parseViewToolbar([
+      {
+        kind: "menu",
+        id: "tool",
+        label: "标注",
+        options: [
+          { value: "rect", label: "矩形" },
+          { value: "rect", label: "重名的" },
+          { value: "", label: "空值" },
+          { value: "pen" },
+          { value: "ellipse", label: "圆形" },
+        ],
+      },
+    ]);
+
+    expect(items?.[0]).toMatchObject({
+      kind: "menu",
+      options: [
+        { value: "rect", label: "矩形" },
+        { value: "ellipse", label: "圆形" },
+      ],
+    });
   });
 });

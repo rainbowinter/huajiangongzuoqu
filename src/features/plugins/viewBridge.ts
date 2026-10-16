@@ -10,11 +10,15 @@ import type { FileViewSpec } from "../workspace/fileTypes";
  * 这个文件是纯函数，不碰 DOM —— 拼 srcdoc 与校验消息都是最容易出错、又最适合单测的部分。
  */
 
+/** 插件名的形状。数据通道按它归属，所以这一层也要挡一道。 */
+const PLUGIN_NAME_PATTERN = /^[A-Za-z0-9_.-]{1,64}$/;
+
 /** 视图 → 宿主。 */
 export type ViewMessage =
   | { t: "ready" }
   | { t: "requestDocument" }
-  | { t: "saveAnnotations"; data: unknown }
+  /** 这个文件上、**某个插件**的数据（批注这类）。见 `HostMessage.data`。 */
+  | { t: "saveData"; plugin: string; data: unknown }
   | { t: "log"; level: "info" | "warn" | "error"; message: string }
   | { t: "toast"; message: string }
   /**
@@ -37,7 +41,13 @@ export type HostMessage =
       tokens: Record<string, string>;
     }
   | { t: "document"; bytes: ArrayBuffer }
-  | { t: "annotations"; data: unknown }
+  /**
+   * 已存的那份数据（打开文件时按插件各推一份）。`plugin` 说是谁的。
+   *
+   * ⚠️ 视图里可能同时跑着**两个插件**的代码（被扩展的视图 + 扩展它的插件），所以数据
+   * 必须带归属 —— 否则扩展插件分不清哪份是自己的。
+   */
+  | { t: "data"; plugin: string; data: unknown }
   | { t: "documentError"; message: string }
   /**
    * 用户改了主题（深浅色 / 主题色 / 自定义颜色）。
@@ -78,7 +88,9 @@ export function parseViewMessage(raw: unknown): ViewMessage | null {
     case "requestDocument":
       return { t: "requestDocument" };
 
-    case "saveAnnotations": {
+    case "saveData": {
+      const plugin = typeof raw.plugin === "string" ? raw.plugin : "";
+      if (!PLUGIN_NAME_PATTERN.test(plugin)) return null;
       // 尺寸先在这里挡一道（序列化一遍，超了就丢）。真正的落盘上限在 Rust 侧才作数。
       let serialized: string;
       try {
@@ -87,7 +99,7 @@ export function parseViewMessage(raw: unknown): ViewMessage | null {
         return null;
       }
       if (serialized.length > MAX_ANNOTATION_CHARS) return null;
-      return { t: "saveAnnotations", data: raw.data ?? null };
+      return { t: "saveData", plugin, data: raw.data ?? null };
     }
 
     case "log": {
@@ -147,10 +159,10 @@ const VIEW_PRELUDE = `
 const floralViewMessage = (payload) => parent.postMessage(payload, "*");
 const floralViewListeners = [];
 const floralCommandHandlers = [];
+const floralDataListeners = [];
 window.floralView = {
   ready: () => floralViewMessage({ t: "ready" }),
   requestDocument: () => floralViewMessage({ t: "requestDocument" }),
-  saveAnnotations: (data) => floralViewMessage({ t: "saveAnnotations", data }),
   toast: (message) => floralViewMessage({ t: "toast", message }),
   log: (level, message) => floralViewMessage({ t: "log", level, message }),
   onMessage: (handler) => { floralViewListeners.push(handler); },
@@ -158,12 +170,30 @@ window.floralView = {
   onCommand: (handler) => { floralCommandHandlers.push(handler); },
   // 工具栏要显示什么也由视图说：values 覆盖各项文本（按钮的也能盖），pressed 是点亮的开关。
   setState: (values, pressed) => floralViewMessage({ t: "state", values: values || {}, pressed: pressed || [] }),
+  /**
+   * 这个文件上、**属于某个插件**的数据（批注这类）。
+   *
+   * 一个视图里可能同时跑着两个插件的代码（被扩展的 + 扩展它的），所以数据要按插件分开：
+   * 各写各的，各收各的。**名字是自己报的** —— 宿主认不了「你到底是哪个插件」，这一点写在
+   * 文档里：扩展方与被扩展方本来就共享同一个沙箱帧，属于同一个信任域。
+   */
+  data: (plugin) => ({
+    write: (data) => floralViewMessage({ t: "saveData", plugin, data }),
+    onData: (handler) => { floralDataListeners.push({ plugin, handler }); },
+  }),
 };
 window.addEventListener("message", (event) => {
   const data = event.data;
-  if (data && typeof data === "object" && data.t === "command") {
+  if (!data || typeof data !== "object") return;
+  if (data.t === "command") {
     for (const handler of floralCommandHandlers) {
       try { handler(data); } catch (error) { console.error("[view] 处理命令出错", error); }
+    }
+  }
+  if (data.t === "data") {
+    for (const entry of floralDataListeners) {
+      if (entry.plugin !== data.plugin) continue;
+      try { entry.handler(data.data); } catch (error) { console.error("[view] 处理数据出错", error); }
     }
   }
   for (const handler of floralViewListeners) {

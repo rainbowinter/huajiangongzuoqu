@@ -32,6 +32,7 @@ function manifest(name: string, apiVersion = 2): PluginManifest {
     permissions: [],
     grantedPermissions: [],
     enabled: true,
+    requires: [],
     autoUpdate: false,
     valid: true,
     warnings: [],

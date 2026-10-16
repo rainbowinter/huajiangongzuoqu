@@ -629,6 +629,7 @@ mod tests {
             author: None,
             homepage: None,
             permissions: Vec::new(),
+            requires: Vec::new(),
             contributes: None,
             icon: None,
         }

@@ -66,3 +66,68 @@ describe("视图工具栏", () => {
     expect(markup).toContain('title="跳转到页"');
   });
 });
+
+/**
+ * 下拉菜单（`kind: "menu"`）：选工具、选颜色都用它。
+ *
+ * 下拉本体是点开才渲染的，所以静态渲染只能验「**没点开时按钮上写着什么**」——
+ * 那恰好是最要紧的一条：当前用的是什么工具 / 什么颜色，不点开就该看得见。
+ */
+describe("视图工具栏的下拉菜单", () => {
+  const MENU = parseViewToolbar([
+    {
+      kind: "menu",
+      id: "tool",
+      label: "标注",
+      title: "标注方式",
+      options: [
+        { value: "rect", label: "矩形" },
+        { value: "ellipse", label: "圆形" },
+      ],
+    },
+    {
+      kind: "menu",
+      id: "color",
+      label: "颜色",
+      options: [
+        { value: "yellow", label: "黄", color: "#ffd400" },
+        { value: "green", label: "绿", color: "#9bd67c" },
+      ],
+    },
+  ])!;
+
+  function render(values: Record<string, string>): string {
+    return renderToStaticMarkup(
+      <PluginViewToolbar items={MENU} state={{ values, pressed: [] }} onCommand={vi.fn()} />,
+    );
+  }
+
+  test("没选过任何一项时显示声明里的 label", () => {
+    const markup = render({});
+
+    expect(markup).toContain(">标注<");
+    expect(markup).toContain(">颜色<");
+  });
+
+  test("选中之后按钮上写的是**那一项的文字** —— 不点开就知道现在用的是什么", () => {
+    const markup = render({ tool: "ellipse", color: "green" });
+
+    expect(markup).toContain("圆形");
+    expect(markup).toContain("绿");
+    // 声明里的兜底 label 只剩在 title 上，按钮正文换成了当前项。
+    expect(markup).not.toContain(">标注<");
+  });
+
+  test("带颜色的那一项在按钮上画成色块，颜色原样落进内联样式", () => {
+    const markup = render({ color: "yellow" });
+
+    expect(markup).toContain("background-color:#ffd400");
+  });
+
+  test("没点开时不渲染下拉本体", () => {
+    const markup = render({ tool: "rect" });
+
+    expect(markup).not.toContain("menuitemradio");
+    expect(markup).toContain('aria-expanded="false"');
+  });
+});
