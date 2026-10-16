@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ViewToolbarItem, ViewToolbarOption } from "../features/workspace/fileTypes";
+import { toolbarIconKey } from "../features/plugins/viewAssets";
 import { useViewportPopupPosition, type PopupPosition } from "./popupPosition";
 
 /**
@@ -25,6 +26,12 @@ interface PluginViewToolbarProps {
   items: readonly ViewToolbarItem[];
   state: ViewToolbarState;
   onCommand: (id: string, value?: string) => void;
+  /**
+   * 图标：键是 `toolbarIconKey(id, value?)`，值是**已经消毒过的内联 SVG 文本**。
+   *
+   * 没给、或某一项没有图标 —— 一律照旧只显示文字。图标是**加法**，不是这一排的前提。
+   */
+  icons?: ReadonlyMap<string, string>;
 }
 
 /** 与「插件工具栏按钮」完全一致的那几个类：同一排里不该有两种手感。 */
@@ -83,10 +90,12 @@ function ToolbarInput({
 function ToolbarMenu({
   item,
   value,
+  icons,
   onCommand,
 }: {
   item: Extract<ViewToolbarItem, { kind: "menu" }>;
   value: string;
+  icons?: ReadonlyMap<string, string>;
   onCommand: (id: string, value?: string) => void;
 }) {
   const [anchor, setAnchor] = useState<PopupPosition | null>(null);
@@ -130,7 +139,11 @@ function ToolbarMenu({
         }}
         className={`${BUTTON_BASE} gap-1.5 ${open ? BUTTON_ACTIVE : BUTTON_IDLE}`}
       >
-        {current?.color ? <Swatch color={current.color} /> : null}
+        {iconOf(icons, item.id, value) ? (
+          <Icon svg={iconOf(icons, item.id, value)!} />
+        ) : current?.color ? (
+          <Swatch color={current.color} />
+        ) : null}
         {current?.label ?? item.label}
         <svg
           viewBox="0 0 24 24"
@@ -158,6 +171,8 @@ function ToolbarMenu({
             <MenuOption
               key={option.value}
               option={option}
+              icons={icons}
+              menuId={item.id}
               selected={option.value === value}
               onPick={() => {
                 onCommand(item.id, option.value);
@@ -168,6 +183,38 @@ function ToolbarMenu({
         </div>
       ) : null}
     </>
+  );
+}
+
+/**
+ * 取某一项（或某个选项）的图标。菜单的图标键带 `value`，按钮的不带 —— 用同一个
+ * `toolbarIconKey` 算，两边不会对不上。
+ */
+function iconOf(
+  icons: ReadonlyMap<string, string> | undefined,
+  id: string,
+  value?: string,
+): string | undefined {
+  return icons?.get(toolbarIconKey(id, value));
+}
+
+/**
+ * 一个图标。
+ *
+ * ⚠️ `dangerouslySetInnerHTML` 在这里是**故意的**，而且安全的唯一理由是：
+ * 传进来的 SVG 已经过 `sanitizeSvg`（只留形状标签与画图属性，`on*` / `<script>` /
+ * `<foreignObject>` / `href` 全丢）。**别把没消毒的字符串喂给这个组件。**
+ *
+ * 尺寸写死在包裹元素上（`[&_svg]:w-3.5`）：插件给的 SVG 自己写多大都不算数 ——
+ * 这一排的高度由宿主说了算，不然一个 200px 的图标能把工具栏顶开。
+ */
+function Icon({ svg }: { svg: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-flex items-center justify-center w-3.5 h-3.5 shrink-0 [&_svg]:w-full [&_svg]:h-full"
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
   );
 }
 
@@ -183,10 +230,14 @@ function Swatch({ color }: { color: string }) {
 
 function MenuOption({
   option,
+  icons,
+  menuId,
   selected,
   onPick,
 }: {
   option: ViewToolbarOption;
+  icons?: ReadonlyMap<string, string>;
+  menuId: string;
   selected: boolean;
   onPick: () => void;
 }) {
@@ -201,7 +252,11 @@ function MenuOption({
         selected ? "text-bamboo bg-bamboo-mist/50" : "text-ink-soft hover:bg-paper-warm"
       }`}
     >
-      {option.color ? <Swatch color={option.color} /> : null}
+      {iconOf(icons, menuId, option.value) ? (
+        <Icon svg={iconOf(icons, menuId, option.value)!} />
+      ) : option.color ? (
+        <Swatch color={option.color} />
+      ) : null}
       <span className="flex-1 truncate">{option.label}</span>
       {selected ? (
         <svg
@@ -220,7 +275,7 @@ function MenuOption({
   );
 }
 
-export function PluginViewToolbar({ items, state, onCommand }: PluginViewToolbarProps) {
+export function PluginViewToolbar({ items, state, onCommand, icons }: PluginViewToolbarProps) {
   if (items.length === 0) return null;
 
   return (
@@ -260,6 +315,7 @@ export function PluginViewToolbar({ items, state, onCommand }: PluginViewToolbar
               key={item.id}
               item={item}
               value={state.values[item.id] ?? ""}
+              icons={icons}
               onCommand={onCommand}
             />
           );
@@ -275,8 +331,9 @@ export function PluginViewToolbar({ items, state, onCommand }: PluginViewToolbar
             // 编辑器那排按钮也这么做：按下鼠标不抢焦点，工具栏用起来才不打断输入。
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => onCommand(item.id)}
-            className={`${BUTTON_BASE} ${active ? BUTTON_ACTIVE : BUTTON_IDLE}`}
+            className={`${BUTTON_BASE} gap-1.5 ${active ? BUTTON_ACTIVE : BUTTON_IDLE}`}
           >
+            {iconOf(icons, item.id) ? <Icon svg={iconOf(icons, item.id)!} /> : null}
             {state.values[item.id] ?? item.label}
           </button>
         );

@@ -143,10 +143,15 @@ export interface FileViewSpec {
  *
  * `id` 是命令与状态的名字：宿主点一下发 `{ t: "command", id }`，视图回
  * `state.values[id]` / `state.pressed` 时也用同一个 id。所以**同一份声明里不能重名**。
+ *
+ * `icon` 是**插件目录下的相对路径**（`.svg`），例如 `"icons/zoom-in.svg"`。宿主把它读出来
+ * 内联进按钮里（不是 `<img>`）—— 这样图标能跟着主题色走（写 `fill="currentColor"`），
+ * 也不用为了几个小图标去动 asset 协议。**布局仍然由宿主决定**，图标只是个装饰。
+ * 路径合不合法由后端把关（与 css / js 同一条原则：前端不重复写一遍规则）。
  */
 export type ViewToolbarItem =
   /** 按钮。`toggle` 只是「宿主会不会用 pressed 点亮它」的意思，状态仍由视图说了算。 */
-  | { kind: "button"; id: string; label: string; title?: string; toggle?: boolean }
+  | { kind: "button"; id: string; label: string; title?: string; toggle?: boolean; icon?: string }
   /** 只读的小字（缩放比例、`3 / 14` 这种）。文本由视图通过 `state.values[id]` 给。 */
   | { kind: "readout"; id: string; title?: string }
   /** 输入框，回车提交（页码跳转这种）。 */
@@ -158,7 +163,14 @@ export type ViewToolbarItem =
    * `{ t: "command", id, value }`。选项带 `color` 时画成色块 —— 于是**同一个控件既能选工具
    * 也能选颜色**，不必再加一种。
    */
-  | { kind: "menu"; id: string; label: string; title?: string; options: ViewToolbarOption[] }
+  | {
+      kind: "menu";
+      id: string;
+      label: string;
+      title?: string;
+      icon?: string;
+      options: ViewToolbarOption[];
+    }
   /** 竖线分隔。 */
   | { kind: "separator" };
 
@@ -169,6 +181,8 @@ export interface ViewToolbarOption {
   label: string;
   /** 任意合法 CSS 颜色。有它就画一个色块，颜色盘靠这个。 */
   color?: string;
+  /** 图标（插件目录下的相对路径，见 `icon` 字段的说明）。 */
+  icon?: string;
   title?: string;
 }
 
@@ -184,6 +198,8 @@ const MAX_MENU_OPTIONS = 24;
 /** `id` 只允许这些字符：它要落到 `key`、`data-*` 与消息里，别给自己找转义的麻烦。 */
 const TOOLBAR_ID_PATTERN = /^[A-Za-z0-9_.-]{1,48}$/;
 const MAX_LABEL = 24;
+/** 图标路径的长度上限。够写 `icons/xxx-yyy.svg` 了。 */
+const MAX_ICON_PATH = 120;
 const MAX_TITLE = 60;
 const MAX_PLACEHOLDER = 16;
 /** 输入框宽度（px）的上下限：太窄看不清，太宽会把整排顶开。 */
@@ -216,10 +232,12 @@ function parseMenuOptions(raw: unknown): ViewToolbarOption[] | undefined {
     // `background-color` 上生效，写歪了顶多是不显示，穿不出一个元素之外。
     const color = boundedText(record.color, 32);
     const title = boundedText(record.title, MAX_TITLE);
+    const icon = boundedText(record.icon, MAX_ICON_PATH);
     options.push({
       value,
       label,
       ...(color ? { color } : {}),
+      ...(icon ? { icon } : {}),
       ...(title ? { title } : {}),
     });
   }
@@ -259,8 +277,16 @@ export function parseViewToolbar(raw: unknown): ViewToolbarItem[] | undefined {
     if (record.kind === "button") {
       const label = boundedText(record.label, MAX_LABEL);
       if (!label) continue;
+      const icon = boundedText(record.icon, MAX_ICON_PATH);
       seen.add(id);
-      items.push({ kind: "button", id, label, ...(title ? { title } : {}), ...(record.toggle === true ? { toggle: true } : {}) });
+      items.push({
+        kind: "button",
+        id,
+        label,
+        ...(icon ? { icon } : {}),
+        ...(title ? { title } : {}),
+        ...(record.toggle === true ? { toggle: true } : {}),
+      });
       continue;
     }
 
@@ -292,8 +318,16 @@ export function parseViewToolbar(raw: unknown): ViewToolbarItem[] | undefined {
       const options = parseMenuOptions(record.options);
       // 一个可选项都没有的下拉是个死按钮，不如不给。
       if (!label || !options) continue;
+      const icon = boundedText(record.icon, MAX_ICON_PATH);
       seen.add(id);
-      items.push({ kind: "menu", id, label, ...(title ? { title } : {}), options });
+      items.push({
+        kind: "menu",
+        id,
+        label,
+        ...(icon ? { icon } : {}),
+        ...(title ? { title } : {}),
+        options,
+      });
     }
   }
 

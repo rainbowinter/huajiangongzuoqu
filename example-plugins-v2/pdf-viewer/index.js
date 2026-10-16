@@ -41,21 +41,38 @@ floral.register({
         // Markdown 那排格式化按钮一模一样，进页面就能点。
         //
         // 交互只有两条路：这里声明 id，宿主点了发 `command` 进来，查看器用 `setState`
+        // `icon` 是**插件目录下的相对路径**：宿主读成文本、消毒后内联进按钮里，
+        // 于是图标能跟着主题色走（这几个 SVG 里写的是 currentColor）。排版仍然由宿主
+        // 决定 —— 图标只是让它别是一排光秃秃的字。
         // 把当前状态报回去（values 覆盖各项文字、pressed 点亮开关）。
         // 文件名**不在**这里 —— 标题栏里已经有了。
         toolbar: [
-          { kind: "button", id: "zoom-out", label: "−", title: "缩小" },
+          { kind: "button", id: "zoom-out", label: "−", title: "缩小", icon: "icons/zoom-out.svg" },
           { kind: "readout", id: "zoom", title: "缩放比例" },
-          { kind: "button", id: "zoom-in", label: "+", title: "放大" },
-          { kind: "button", id: "fit-width", label: "适应宽度", title: "按宽度铺满", toggle: true },
+          { kind: "button", id: "zoom-in", label: "+", title: "放大", icon: "icons/zoom-in.svg" },
+          {
+            kind: "button",
+            id: "fit-width",
+            label: "适应宽度",
+            title: "按宽度铺满",
+            toggle: true,
+            icon: "icons/fit-width.svg",
+          },
           { kind: "separator" },
-          { kind: "button", id: "page-prev", label: "‹", title: "上一页" },
+          { kind: "button", id: "page-prev", label: "‹", title: "上一页", icon: "icons/page-prev.svg" },
           { kind: "readout", id: "page", title: "当前页 / 总页数" },
-          { kind: "button", id: "page-next", label: "›", title: "下一页" },
+          { kind: "button", id: "page-next", label: "›", title: "下一页", icon: "icons/page-next.svg" },
           { kind: "input", id: "goto", title: "跳转到页（回车）", placeholder: "页码", width: 46 },
           { kind: "separator" },
-          { kind: "button", id: "spread", label: "连续", title: "单页 / 连续", toggle: true },
-          { kind: "button", id: "rotate", label: "⟳", title: "顺时针旋转 90°" },
+          {
+            kind: "button",
+            id: "spread",
+            label: "连续",
+            title: "单页 / 连续",
+            toggle: true,
+            icon: "icons/spread.svg",
+          },
+          { kind: "button", id: "rotate", label: "⟳", title: "顺时针旋转 90°", icon: "icons/rotate.svg" },
           { kind: "readout", id: "rotation", title: "旋转角度" },
         ],
       },

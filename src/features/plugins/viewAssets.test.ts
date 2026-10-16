@@ -3,8 +3,10 @@ import { registerViewExtension } from "./registry";
 import {
   mergeToolbarStates,
   ownerOfFileType,
+  toolbarIconKey,
   viewDataPlugins,
   viewToolbarFor,
+  viewToolbarIcons,
 } from "./viewAssets";
 
 describe("从文件类型 id 里取插件名", () => {
@@ -185,5 +187,99 @@ describe("按插件的工具栏状态合并", () => {
         other: { values: {}, pressed: ["marker"] },
       }).pressed,
     ).toEqual(["fit-width", "marker"]);
+  });
+});
+
+// ---------------------------------------------------------------- 图标从哪读
+
+/**
+ * `viewToolbarIcons` 说「这一项（或这一项里某个选项）的图标，去**哪个插件目录**读哪个文件」。
+ *
+ * 最容易错的是**归属**：扩展插件声明的控件，图标在它自己目录里，不在被扩展的那个插件里。
+ * 读错了只会「图标不显示」，而那正是最难查的一类问题 —— 所以这里钉住。
+ */
+describe("工具栏图标的来源", () => {
+  function typeWithToolbar(toolbar: unknown[]) {
+    return {
+      id: "pdf-viewer:pdf",
+      extensions: ["pdf"],
+      label: "PDF",
+      badge: "PDF",
+      color: "#000",
+      kind: "view" as const,
+      view: { html: "a.html", toolbar: toolbar as never },
+    };
+  }
+
+  test("基础插件的图标按它自己的目录读；没写 icon 的项不出现", () => {
+    const requests = viewToolbarIcons(
+      typeWithToolbar([
+        { kind: "button", id: "zoom-in", label: "+", icon: "icons/zoom-in.svg" },
+        { kind: "button", id: "zoom-out", label: "−" },
+        { kind: "readout", id: "zoom" },
+      ]),
+    );
+    expect(requests).toEqual([
+      { key: "zoom-in", owner: "pdf-viewer", path: "icons/zoom-in.svg" },
+    ]);
+  });
+
+  test("扩展插件的图标去**它自己**的目录找", () => {
+    const dispose = registerViewExtension({
+      typeId: "pdf-viewer:pdf",
+      plugin: "pdf-annotations",
+      data: true,
+      css: [],
+      js: [],
+      toolbar: [{ kind: "button", id: "export-pdf", label: "导出", icon: "icons/export.svg" }],
+    });
+    try {
+      const requests = viewToolbarIcons(typeWithToolbar([]));
+      expect(requests).toEqual([
+        { key: "export-pdf", owner: "pdf-annotations", path: "icons/export.svg" },
+      ]);
+    } finally {
+      dispose.dispose();
+    }
+  });
+
+  test("菜单里每个选项都能有自己的图标，键带上 value 区分", () => {
+    const requests = viewToolbarIcons(
+      typeWithToolbar([
+        {
+          kind: "menu",
+          id: "tool",
+          label: "指针",
+          options: [
+            { value: "pointer", label: "指针", icon: "icons/pointer.svg" },
+            { value: "rect", label: "矩形", icon: "icons/rect.svg" },
+            { value: "ink", label: "自由笔" },
+          ],
+        },
+      ]),
+    );
+    expect(requests).toEqual([
+      { key: "tool:pointer", owner: "pdf-viewer", path: "icons/pointer.svg" },
+      { key: "tool:rect", owner: "pdf-viewer", path: "icons/rect.svg" },
+    ]);
+    // 渲染那一层用同一个函数算键 —— 对不上就等于图标永远取不到。
+    expect(toolbarIconKey("tool", "pointer")).toBe("tool:pointer");
+    expect(toolbarIconKey("zoom-in")).toBe("zoom-in");
+  });
+
+  test("非插件注册的类型（宿主内置的）没有目录可读", () => {
+    const requests = viewToolbarIcons({
+      id: "markdown",
+      extensions: ["md"],
+      label: "Markdown",
+      badge: "MD",
+      color: "#000",
+      kind: "view" as const,
+      view: {
+        html: "a.html",
+        toolbar: [{ kind: "button", id: "b", label: "甲", icon: "icons/x.svg" }] as never,
+      },
+    });
+    expect(requests).toEqual([]);
   });
 });

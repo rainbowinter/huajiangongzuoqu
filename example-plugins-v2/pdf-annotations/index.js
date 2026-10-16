@@ -39,13 +39,15 @@ floral.register({
           id: "tool",
           label: "指针",
           title: "标注方式",
+          // `icon` 是插件目录下的相对路径（见 pdf-viewer 里的说明）。菜单的触发按钮
+          // 显示的是**当前选中那一项**的图标，所以不必再给它单独配一个。
           options: [
-            { value: "pointer", label: "指针" },
-            { value: "rect", label: "矩形" },
-            { value: "ellipse", label: "圆形" },
-            { value: "ink", label: "自由笔" },
-            { value: "text", label: "文字选区" },
-            { value: "pin", label: "图钉批注" },
+            { value: "pointer", label: "指针", icon: "icons/pointer.svg" },
+            { value: "rect", label: "矩形", icon: "icons/rect.svg" },
+            { value: "ellipse", label: "圆形", icon: "icons/ellipse.svg" },
+            { value: "ink", label: "自由笔", icon: "icons/ink.svg" },
+            { value: "text", label: "文字选区", icon: "icons/text.svg" },
+            { value: "pin", label: "图钉批注", icon: "icons/pin.svg" },
           ],
         },
         {

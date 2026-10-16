@@ -6,7 +6,10 @@ import {
   mergeToolbarStates,
   viewDataPlugins,
   viewToolbarFor,
+  viewToolbarIcons,
 } from "../features/plugins/viewAssets";
+import { readPluginAsset } from "../features/plugins/api";
+import { sanitizeSvg } from "../features/plugins/sanitizeSvg";
 import { readThemeTokens } from "../features/plugins/themeTokens";
 import { getErrorMessage, readExternalFileBytes } from "../features/notes/api";
 import {
@@ -76,6 +79,63 @@ function useViewTheme(): { theme: "light" | "dark"; tokens: Record<string, strin
   return snapshot;
 }
 
+/**
+ * 一次最多读几个图标。工具栏一共也就 24 项，超出的部分多半是插件在刷声明。
+ */
+const MAX_TOOLBAR_ICONS = 32;
+/** 单个图标的体积上限。图标是**装饰**，超过这个尺寸的 SVG 一定是画歪了。 */
+const MAX_ICON_CHARS = 32 * 1024;
+
+/**
+ * 把这一排要用的图标读进来。
+ *
+ * 每项一条 `readPluginAsset`，读的是**声明它的那个插件**目录下的文件（扩展插件的图标在它
+ * 自己那儿）。读不到、不是 SVG、消毒后什么都不剩 —— 都只是「这一项没有图标」，
+ * 不报错也不提示：图标是加法，不该因为它让整个工具栏出不来。
+ *
+ * 消毒在这里做（`sanitizeSvg`），因为渲染那一层用的是 `dangerouslySetInnerHTML`；
+ * 边界就在这一行，别把没消毒的东西传下去。
+ */
+function useToolbarIcons(type: FileType): Map<string, string> {
+  const [icons, setIcons] = useState<Map<string, string>>(() => new Map());
+
+  useEffect(() => {
+    let cancelled = false;
+    const requests = viewToolbarIcons(type).slice(0, MAX_TOOLBAR_ICONS);
+    if (requests.length === 0) {
+      setIcons(new Map());
+      return;
+    }
+
+    void Promise.all(
+      requests.map(async ({ key, owner, path }) => {
+        try {
+          const source = await readPluginAsset(owner, path);
+          if (source.length > MAX_ICON_CHARS) {
+            console.warn(`[plugin-view] 图标太大，跳过：${owner}/${path}`);
+            return null;
+          }
+          const svg = sanitizeSvg(source);
+          if (!svg) console.warn(`[plugin-view] 图标用不了（不是 SVG？），跳过：${owner}/${path}`);
+          return svg ? ([key, svg] as const) : null;
+        } catch (error) {
+          console.warn(`[plugin-view] 读不到图标：${owner}/${path}`, error);
+          return null;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      setIcons(new Map(entries.filter((entry): entry is readonly [string, string] => entry !== null)));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [type]);
+
+  return icons;
+}
+
 export function PluginFileView({ path, type }: PluginFileViewProps) {
   const { t } = useTranslation();
   const [document, setDocument] = useState<string | null>(null);
@@ -93,6 +153,7 @@ export function PluginFileView({ path, type }: PluginFileViewProps) {
   const apiRef = useRef<PluginViewApi | null>(null);
   // 顶上那排控件是**基础插件与扩展插件共用**的（`viewToolbarFor` 把两边合起来）。
   const toolbarItems = viewToolbarFor(type);
+  const toolbarIcons = useToolbarIcons(type);
   const extensionOwners = viewDataPlugins(type);
 
   useEffect(() => {
@@ -139,6 +200,7 @@ export function PluginFileView({ path, type }: PluginFileViewProps) {
       {/* 插件声明了控件才有这一排 —— 没声明就与从前一模一样，预览区直接顶到最上面。 */}
       <PluginViewToolbar
         items={toolbarItems}
+        icons={toolbarIcons}
         state={mergeToolbarStates(toolbarStates)}
         onCommand={(id, value) => apiRef.current?.post({ t: "command", id, value })}
       />

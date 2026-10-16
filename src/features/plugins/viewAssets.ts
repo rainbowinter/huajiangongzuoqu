@@ -32,22 +32,32 @@ function extensionsFor(typeId: string) {
   return listViewExtensions().filter((extension) => extension.typeId === typeId);
 }
 
+/** 合并后的一项，以及它**属于哪个插件**（图标的路径要按那个插件的目录去读）。 */
+interface ToolbarEntry {
+  item: ViewToolbarItem;
+  owner: string | null;
+}
+
 /**
- * 这个视图顶上那一排控件：基础插件的在前，扩展的按注册顺序接在后面。
+ * 把基础插件与各扩展声明的控件按顺序合成一条。
  *
  * **id 撞了就丢扩展的那一项**，基础插件赢：id 同时是命令名与状态名，两条同名的控件事后
  * 根本分不出谁是谁。至于分隔线，它本来就没有 id，照单全收。
+ *
+ * 这一份是**唯一的合并实现**：`viewToolbarFor`（要控件）与 `viewToolbarIcons`（要图标）
+ * 都从它派生。两边各写一遍的话，顺序与去重迟早会分家 —— 那时图标就会贴错按钮。
  */
-export function viewToolbarFor(type: FileType): ViewToolbarItem[] {
+function toolbarEntries(type: FileType): ToolbarEntry[] {
   const base = type.view?.toolbar ?? [];
-  const merged: ViewToolbarItem[] = [...base];
+  const baseOwner = ownerOfFileType(type.id);
+  const merged: ToolbarEntry[] = base.map((item) => ({ item, owner: baseOwner }));
   const taken = new Set(base.flatMap((item) => (item.kind === "separator" ? [] : [item.id])));
   const dropped: string[] = [];
 
   for (const extension of extensionsFor(type.id)) {
     for (const item of extension.toolbar) {
       if (item.kind === "separator") {
-        merged.push(item);
+        merged.push({ item, owner: extension.plugin });
         continue;
       }
       if (taken.has(item.id)) {
@@ -55,7 +65,7 @@ export function viewToolbarFor(type: FileType): ViewToolbarItem[] {
         continue;
       }
       taken.add(item.id);
-      merged.push(item);
+      merged.push({ item, owner: extension.plugin });
     }
   }
 
@@ -65,6 +75,59 @@ export function viewToolbarFor(type: FileType): ViewToolbarItem[] {
   }
 
   return merged;
+}
+
+/** 这个视图顶上那一排控件：基础插件的在前，扩展的按注册顺序接在后面。 */
+export function viewToolbarFor(type: FileType): ViewToolbarItem[] {
+  return toolbarEntries(type).map((entry) => entry.item);
+}
+
+/**
+ * 图标在表里的键。
+ *
+ * 同一个 `id` 的按钮只有一个，但**一个 menu 的每个选项都可以有自己的图标**，
+ * 所以选项用 `id:value` 区分。宿主渲染时用同一个函数算键，两边不会对不上。
+ */
+export function toolbarIconKey(id: string, value?: string): string {
+  return value ? `${id}:${value}` : id;
+}
+
+export interface ToolbarIconRequest {
+  key: string;
+  /** 从**哪个插件目录**读（扩展插件的图标在它自己那儿）。 */
+  owner: string;
+  /** 插件目录下的相对路径。 */
+  path: string;
+}
+
+/**
+ * 这一排控件要用到的图标。
+ *
+ * 只返回**需要读盘**的那些（没声明 `icon` 的项不出现），顺序与工具栏一致。
+ * 读与消毒由调用方做（`PluginFileView` 那个 hook），这里只管「谁、在哪儿」。
+ */
+export function viewToolbarIcons(type: FileType): ToolbarIconRequest[] {
+  const requests: ToolbarIconRequest[] = [];
+
+  for (const { item, owner } of toolbarEntries(type)) {
+    if (!owner || item.kind === "separator" || item.kind === "readout" || item.kind === "input") {
+      continue;
+    }
+    if (item.icon) requests.push({ key: toolbarIconKey(item.id), owner, path: item.icon });
+    if (item.kind === "menu") {
+      for (const option of item.options) {
+        if (option.icon) {
+          requests.push({
+            key: toolbarIconKey(item.id, option.value),
+            owner,
+            path: option.icon,
+          });
+        }
+      }
+    }
+  }
+
+  return requests;
 }
 
 /**

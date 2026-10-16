@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PluginViewToolbar } from "./PluginViewToolbar";
 import { parseViewToolbar } from "../features/workspace/fileTypes";
+import { toolbarIconKey } from "../features/plugins/viewAssets";
 
 /**
  * 这一排是**宿主**画的，所以能直接拿 `renderToStaticMarkup` 验（测试环境里没有 jsdom，
@@ -129,5 +130,79 @@ describe("视图工具栏的下拉菜单", () => {
 
     expect(markup).not.toContain("menuitemradio");
     expect(markup).toContain('aria-expanded="false"');
+  });
+});
+
+/**
+ * 图标。
+ *
+ * 渲染这一层拿到的是**已经消毒过的内联 SVG 文本**（消毒在 `PluginFileView` 那个 hook 里
+ * 做，`sanitizeSvg`），这里验的是「它有没有落到该落的地方」：按钮里、下拉项的左边。
+ * 顺带钉住两条底线：没有图标时与从前一模一样；图标不会把按钮的文字挤掉。
+ */
+describe("工具栏图标", () => {
+  const WITH_ICON = parseViewToolbar([
+    { kind: "button", id: "zoom-in", label: "放大", icon: "icons/zoom-in.svg" },
+    { kind: "button", id: "rotate", label: "旋转" },
+    {
+      kind: "menu",
+      id: "tool",
+      label: "指针",
+      options: [
+        { value: "pointer", label: "指针", icon: "icons/pointer.svg" },
+        { value: "rect", label: "矩形" },
+      ],
+    },
+  ])!;
+
+  const ICON = '<svg viewBox="0 0 24 24"><path d="M4 5v14"/></svg>';
+
+  function draw(icons?: Map<string, string>, state = { values: {}, pressed: [] }) {
+    return renderToStaticMarkup(
+      <PluginViewToolbar items={WITH_ICON} state={state} onCommand={vi.fn()} icons={icons} />,
+    );
+  }
+
+  test("有图标的按钮：图在内联 SVG 里，文字照旧在旁边", () => {
+    const markup = draw(new Map([[toolbarIconKey("zoom-in"), ICON]]));
+
+    expect(markup).toContain('d="M4 5v14"');
+    expect(markup).toContain("放大");
+    // 没给图标的那一项一点都不受影响
+    expect(markup).toContain("旋转");
+  });
+
+  test("一个图标都没读到 = 与从前一样（图标是加法，不是前提）", () => {
+    const bare = draw(undefined);
+    expect(bare).toContain("放大");
+    expect(bare).not.toContain("M4 5v14");
+  });
+
+  test("菜单的触发按钮显示**当前那一项**的图标，不是菜单自己的", () => {
+    const icons = new Map([
+      [toolbarIconKey("tool", "pointer"), '<svg viewBox="0 0 24 24"><path d="M1 1h1"/></svg>'],
+      [toolbarIconKey("tool", "rect"), '<svg viewBox="0 0 24 24"><path d="M2 2h2"/></svg>'],
+    ]);
+
+    // 点开的时候才画下拉本体，所以这里用 state 把「当前项」指成 rect
+    const markup = draw(icons, { values: { tool: "rect" }, pressed: [] });
+    expect(markup).toContain('d="M2 2h2"');
+    expect(markup).not.toContain('d="M1 1h1"');
+  });
+
+  test("图标不会漏进 readout / input 那几项", () => {
+    const items = parseViewToolbar([
+      { kind: "readout", id: "zoom" },
+      { kind: "input", id: "goto" },
+    ])!;
+    const markup = renderToStaticMarkup(
+      <PluginViewToolbar
+        items={items}
+        state={{ values: {}, pressed: [] }}
+        onCommand={vi.fn()}
+        icons={new Map([["zoom", ICON], ["goto", ICON]])}
+      />,
+    );
+    expect(markup).not.toContain('d="M4 5v14"');
   });
 });

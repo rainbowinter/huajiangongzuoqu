@@ -368,3 +368,55 @@ describe("校验插件声明的视图工具栏", () => {
     });
   });
 });
+
+/**
+ * 图标（`icon`）。
+ *
+ * 这里只管**收下还是丢掉**：路径合不合法由后端把关（与 css / js 同一条原则，
+ * 前端不重复写一遍规则）。真正读文件、消毒、画出来在 `PluginFileView` 与
+ * `PluginViewToolbar` 那边。
+ */
+describe("工具栏图标的声明", () => {
+  it("按钮与菜单选项都能带图标，原样收下", () => {
+    const items = parseViewToolbar([
+      { kind: "button", id: "zoom-in", label: "放大", icon: "icons/zoom-in.svg" },
+      {
+        kind: "menu",
+        id: "tool",
+        label: "指针",
+        options: [
+          { value: "pointer", label: "指针", icon: "icons/pointer.svg" },
+          { value: "rect", label: "矩形" },
+        ],
+      },
+    ]);
+
+    expect(items?.[0]).toMatchObject({ icon: "icons/zoom-in.svg" });
+    expect(items?.[1]).toMatchObject({
+      kind: "menu",
+      options: [
+        { value: "pointer", label: "指针", icon: "icons/pointer.svg" },
+        { value: "rect", label: "矩形" },
+      ],
+    });
+    // 没写 icon 的那一项不该凭空多出一个字段（渲染那边靠有没有它来分叉）
+    expect((items?.[1] as { options: object[] }).options[1]).not.toHaveProperty("icon");
+  });
+
+  it("空串、非字符串、超长的路径一律丢掉 —— 但那一项本身留着", () => {
+    for (const icon of ["", "   ", 42, null, `icons/${"x".repeat(200)}.svg`]) {
+      const items = parseViewToolbar([{ kind: "button", id: "a", label: "甲", icon }]);
+      expect(items?.[0]).toMatchObject({ kind: "button", id: "a", label: "甲" });
+      expect(items?.[0]).not.toHaveProperty("icon");
+    }
+  });
+
+  it("readout / input 上没有图标这回事（它们不该画出多余的东西）", () => {
+    const items = parseViewToolbar([
+      { kind: "readout", id: "zoom", icon: "icons/zoom.svg" },
+      { kind: "input", id: "goto", icon: "icons/goto.svg" },
+    ]);
+    expect(items?.[0]).not.toHaveProperty("icon");
+    expect(items?.[1]).not.toHaveProperty("icon");
+  });
+});
