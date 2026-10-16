@@ -74,8 +74,12 @@ const SCREEN_CSS = `
   position: relative;
   flex: none;
   box-shadow: 0 6px 24px rgb(0 0 0 / 0.32);
-  /* 纸的底色跟着主题走（「原样」档）；白底 / 黑白两档由 PAPER_CSS 把变量钉成白色。 */
-  background: var(--color-paper, #ffffff);
+  /*
+   * 纸的底色＝**应用里正文区那层的底色**，也就是 --color-cloud（主窗口那层就是 bg-cloud）。
+   * 不是 --color-paper：那个是「正文区、侧栏」那一档，比窗口底暗一点，
+   * 印出来会比屏幕上看到的黄/暗一点点 —— 用户一眼就看出「和屏幕不一致」。
+   */
+  background: var(--color-cloud, #ffffff);
 }
 /*
  * 预览里给**版心**描一圈极淡的虚线：打印时内容正好到这儿为止，光看白纸「怼到头」很别扭，
@@ -182,133 +186,101 @@ const BASE_CSS = `
 `;
 
 /**
- * 「白底」与「黑白」用的那套：把**浅色色板钉死在容器上**，再按纸面重新排一遍正文。
+ * 「白底」：**只把纸换成白的，别的什么都不动**。
  *
- * 为什么要钉色板：正文是从预览里抠出来的 HTML，带着一堆 `text-ink-soft` 这样的类，
- * 而它们最终落到 `--color-*` 这些变量上。用户开着深色主题时那是浅灰 —— 白纸浅字，
- * 打出来几乎空白。直接在容器上重声明一套浅色值，祖先的主题就影响不到这里了。
+ * 用户定的语义：字体、字号、行距、文字颜色、表格底纹的深浅关系全部保持原样，
+ * 变的只有「底下那张纸」。
+ *
+ * ⚠️ 这里以前顺手把整套浅色板钉了上去（含 `font-family: serif` / `font-size: 12pt` /
+ * 行距 / 逐个标签的 `color: … !important`）。那让「白底」变成了「换一套排版」——
+ * 标题跟着变字体、正文跟着变色，用户报的就是这个。**只留背景那几个变量。**
+ *
+ * 换的是 `--color-paper*` 这三个**背景**变量（`--color-cloud` 是纸本身，
+ * `--color-paper-warm` 是表格行 / 代码块那层底纹，`--color-paper-deep` 是描边）。
+ * 值取中性灰而不是原来的米色：既然叫「白底」，底纹就该是白的深浅，不该泛黄。
+ *
+ * ❗**深色主题下它会是白纸浅字**（文字颜色归 `--color-ink*`，这里不碰）。
+ * 这是「只改背景」的必然结果 —— 用户是这么要的；真要在深色主题下打印，
+ * 用「原样」即可。
  */
 const PAPER_CSS = `
-.${PRINT_ROOT_CLASS}[data-palette="light"],
-.${PRINT_ROOT_CLASS}[data-palette="mono"] {
-  --color-paper: #ffffff;
-  --color-paper-warm: #f5f1e8;
-  --color-paper-deep: #eae4d8;
-  --color-ink: #1a1a18;
-  --color-ink-soft: #3d3d38;
-  --color-ink-ghost: #b8b8ae;
-  --color-bamboo: #2d5a3d;
-  --color-bamboo-mist: #e8f0eb;
+.${PRINT_ROOT_CLASS}[data-palette="light"] {
   --color-cloud: #ffffff;
-  font-family: var(--font-serif, "Source Han Serif SC", "SimSun", Georgia, serif);
-  font-size: 12pt;
-  line-height: 1.85;
-}
-.${PRINT_ROOT_CLASS}[data-palette="light"] .floral-page-content,
-.${PRINT_ROOT_CLASS}[data-palette="mono"] .floral-page-content { color: #2c2c2c; }
-.${PRINT_ROOT_CLASS}[data-palette="light"] .floral-page p,
-.${PRINT_ROOT_CLASS}[data-palette="light"] .floral-page li,
-.${PRINT_ROOT_CLASS}[data-palette="mono"] .floral-page p,
-.${PRINT_ROOT_CLASS}[data-palette="mono"] .floral-page li { color: #2c2c2c !important; }
-.${PRINT_ROOT_CLASS}[data-palette="light"] .floral-page h1,
-.${PRINT_ROOT_CLASS}[data-palette="light"] .floral-page h2,
-.${PRINT_ROOT_CLASS}[data-palette="light"] .floral-page h3,
-.${PRINT_ROOT_CLASS}[data-palette="light"] .floral-page h4,
-.${PRINT_ROOT_CLASS}[data-palette="light"] .floral-page h5,
-.${PRINT_ROOT_CLASS}[data-palette="light"] .floral-page h6,
-.${PRINT_ROOT_CLASS}[data-palette="mono"] .floral-page h1,
-.${PRINT_ROOT_CLASS}[data-palette="mono"] .floral-page h2,
-.${PRINT_ROOT_CLASS}[data-palette="mono"] .floral-page h3,
-.${PRINT_ROOT_CLASS}[data-palette="mono"] .floral-page h4,
-.${PRINT_ROOT_CLASS}[data-palette="mono"] .floral-page h5,
-.${PRINT_ROOT_CLASS}[data-palette="mono"] .floral-page h6 { color: #1a1a1a !important; }
-
-.${PRINT_ROOT_CLASS}[data-palette="light"] pre,
-.${PRINT_ROOT_CLASS}[data-palette="mono"] pre {
-  background: #f4f4f4 !important;
-  border: 1px solid #dddddd !important;
-  border-radius: 4px;
-  padding: 10px 14px;
-  font-size: 10pt;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.${PRINT_ROOT_CLASS}[data-palette="light"] code,
-.${PRINT_ROOT_CLASS}[data-palette="mono"] code {
-  background: #f0f0f0 !important;
-  padding: 1px 4px;
-  border-radius: 3px;
-  font-size: 10pt;
-}
-.${PRINT_ROOT_CLASS}[data-palette="light"] pre code,
-.${PRINT_ROOT_CLASS}[data-palette="mono"] pre code { background: none !important; padding: 0; }
-
-.${PRINT_ROOT_CLASS}[data-palette="light"] table,
-.${PRINT_ROOT_CLASS}[data-palette="mono"] table {
-  border-collapse: collapse;
-  width: 100%;
-  margin: 5mm 0;
-  font-size: 11pt;
-}
-.${PRINT_ROOT_CLASS}[data-palette="light"] th,
-.${PRINT_ROOT_CLASS}[data-palette="light"] td,
-.${PRINT_ROOT_CLASS}[data-palette="mono"] th,
-.${PRINT_ROOT_CLASS}[data-palette="mono"] td {
-  border: 1px solid #cccccc;
-  padding: 2mm 3mm;
-  text-align: left;
-  vertical-align: top;
-}
-.${PRINT_ROOT_CLASS}[data-palette="light"] th,
-.${PRINT_ROOT_CLASS}[data-palette="mono"] th {
-  background: #eeeef0 !important;
-  font-weight: 700;
-}
-.${PRINT_ROOT_CLASS}[data-palette="light"] blockquote,
-.${PRINT_ROOT_CLASS}[data-palette="mono"] blockquote {
-  border-left: 3px solid #bbbbbb;
-  padding: 2mm 5mm;
-  margin: 4mm 0;
-  color: #555555 !important;
-  background: #fafafa !important;
-}
-.${PRINT_ROOT_CLASS}[data-palette="light"] .floral-page a,
-.${PRINT_ROOT_CLASS}[data-palette="mono"] .floral-page a {
-  color: #2c2c2c;
-  text-decoration: underline;
+  --color-paper: #ffffff;
+  --color-paper-warm: #f6f6f6;
+  --color-paper-deep: #e4e4e4;
 }
 `;
 
 /**
- * 黑白：把所有彩色压平。
+ * 黑白：**明度一个都不动，只把颜色去掉** —— 也就是「没有颜色的那张纸」。
  *
- * ⚠️ **不许用 `filter: grayscale(1)`**。实测过：同一份长文档，加与不加那个 filter 的
- * 页数一样（10 页），但文件从 31KB 涨到 **11.8MB** —— Chromium 会把整个子树**先栅格化
- * 成一张图**再印。那正是「导出来怎么变成图片了、还选不中字」的来源，而且大到离谱。
+ * ## 为什么是 JS 而不是一段 CSS
  *
- * 所以这里改成**换颜色**：文字一律压成深灰（把语法高亮的那些彩色 token 也一起压平），
- * 底色只留浅灰。字还是字，文件还是几十 KB。
+ * 两条看着最省事的路都试过，都不行：
+ *
+ * - **`filter: grayscale(1)`** —— 语义最直白（它本来就是按亮度加权的），但 Chromium
+ *   会把整棵子树**先栅格化成一张图**再印。实测：8 页纯文字的文档 **49KB → 1.07MB**，
+ *   22 倍；真实长笔记那份是 31KB → 11.8MB。字也从「可选中」变成图片里的像素。
+ * - **`mix-blend-mode: color` 盖一层中性灰** —— 纸上算是对的（取浮层的色相饱和度、
+ *   取底下的明度），但**打印路径直接忽略混合模式**：实测印出来整张纸就是 #808080，
+ *   也就是浮层自己的颜色，一点没混。
+ *
+ * 所以改成渲染时**把每个元素的计算颜色就地换成同明度的灰**。好处是彻底：
+ * 不管那个颜色是来自主题变量、还是语法高亮里写死的十六进制，一律按各自的明度变灰，
+ * 不用去认识它们。代价是一次 O(元素数) 的遍历 —— 只在黑白档跑。
+ *
+ * ⚠️ **先读完再写**：边读边写会让每一步都会触发一次样式重算（读写交替的经典抖动）。
  */
-const MONO_CSS = `
-.${PRINT_ROOT_CLASS}[data-palette="mono"] .floral-page *,
-.${PRINT_ROOT_CLASS}[data-palette="mono"] .floral-print-title {
-  color: #222222 !important;
-  text-decoration-color: #222222 !important;
+
+/**
+ * 一个 CSS 颜色 → **同明度的灰**。认不出来（或本来就无所谓）的返回 `null`。
+ *
+ * 亮度用 Rec.709 那套加权（`0.2126R + 0.7152G + 0.0722B`，与人眼对绿最敏感的
+ * 事实一致）—— 直接对三个通道取平均会让红色和绿色看起来一个亮，那是错的。
+ *
+ * 抽成导出的纯函数是为了能单测：加权系数写错、或者把 `transparent` 也一起处理了
+ *（会变成实心黑方块），错误的表现都很隐蔽。
+ */
+export function toGrayColor(color: string): string | null {
+  const match = /^rgba?\(([^)]+)\)$/.exec(color);
+  if (!match) return null; // currentColor、none 之类：让它自己去解析，别插手
+  const [r, g, b, a = 1] = match[1].split(/[,\s/]+/).filter(Boolean).map(Number);
+  if (!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b)) return null;
+  // 全透明的（`transparent` 会算成 rgba(0,0,0,0)）别动：一动就成了实心黑方块。
+  if (a <= 0) return null;
+  const y = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b);
+  return a >= 1 ? `rgb(${y}, ${y}, ${y})` : `rgba(${y}, ${y}, ${y}, ${a})`;
 }
-.${PRINT_ROOT_CLASS}[data-palette="mono"] .floral-page pre,
-.${PRINT_ROOT_CLASS}[data-palette="mono"] .floral-page blockquote {
-  background: #f4f4f4 !important;
+function grayOutTree(root: HTMLElement): void {
+  const toGray = toGrayColor;
+
+  const PROPS = [
+    "color",
+    "backgroundColor",
+    "borderTopColor",
+    "borderRightColor",
+    "borderBottomColor",
+    "borderLeftColor",
+  ] as const;
+
+  const nodes: HTMLElement[] = [root, ...root.querySelectorAll<HTMLElement>("*")];
+  const plan: Array<[HTMLElement, string, string]> = [];
+
+  for (const node of nodes) {
+    const computed = getComputedStyle(node);
+    for (const prop of PROPS) {
+      const gray = toGray(computed[prop]);
+      if (gray && gray !== computed[prop]) plan.push([node, prop, gray]);
+    }
+  }
+
+  for (const [node, prop, value] of plan) {
+    // `important` 是必须的：语法高亮那些规则带自己的权重，普通内联样式压不住。
+    node.style.setProperty(prop.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`), value, "important");
+  }
 }
-.${PRINT_ROOT_CLASS}[data-palette="mono"] .floral-page th {
-  background: #e8e8e8 !important;
-}
-/* 表头那层淡底色、隔行灰：转成中性透明，免得灰上叠灰 */
-.${PRINT_ROOT_CLASS}[data-palette="mono"] .floral-page td,
-.${PRINT_ROOT_CLASS}[data-palette="mono"] .floral-page tr {
-  background: transparent !important;
-}
-`;
+
 
 let styleElement: HTMLStyleElement | null = null;
 
@@ -316,7 +288,7 @@ function ensureStyles(): void {
   if (styleElement && styleElement.isConnected) return;
   const style = document.createElement("style");
   style.dataset.floral = "pdf-export";
-  style.textContent = `${SCREEN_CSS}\n${PRINT_CSS}\n${BASE_CSS}\n${PAPER_CSS}\n${MONO_CSS}`;
+  style.textContent = `${SCREEN_CSS}\n${PRINT_CSS}\n${BASE_CSS}\n${PAPER_CSS}`;
   document.head.append(style);
   styleElement = style;
 }
@@ -432,6 +404,12 @@ export function mountPrintView(
     sheet.style.setProperty("--floral-content-h", `${contentSize.height}mm`);
 
     const box = document.createElement("div");
+    // ❗**这个类不能漏**。`paginate.ts` 的 `createPage` 也会给它，但我们传了自己的
+    // `createPage`（要包一层页眉页脚），于是那条路被绕开了 —— 结果**所有**
+    // `.floral-page …` 的规则一条都没生效过：按页设色的那十几条（`[data-palette=light]
+    // .floral-page p` 之类）、图片的 `max-width`、预览里那些复制按钮的隐藏…
+    // 症状是「换配色档只变了个别东西」，而且查起来毫无线索（类在 HTML 里根本不在）。
+    box.className = "floral-page";
     box.style.width = "100%";
     box.style.height = "100%";
     box.style.overflow = "hidden";
@@ -500,6 +478,10 @@ export function mountPrintView(
     });
     pages = result.pages;
     didOverflow = result.overflowed;
+
+    // 黑白档：把整叠纸的颜色就地换成同明度的灰（见 `grayOutTree` 里那两段说明）。
+    // 放在分页**之后** —— 换色会改 DOM，分页量的是几何，别让两件事互相干扰。
+    if (next.colorMode === "mono") grayOutTree(root);
 
     // 画上页眉页脚与页码（真打出来时这两行是 WebView2 画的，位置样式只能近似）。
     const sheets = [...root.children] as HTMLElement[];

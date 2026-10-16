@@ -382,7 +382,9 @@ export function PdfExportPanel({ title, bodyHtml, onClose, topInset = 44 }: PdfE
             </div>
             <p className="text-[10px] text-ink-ghost leading-relaxed mt-1">
               {t("pdfExport.colorHint", {
-                defaultValue: "「原样」= 现在看到什么就打什么（跟着主题，深色主题就是深色纸）",
+                defaultValue:
+                  "原样 = 界面上什么样就印什么样（含你自己在 custom.css 里改的底色与配色）；" +
+                  "白底 = 只把纸换成白的，字与字体不动；黑白 = 明度全保持，只去掉颜色",
               })}
             </p>
             <div className="mt-2">
