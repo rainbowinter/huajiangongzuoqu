@@ -76,12 +76,16 @@ if (!dirArg) {
 /**
  * 插件仓库。**不给默认值**：猜错了会往一个不存在的仓库传东西（或者更糟，传进别人的），
  * 而「先建好仓库再把地址给它」本来就是一次性的动作。
+ *
+ * ⚠️ 提示里那个例子是**真的仓库**（`fwinterhuajian-plugins`）。别照抄 `release.mjs`
+ * 那份示例名 `huajiangongzuo-plugins` —— 那个仓库**不存在**，只是本文档早期的占位。
+ * 仓库名在这里没有默认值，所以改仓库时**这一行也要跟着改**。
  */
 const repo = flagValue("--repo") ?? process.env.FLORAL_PLUGIN_REPO ?? "";
 if (!repo) {
   console.error(
     "需要插件仓库地址（owner/name）。两种给法：\n" +
-      "  --repo rainbowinter/huajiangongzuo-plugins\n" +
+      "  --repo rainbowinter/fwinterhuajian-plugins\n" +
       "  环境变量 FLORAL_PLUGIN_REPO\n" +
       "仓库可以是空的，但必须已经存在。",
   );
