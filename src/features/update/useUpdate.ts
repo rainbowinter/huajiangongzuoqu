@@ -15,6 +15,18 @@ export type { UpdateState };
 /** 启动后多久去查。躲开首屏那堆活儿（配置、笔记、插件）再发网络请求。 */
 const AUTO_CHECK_DELAY_MS = 3000;
 
+/**
+ * 之后每隔多久**再查一次**。
+ *
+ * 原来只在启动 3 秒后查一次 —— 而这台电脑常年开着、应用一直挂在那儿，于是永远停在
+ * 「启动时那个版本」，新版本发出去也收不到提示（用户报的）。4 小时是个折中：一天最多
+ * 6 次请求，对端点几乎没压力，又不会让「开着不管」的机器错过太久。
+ */
+const POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
+
+/** 窗口重新可见时（合盖唤醒、从托盘切回来），距上次检查超过这么久就补查一次。 */
+const RESUME_CHECK_AFTER_MS = 30 * 60 * 1000;
+
 export interface UpdateController {
   state: UpdateState;
   /**
@@ -39,6 +51,19 @@ export function useUpdate(): UpdateController {
    * 之间把它丢了，`install()` 就没东西可装了。
    */
   const updateRef = useRef<Update | null>(null);
+
+  /**
+   * 当前阶段（给定时器读的）。
+   *
+   * 轮询是**静默**的，但它一进来就会把状态改成 `checking` —— 如果用户正在下载、或者
+   * 已经下载好了等着装，那一改就把进度和已下载的句柄冲掉了。所以这几种阶段直接跳过。
+   */
+  const stageRef = useRef<UpdateState["stage"]>("idle");
+  stageRef.current = state.stage;
+  const canPoll = () =>
+    stageRef.current !== "downloading" &&
+    stageRef.current !== "installing" &&
+    stageRef.current !== "ready";
 
   const runCheck = useCallback(async ({ quiet }: { quiet: boolean }) => {
     setState({ stage: "checking" });
@@ -72,7 +97,23 @@ export function useUpdate(): UpdateController {
   // 发生。正确做法就是让 cleanup 正常清理，第二次挂载自然重排一次。
   useEffect(() => {
     let cancelled = false;
-    let timer: number | undefined;
+    let firstTimer: number | undefined;
+    let pollTimer: number | undefined;
+    /** 上一次真正发起检查的时间。窗口可见性那条路用它做节流。 */
+    let lastCheckAt = Date.now();
+
+    const checkNow = () => {
+      if (cancelled || !canPoll()) return;
+      lastCheckAt = Date.now();
+      void runCheck({ quiet: true });
+    };
+
+    /** 从后台切回来时补查一次（合盖唤醒的情况定时器多半被节流了）。 */
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastCheckAt < RESUME_CHECK_AFTER_MS) return;
+      checkNow();
+    };
 
     void (async () => {
       let endpoint: string | null = null;
@@ -86,14 +127,17 @@ export function useUpdate(): UpdateController {
       setEnabled(endpoint !== null);
       if (!endpoint) return;
 
-      timer = window.setTimeout(() => {
-        if (!cancelled) void runCheck({ quiet: true });
-      }, AUTO_CHECK_DELAY_MS);
+      firstTimer = window.setTimeout(checkNow, AUTO_CHECK_DELAY_MS);
+      // 之后一直轮询：应用常年开着也不会停在「启动时那个版本」。
+      pollTimer = window.setInterval(checkNow, POLL_INTERVAL_MS);
+      document.addEventListener("visibilitychange", onVisibility);
     })();
 
     return () => {
       cancelled = true;
-      if (timer !== undefined) window.clearTimeout(timer);
+      if (firstTimer !== undefined) window.clearTimeout(firstTimer);
+      if (pollTimer !== undefined) window.clearInterval(pollTimer);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [runCheck]);
 
