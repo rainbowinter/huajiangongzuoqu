@@ -100,6 +100,16 @@ export function splitHighlightedHtml(html: string): string[] {
   // 只存开始标签的原文，闭合时统一补 `</span>` —— hljs 的输出里只有 span。
   const openTags: string[] = [];
   let buffer = "";
+  /**
+   * 当前这一行有没有**文字**（而不是只有标签）。
+   *
+   * 空行必须切成 `""`：渲染层只有见到空串才会补一个零宽空格把行盒撑出来（见 `HighlightLine`）。
+   * 而「多行字符串 / 块注释里夹着的空行」在断行时会被重新挂上外层标签，切出来是
+   * `<span class="hljs-string"></span>` —— 一个只含空 inline 元素的 div **没有行盒**，
+   * 高度是 0，于是它后面的每一行都上移一行，与 textarea（高亮层底下那个真编辑器）彻底
+   * 错位。用户看到的就是「选区 / 高亮框落到了别的行上」，而且文件越往下差得越多。
+   */
+  let lineHasText = false;
 
   // 一次扫过：要么是一个标签，要么是一段纯文本。
   const tokenPattern = /<[^>]*>|[^<]+/g;
@@ -124,13 +134,17 @@ export function splitHighlightedHtml(html: string): string[] {
     for (let index = 0; index < parts.length; index += 1) {
       if (index > 0) {
         // 换行即断行：先把这一行补成合法 HTML，再把还开着的标签带到下一行开头。
-        lines.push(buffer + closeAll());
+        // **没有文字的行走空串** —— 只有空串才会被渲染层补零宽空格撑出行高。
+        lines.push(lineHasText ? buffer + closeAll() : "");
         buffer = openTags.join("");
+        lineHasText = false;
       }
       buffer += parts[index];
+      // 制表符 / 空格也算文字：`pre-wrap` 下它们照样撑得出一行。
+      if (parts[index].length > 0) lineHasText = true;
     }
   }
 
-  lines.push(buffer + closeAll());
+  lines.push(lineHasText ? buffer + closeAll() : "");
   return lines;
 }

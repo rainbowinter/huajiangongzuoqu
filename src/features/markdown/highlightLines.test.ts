@@ -51,6 +51,26 @@ describe("splitHighlightedHtml", () => {
     expect(lines[2]).toBe('<span class="c">丙</span>');
   });
 
+  test("**多行字符串 / 块注释里夹着的空行，也给空串**", () => {
+    // 这一条是「选区落到别的行上」那个 bug 的根：断行时外层 span 会被重新挂回去，
+    // 于是空行切出来是 `<span …></span>`。只含空 inline 元素的 div 没有行盒、高度是 0，
+    // 它后面的每一行都上移一行 —— 而行高只有渲染层见到**空串**时才会补零宽空格撑出来。
+    const lines = splitHighlightedHtml('<span class="hljs-string">甲\n\n乙</span>');
+
+    expect(lines).toHaveLength(3);
+    expect(lines[1]).toBe("");
+    // 空行不该把外层标签弄丢：下一行照样是完整、自洽的 span。
+    expect(lines[2]).toBe('<span class="hljs-string">乙</span>');
+    expect(lines.map(textOf).join("\n")).toBe("甲\n\n乙");
+  });
+
+  test("只有空白的行不算空行（pre-wrap 下空格自己撑得出行高）", () => {
+    const lines = splitHighlightedHtml('<span class="hljs-string">甲\n   \n乙</span>');
+
+    expect(lines[1]).toBe('<span class="hljs-string">   </span>');
+    expect(textOf(lines[1])).toBe("   ");
+  });
+
   test("空文档给一行空串，而不是空数组", () => {
     // 行数必须与 content.split("\n") 对齐，否则高亮层与 textarea 会错行。
     expect(splitHighlightedHtml("")).toEqual([""]);

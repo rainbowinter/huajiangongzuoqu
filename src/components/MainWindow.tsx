@@ -143,6 +143,7 @@ import { ExplorerItem } from "./ExplorerItem";
 import { FilePreview, TablePreview } from "./FilePreview";
 import { Modal } from "./Modal";
 import { PdfExportPanel } from "./PdfExportPanel";
+import { EditorScrollbar } from "./EditorScrollbar";
 import { WorkspaceTree, folderName, shortenPath } from "./WorkspaceTree";
 import { POPUP_VIEWPORT_MARGIN, useViewportPopupPosition } from "./popupPosition";
 import { disposeListener } from "./listeners";
@@ -1532,6 +1533,45 @@ export function MainWindow({
   const [previewContentSize, setPreviewContentSize] = useState({ width: 0, height: 0 });
 
   /**
+   * 缩小时把预览内容摆到**中间**。
+   *
+   * 内容是用 `transform: scale()` 缩的，`transform-origin` 在左上角 —— 一缩小整块就往
+   * 左上方收，右边剩一大片空白（用户报的「缩小后是左对齐」）。
+   *
+   * `transform` 不参与布局，改不了盒子位置，所以只能在变换里补一个平移：
+   * 缩放后的宽度是 `W × zoom`，空出来 `W × (1 − zoom)`，一半就是左边该留的空白。
+   * **放大时不补**（`zoom ≥ 1`）—— 那会儿要左右滚着看，居中会让左半边永远滚不到。
+   */
+  const previewScaleInset =
+    previewZoom < 1 && previewContentSize.width > 0
+      ? (previewContentSize.width * (1 - previewZoom)) / 2
+      : 0;
+
+  /**
+   * 上面那两个值给**滚轮缩放的锚点**用。
+   *
+   * 那个 handler 挂在原生监听上、依赖只有 `[paperPreviewKey, selectedId]`（挂一次就够），
+   * 所以它读到的是挂载那一刻的闭包 —— 必须用 ref 拿最新的，否则缩小着往上滚时锚点会偏
+   * 一个「居中留白」的距离，画面会跳。
+   */
+  const previewScaleInfoRef = useRef({ width: 0, inset: 0 });
+  previewScaleInfoRef.current = {
+    width: previewContentSize.width,
+    inset: previewScaleInset,
+  };
+
+  /**
+   * 滚轮缩放要回到的那个点：`localX/Y` 是**未缩放内容**里的坐标，`offsetX/Y` 是指针
+   * 在预览视口里的位置。缩放提交之后由下面那个 layout effect 消费。
+   */
+  const pendingZoomAnchorRef = useRef<{
+    localX: number;
+    localY: number;
+    offsetX: number;
+    offsetY: number;
+  } | null>(null);
+
+  /**
    * 量出预览内容的**布局**尺寸。
    *
    * `offsetWidth/offsetHeight` 不受 `transform` 影响，所以这里量到的始终是未缩放的
@@ -1583,25 +1623,68 @@ export function MainWindow({
 
       // 以光标为中心：先求出光标下那个点在**未缩放内容**里的坐标，缩放后再让同一个
       // 点回到光标的屏幕位置。
+      //
+      // ⚠️ 缩小（zoom < 1）时内容是被 `translateX` 推到中间去的，换算里要减掉那份留白，
+      // 否则从缩小滚到放大（跨过 100%）那一下会跳一下。
       const rect = scroller.getBoundingClientRect();
       const offsetX = event.clientX - rect.left;
       const offsetY = event.clientY - rect.top;
-      const localX = (offsetX + scroller.scrollLeft) / previous;
+      const { inset } = previewScaleInfoRef.current;
+      const localX = (offsetX + scroller.scrollLeft - inset) / previous;
       const localY = (offsetY + scroller.scrollTop) / previous;
+
+      /*
+       * ⚠️ 滚动量**不能**在这里（或者一个 rAF 里）写。
+       *
+       * 滚动范围是撑开层给的，而撑开层的尺寸要等 `setPreviewZoom` 渲染完才变。
+       * 早先是 `requestAnimationFrame` 里写 —— 那一拍 DOM 有时还没更新，于是这个值被
+       * **旧的范围夹住**（100% 时横向范围是 0，多少都变 0），一放大画面就跑到别处去了。
+       * 现在只把锚点记下来，等渲染提交之后由 `useLayoutEffect` 写（见下面那个 effect）。
+       */
+      pendingZoomAnchorRef.current = { localX, localY, offsetX, offsetY };
 
       previewZoomRef.current = next;
       setPreviewZoom(next);
-
-      // 撑开层与 transform 要等这一帧渲染完，滚动范围才够大，否则滚动量会被夹住。
-      requestAnimationFrame(() => {
-        scroller.scrollLeft = localX * next - offsetX;
-        scroller.scrollTop = localY * next - offsetY;
-      });
     };
 
     scroller.addEventListener("wheel", onWheel, { passive: false });
     return () => scroller.removeEventListener("wheel", onWheel);
   }, [paperPreviewKey, selectedId]);
+
+  /**
+   * 缩放提交之后，把光标下的那个点挪回原来的屏幕位置。
+   *
+   * ⚠️ 必须在这里做（layout effect），不能放在滚轮处理里、也不能塞进 `requestAnimationFrame`：
+   * 滚动范围是撑开层给的，撑开层的尺寸要等这次渲染提交才变。早先放在 rAF 里，那一拍 DOM
+   * 有时还没更新 —— 写进去的 `scrollLeft/Top` 被**旧的范围夹住**（100% 时横向范围是 0，
+   * 写多少都是 0），于是「以光标为中心」失效、一放大画面就窜到别处。
+   * layout effect 跑在 DOM 改完之后、绘制之前，这时范围已经是新的了。
+   */
+  useLayoutEffect(() => {
+    const scroller = previewScrollRef.current;
+    const anchor = pendingZoomAnchorRef.current;
+    if (!scroller || !anchor) return;
+    pendingZoomAnchorRef.current = null;
+
+    const desiredLeft = anchor.localX * previewZoom + previewScaleInset - anchor.offsetX;
+    const desiredTop = anchor.localY * previewZoom - anchor.offsetY;
+
+    // 读一次宽度，强制把撑开层的新尺寸算出来，再写滚动位置。
+    void scroller.scrollWidth;
+    scroller.scrollLeft = desiredLeft;
+    scroller.scrollTop = desiredTop;
+
+    /*
+     * 兜底：撑开层的尺寸是 `previewContentSize × zoom`，而那个尺寸由 ResizeObserver
+     * 异步写进 state —— 极少数时候这一拍还是旧的，赋值就被**旧范围夹住**了。
+     * 下一帧尺寸一定已经落地，差多少补多少。
+     */
+    requestAnimationFrame(() => {
+      if (!scroller.isConnected) return;
+      if (Math.abs(scroller.scrollLeft - desiredLeft) > 1) scroller.scrollLeft = desiredLeft;
+      if (Math.abs(scroller.scrollTop - desiredTop) > 1) scroller.scrollTop = desiredTop;
+    });
+  }, [previewZoom, previewScaleInset]);
 
   /**
    * 按住空格 + 左键拖动来平移预览，和图片查看器的手感一致。
@@ -2762,6 +2845,31 @@ export function MainWindow({
     }
   };
 
+  /**
+   * 在**某个分类里**直接新建笔记。
+   *
+   * 与顶上的「新建笔记」同一条路（`createNote` 本来就收 `category`），区别只有两点：
+   * 分类由这一行给；而且**先把分类展开** —— 否则新建的笔记落在收起的分类里，
+   * 用户会以为没成功。不会用到 `activeCategory`：它从来没被设过值（一直是空串），
+   * 所以顶上的「新建笔记」永远建在根目录，这也是要加这颗按钮的原因。
+   */
+  const handleNewNoteInCategory = async (category: string) => {
+    await saveCurrentNote();
+    try {
+      setCollapsedCategories((prev) => {
+        if (!prev.has(category)) return prev;
+        const next = new Set(prev);
+        next.delete(category);
+        return next;
+      });
+      const note = await createNote({ title: "", content: "", category });
+      replaceNoteMetadata(note);
+      applyNote(note);
+    } catch (error) {
+      showToast(getErrorMessage(error));
+    }
+  };
+
   const handleOpenSettings = useCallback(() => {
     togglePanel("settings");
   }, [togglePanel]);
@@ -3729,6 +3837,19 @@ export function MainWindow({
   }, [matchedRange]);
 
   /**
+   * 换文件 / 换笔记时把「在预览里选中 → 编辑区里框出来的那几块灰框」清掉。
+   *
+   * 灰框是按**那份正文的字符偏移**算出来的，换了文档以后偏移全都不作数。而它们原先只在
+   * 「下一次在预览里框选」或「编辑器获得焦点」时才被清，于是切到另一个文件（尤其是只有
+   * 编辑区、根本没有预览的代码文件）时，上一份文档的框会**原样留在屏幕上** —— 与新的正文
+   * 完全对不上，看着就是「高亮框和真实行错位」。
+   */
+  useEffect(() => {
+    setMatchedRange(null);
+    setHighlightRects([]);
+  }, [selectedId]);
+
+  /**
    * 把**整个主窗口**钉在最前。
    *
    * 以前这个按钮是「为当前笔记开一个置顶磁贴窗」，现在改成直接给主窗口设
@@ -3892,6 +4013,17 @@ export function MainWindow({
         {Math.round(previewZoom * 100)}%
       </button>
     ) : null;
+
+  /**
+   * 正文区现在显示的是不是「笔记这一套」（编辑 / 分栏 / 预览）。
+   *
+   * 只读文档、外部文件预览、空状态都不用那条统一滚动条 —— 它们各有各的滚动容器。
+   * 条件与中央内容区那条链保持一致。
+   */
+  const showingNoteSurface =
+    !docView &&
+    !(standalonePreview && selectedFileType && activeFilePath) &&
+    (Boolean(selectedId) || isLoading);
 
   return (
     <div className="main-window w-full h-screen flex flex-col">
@@ -4301,8 +4433,7 @@ export function MainWindow({
                         }
                         setShowCategoryInput(true);
                       }}
-                      className="text-[10px] text-ink-ghost hover:text-bamboo transition-colors cursor-pointer"
-                      title={t("main.category.new", { defaultValue: "新建分类" })}
+                      className="flex items-center gap-1 text-[10px] text-ink-ghost hover:text-bamboo transition-colors cursor-pointer whitespace-nowrap"
                     >
                       <svg
                         width="12"
@@ -4315,6 +4446,8 @@ export function MainWindow({
                       >
                         <path d="M12 5v14M5 12h14" />
                       </svg>
+                      {/* 光一颗「+」得靠悬停提示才知道是干什么的，把字写出来。 */}
+                      <span>{t("main.category.new", { defaultValue: "新建分类" })}</span>
                     </button>
                   </div>
 
@@ -4586,6 +4719,38 @@ export function MainWindow({
                               <span className="text-[9px] text-bamboo/40 font-mono ml-auto shrink-0">
                                 {group.notes.length}
                               </span>
+                              {renamingCategory === group.category ? null : (
+                                /*
+                                 * 「在这个分类里新建笔记」。常显（不是悬停才出来）：
+                                 * 悬停才出现的按钮本来就难发现 —— 顶上那颗「新建分类」
+                                 * 当初就是因为这个被用户提意见，别在这里再犯一次。
+                                 */
+                                <button
+                                  type="button"
+                                  onMouseDown={(event) => event.preventDefault()}
+                                  onClick={(event) => {
+                                    // 别让这一下把分类折叠/展开掉（整行都在切换折叠）。
+                                    event.stopPropagation();
+                                    void handleNewNoteInCategory(group.category);
+                                  }}
+                                  className="ml-1 w-5 h-5 shrink-0 flex items-center justify-center rounded text-bamboo/40 hover:text-bamboo hover:bg-bamboo/10 transition-colors cursor-pointer"
+                                  aria-label={t("main.category.newNoteHere", {
+                                    defaultValue: "在这个分类里新建笔记",
+                                  })}
+                                >
+                                  <svg
+                                    width="11"
+                                    height="11"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2.5"
+                                    strokeLinecap="round"
+                                  >
+                                    <path d="M12 5v14M5 12h14" />
+                                  </svg>
+                                </button>
+                              )}
                             </div>
 
                             <div className={`category-body ${isCollapsed ? "" : "expanded"}`}>
@@ -5063,8 +5228,24 @@ export function MainWindow({
             <div
               key={effectiveViewMode}
               ref={splitContainerRef}
-              className="content-area flex-1 flex min-h-0 animate-view-fade"
+              className="content-area relative flex-1 flex min-h-0 animate-view-fade"
             >
+              {/*
+               * **编辑 / 分栏 / 预览共用这一条滚动条**，挂在内容区那一层。
+               * 它跟着当前视图里真正的那个滚动元素走：
+               *   - 编辑 / 分栏 → 透明的 textarea（分栏时预览靠按块同步跟着动）；
+               *   - 预览 → 预览的滚动层。
+               * 各视图自己的原生滚动条都藏掉了（textarea 见 App.css，预览见
+               * `.scrollbar-hidden`），所以任何模式下右边都只有一条。
+               */}
+              {showingNoteSurface ? (
+                <EditorScrollbar
+                  target={effectiveViewMode === "preview" ? previewScrollRef : contentRef}
+                  content={effectiveViewMode === "preview" ? previewContent : content}
+                  revision={previewZoom}
+                />
+              ) : null}
+
               {docView ? (
                 // 只读文档：直接渲染内存里那段 Markdown。**不走 FilePreview** ——
                 // 那个是照 `path` 读盘的，这里没有盘上的文件。
@@ -5099,7 +5280,7 @@ export function MainWindow({
                         ref={previewContentRef}
                         className="absolute inset-0 flex flex-col"
                         style={{
-                          transform: `scale(${previewZoom})`,
+                          transform: `translateX(${previewScaleInset}px) scale(${previewZoom})`,
                           transformOrigin: "0 0",
                         }}
                       >
@@ -5354,6 +5535,11 @@ export function MainWindow({
                             spellCheck={false}
                             disabled={!selectedId}
                           />
+
+                          {/*
+                           * 滚动条不在这里画 —— 编辑 / 分栏 / 预览共用内容区那一层的一条
+                           * （见 `content-area` 里的 `EditorScrollbar`）。
+                           */}
                           {editorSwatches.length > 0 && (
                             <div
                               className="absolute right-5 top-0 bottom-0 pointer-events-none"
@@ -5468,7 +5654,8 @@ export function MainWindow({
                             ref={previewScrollRef}
                             onScroll={handlePreviewScroll}
                             onMouseUp={handlePreviewSelect}
-                            className="relative flex-1 overflow-auto"
+                            // 原生滚动条藏掉：整块内容区只留右边那一条（见 `EditorScrollbar`）。
+                            className="relative flex-1 overflow-auto scrollbar-hidden"
                             // 恒定预留滚动条槽位。否则会出现一个自我循环：内容变宽 → 出横向
                             // 滚动条 → 可用高度少一条 → 纵向滚动条出现 → 可用宽度又少一条 →
                             // 正文重排、高度再变……放大到 200% 以上时会看到边缘抖动。
@@ -5486,7 +5673,7 @@ export function MainWindow({
                               ref={previewContentRef}
                               className="absolute left-0 top-0 right-0 px-6 pt-3 pb-6"
                               style={{
-                                transform: `scale(${previewZoom})`,
+                                transform: `translateX(${previewScaleInset}px) scale(${previewZoom})`,
                                 transformOrigin: "0 0",
                               }}
                             >
@@ -5501,7 +5688,9 @@ export function MainWindow({
                             ref={previewScrollRef}
                             onScroll={handlePreviewScroll}
                             onMouseUp={handlePreviewSelect}
-                            className="preview-scroll flex-1 overflow-auto px-6 pt-1 pb-6"
+                            // 分栏时预览自己那条原生滚动条**藏掉** —— 整个分栏区只留最右边
+                            // 一条整体的（`scrollbar-hidden` 只藏外观，照样能滚）。
+                            className="preview-scroll scrollbar-hidden flex-1 overflow-auto px-6 pt-1 pb-6"
                           >
                             {previewBody}
                           </div>

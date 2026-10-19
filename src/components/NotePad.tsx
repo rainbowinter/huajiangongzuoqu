@@ -14,6 +14,7 @@ import { disposeListener } from "./listeners";
 import { PluginCommandPanel } from "./PluginCommandPanel";
 import { CommandPalette } from "./CommandPalette";
 import { FindReplacePanel } from "./FindReplacePanel";
+import { EditorScrollbar } from "./EditorScrollbar";
 import { dispatchCommandKeybinding } from "../features/commands/registry";
 import { createEditorAccessor, registerActiveContent } from "../features/plugins/activeContent";
 import {
@@ -1182,6 +1183,8 @@ export function NotePad({
                     padding: "2px",
                   }}
                 />
+                  {/* 与主窗口一样：原生滚动条被藏了（会和透明 textarea 错位），自己画一条。 */}
+                  <EditorScrollbar target={contentRef} content={content} />
                 </div>
 
                 <div className="status-bar flex items-center justify-between mt-auto pt-2 border-t border-paper-deep/30 shrink-0">
