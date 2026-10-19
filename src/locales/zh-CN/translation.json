@@ -86,7 +86,12 @@
       "dataLocation": "数据位置",
       "notesDir": "笔记",
       "pluginsDir": "插件",
-      "customCss": "自定义样式"
+      "customCss": "自定义样式",
+      "checkUpdate": "检查更新",
+      "checkingUpdate": "检查中…",
+      "updateAvailable": "发现新版本 {{version}}",
+      "updateUpToDate": "已是最新版本",
+      "updateTimeout": "检查更新超时，请检查网络连接或代理"
     },
     "doc": {
       "label": "说明文档 · 只读",

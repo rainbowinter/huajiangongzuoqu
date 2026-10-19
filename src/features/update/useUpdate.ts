@@ -27,6 +27,34 @@ const POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
 /** 窗口重新可见时（合盖唤醒、从托盘切回来），距上次检查超过这么久就补查一次。 */
 const RESUME_CHECK_AFTER_MS = 30 * 60 * 1000;
 
+/**
+ * 一次检查最多等多久。
+ *
+ * 插件内部的 HTTP 客户端没有给「连不上」设一个用户能接受的期限 —— 断网 / 被墙时
+ * 可能要等系统级的二十多秒。手动点「检查更新」的人不该盯着「检查中…」发呆，
+ * 所以这里自己掐一个 15 秒：到点就按失败处理（静默检查同样适用，只是不弹提示）。
+ */
+const CHECK_TIMEOUT_MS = 15_000;
+
+function checkWithTimeout(): Promise<Awaited<ReturnType<typeof checkForUpdate>>> {
+  let timer: number | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = window.setTimeout(
+      () => reject(new Error("检查更新超时：15 秒内没有连上更新服务器")),
+      CHECK_TIMEOUT_MS,
+    );
+  });
+  return Promise.race([checkForUpdate(), timeout]).finally(() => {
+    if (timer !== undefined) window.clearTimeout(timer);
+  });
+}
+
+/** 手动检查的结果。界面据此决定弹「已是最新」「发现新版」还是「超时」。 */
+export type UpdateCheckResult =
+  | { status: "up-to-date" }
+  | { status: "available"; version: string }
+  | { status: "error"; message: string };
+
 export interface UpdateController {
   state: UpdateState;
   /**
@@ -34,8 +62,11 @@ export interface UpdateController {
    * `null` 表示还没问出来（刚挂载的一瞬间）。
    */
   enabled: boolean | null;
-  /** 手动检查（设置面板里那个按钮）。**不静默**：失败要说出来。 */
-  check: () => Promise<void>;
+  /**
+   * 手动检查（设置面板、「关于」里的按钮）。**不静默**：失败要说出来。
+   * 返回值让调用方不必去读异步的 `state`（那一刻闭包里还是旧值）。
+   */
+  check: () => Promise<UpdateCheckResult>;
   download: () => Promise<void>;
   install: () => Promise<void>;
 }
@@ -65,30 +96,36 @@ export function useUpdate(): UpdateController {
     stageRef.current !== "installing" &&
     stageRef.current !== "ready";
 
-  const runCheck = useCallback(async ({ quiet }: { quiet: boolean }) => {
-    setState({ stage: "checking" });
-    try {
-      const found = await checkForUpdate();
-      if (!found?.available) {
+  const runCheck = useCallback(
+    async ({ quiet }: { quiet: boolean }): Promise<UpdateCheckResult> => {
+      setState({ stage: "checking" });
+      try {
+        const found = await checkWithTimeout();
+        if (!found?.available) {
+          updateRef.current = null;
+          // 没有新版 = 界面上什么都不该出现，回到 idle。
+          setState({ stage: "idle" });
+          return { status: "up-to-date" };
+        }
+        updateRef.current = found;
+        setState({ stage: "available", version: found.version, notes: (found.body ?? "").trim() });
+        return { status: "available", version: found.version };
+      } catch (error) {
         updateRef.current = null;
-        // 没有新版 = 界面上什么都不该出现，回到 idle。
-        setState({ stage: "idle" });
-        return;
+        const message = getErrorMessage(error);
+        if (quiet) {
+          // 启动时那次检查是**静默**的：断网、端点没起来、公司代理拦了 —— 都不该弹提示
+          // 吓用户。他们没主动做任何事。
+          console.warn("[update] 启动检查更新失败（已静默）", error);
+          setState({ stage: "idle" });
+          return { status: "error", message };
+        }
+        setState({ stage: "error", message });
+        return { status: "error", message };
       }
-      updateRef.current = found;
-      setState({ stage: "available", version: found.version, notes: (found.body ?? "").trim() });
-    } catch (error) {
-      updateRef.current = null;
-      if (quiet) {
-        // 启动时那次检查是**静默**的：断网、端点没起来、公司代理拦了 —— 都不该弹提示
-        // 吓用户。他们没主动做任何事。
-        console.warn("[update] 启动检查更新失败（已静默）", error);
-        setState({ stage: "idle" });
-        return;
-      }
-      setState({ stage: "error", message: getErrorMessage(error) });
-    }
-  }, []);
+    },
+    [],
+  );
 
   // 挂载时问一次端点，配了才排定那次静默检查。
   //
@@ -189,9 +226,7 @@ export function useUpdate(): UpdateController {
     }
   }, []);
 
-  const check = useCallback(async () => {
-    await runCheck({ quiet: false });
-  }, [runCheck]);
+  const check = useCallback(async () => runCheck({ quiet: false }), [runCheck]);
 
   return { state, enabled, check, download, install };
 }

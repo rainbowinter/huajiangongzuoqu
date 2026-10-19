@@ -84,7 +84,12 @@
       "dataLocation": "資料位置",
       "notesDir": "筆記",
       "pluginsDir": "外掛",
-      "customCss": "自訂樣式"
+      "customCss": "自訂樣式",
+      "checkUpdate": "檢查更新",
+      "checkingUpdate": "檢查中…",
+      "updateAvailable": "發現新版本 {{version}}",
+      "updateUpToDate": "已是最新版本",
+      "updateTimeout": "檢查更新逾時，請檢查網路連線或代理"
     },
     "doc": {
       "label": "說明文件 · 唯讀",

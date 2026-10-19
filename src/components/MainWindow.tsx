@@ -6501,6 +6501,7 @@ export function MainWindow({
                   onClose={handleCloseAbout}
                   onOpenDoc={openDocView}
                   notesDir={settingsConfig?.dataDir}
+                  update={update}
                 />
               ) : null}
             </div>

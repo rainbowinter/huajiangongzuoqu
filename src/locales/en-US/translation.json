@@ -84,7 +84,12 @@
       "dataLocation": "Where your data lives",
       "notesDir": "Notes",
       "pluginsDir": "Plugins",
-      "customCss": "Custom styles"
+      "customCss": "Custom styles",
+      "checkUpdate": "Check for updates",
+      "checkingUpdate": "Checking…",
+      "updateAvailable": "Version {{version}} is available",
+      "updateUpToDate": "You're up to date",
+      "updateTimeout": "Update check timed out. Check your network connection or proxy."
     },
     "doc": {
       "label": "Documentation · read-only",
