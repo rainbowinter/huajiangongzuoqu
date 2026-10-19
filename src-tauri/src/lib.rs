@@ -907,6 +907,7 @@ pub fn run() {
             read_external_file_bytes,
             save_external_file_bytes,
             pdf::print_pdf,
+            pdf::print_pdf_preview,
             pdf::print_with_dialog,
             selfupdate::update_endpoint,
             docs::read_bundled_doc,

@@ -1,19 +1,18 @@
 /**
  * 导出 PDF。
  *
- * 两条路，用的是**同一份** DOM（见 `printView.ts`）：
+ * 两条路用的是**同一份不分页文档**（见 `printView.ts` 里的 `mountPrintDocument`），
+ * 分页交给浏览器的排版引擎：
  *
  * - **保存为 PDF**（默认）：问一个路径，然后调后端的 `print_pdf`。后端走 WebView2 自己的
  *   `PrintToPdf` —— 没有系统打印对话框、不经过任何打印机驱动，页眉页脚 / 缩放 / 纸张 /
- *   边距全由我们的参数说了算。
- * - **用系统打印机**：还是 `window.print()`。要打真纸、要选别的打印机时才用得上。
- *
- * 早先只有第二条路，而且是从**预览面板**里直接 `window.print()`：屏幕上看到的是预览、
- * 打出来的是另一个东西，中间还夹着用户自己在打印对话框里的选择。
+ *   边距全由我们的参数说了算，产出是**真文字**（可选中、可搜索）。
+ * - **打印…**：`window.print()`，也就是 **WebView2 自带的打印预览** —— 纸张大小、边距、
+ *   缩放、背景图形、另存为 PDF 都在那儿。这一条在 `PdfExportPanel` 里直接调，不经过本文件。
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import { mountPrintView, waitForPrintable } from "./printView";
+import { mountPrintDocument, waitForPrintable } from "./printView";
 import {
   loadPdfSettings,
   pdfFileName,
@@ -27,10 +26,20 @@ export function printPdf(path: string, settings: PdfExportSettings): Promise<voi
 }
 
 /**
- * 弹**系统自己的**打印对话框（Windows 那个窗口）。
+ * 生成一份 PDF 并**把字节交给前端**（导出面板右侧的预览用）。
  *
- * 不是浏览器内嵌的打印预览 —— 那个把预览塞在应用窗口里，还要用户自己去找
- * 「使用系统对话框打印…」那行小字。走打印机驱动，输出由驱动决定。
+ * 与 `printPdf` 是同一套参数、同一套排版，所以画出来的就是会写进文件的那一份。
+ * 原生那边走 Tauri 的原始响应通道（`ipc::Response`），拿到的直接是 `ArrayBuffer`。
+ */
+export function printPdfPreview(settings: PdfExportSettings): Promise<ArrayBuffer> {
+  return invoke<ArrayBuffer>("print_pdf_preview", { settings: toPrintSettings(settings) });
+}
+
+/**
+ * 弹**系统打印对话框**（Windows 自己那个），直接打印到选中的打印机。
+ *
+ * ⚠️ 返回只表示「对话框弹出来了」—— 真正的打印要等用户在对话框里点确认。所以调用方
+ * **不能**在它返回后立刻把页面上的文档拆掉（见 `PdfExportPanel` 的 `printDocRef`）。
  */
 export function printWithSystemDialog(): Promise<void> {
   return invoke("print_with_dialog");
@@ -55,7 +64,7 @@ export async function buildPrintBody(input: PdfExportInput): Promise<string> {
 }
 
 /**
- * 「保存为 PDF」：问路径 → 摆好纸 → 让后端写文件。
+ * 「保存为 PDF」：问路径 → 造一份不分页文档 → 让后端写文件。
  *
  * 返回 `false` 表示用户取消了保存对话框。
  */
@@ -69,36 +78,19 @@ export async function exportNoteAsPdf(input: PdfExportInput): Promise<boolean> {
 
   const settings = input.settings ?? loadPdfSettings();
   const bodyHtml = await buildPrintBody(input);
-  const view = mountPrintView(input.title, bodyHtml, settings);
+  // 纸张、边距、缩放都由后端通过 COM 设，CSS 里不再写一遍。
+  const doc = mountPrintDocument(input.title, bodyHtml, settings, {
+    cssPageSize: false,
+    cssScale: false,
+  });
   try {
-    // 先等它自己把「字体与图就位之后的第二版排版」排完，再等一遍资源，然后才写文件。
-    await view.settled;
-    await waitForPrintable(view.element);
+    await waitForPrintable(doc.element);
     await printPdf(path, settings);
   } finally {
     // 无论成没成都得收拾干净：这是个盖住整个界面的层，留着它应用就废了。
-    view.cleanup();
+    doc.cleanup();
   }
   return true;
-}
-
-/**
- * 「用系统打印机」：摆好纸，弹**系统自己的**打印对话框。
- *
- * 这条路不经过我们自己的分页纸 —— 走的是打印机驱动，页边距与分页由驱动那一侧说了算。
- * 所以只要把「标题 + 正文」摆进一个只用于打印的层里就行。
- */
-export async function printNoteWithSystemPrinter(input: PdfExportInput): Promise<void> {
-  const settings = input.settings ?? loadPdfSettings();
-  const bodyHtml = await buildPrintBody(input);
-  const view = mountPrintView(input.title, bodyHtml, settings);
-  try {
-    await view.settled;
-    await waitForPrintable(view.element);
-    await printWithSystemDialog();
-  } finally {
-    setTimeout(() => view.cleanup(), 500);
-  }
 }
 
 /**

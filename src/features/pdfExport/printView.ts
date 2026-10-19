@@ -1,136 +1,70 @@
 /**
- * 摆在屏幕上、也拿去打印的那一份 DOM。
+ * 导出 / 打印用的那一份 DOM。
  *
- * ## 预览与打印必须是同一份
+ * ## 分页交给浏览器
  *
- * 以前是两码事：预览看的是 Markdown 面板，打印时再另拼一个覆盖层。两边只要有一点不一样
- * （字号、边距、标题那条横线），用户看到的和拿到的就对不上 —— 而这恰恰是「导出」最不能
- * 出的错。所以这里只造一份，屏幕上它就是那几张纸。
+ * 这里**只管把「标题 + 正文」摆成一份普通文档**，不画纸、不算页、不自己切块。
+ * 分页由排版引擎来做 —— 两条出口用的是同一套分页：
  *
- * ## 分页是自己算的
+ * - **保存为 PDF**：`print_pdf`（WebView2 的 `PrintToPdf`）直接写文件，不弹对话框；
+ * - **打印…**：`window.print()`，弹的是 WebView2 自带打印预览。
  *
- * 见 `paginate.ts`：内容被真的摆进一张张固定大小的纸里，**一张纸一个盒子**。打印时一句
- * `break-after: page` 就得到同样的分页 —— 不再是「画几条虚线估一估」。
+ * 早先自己算过一套分页（把内容真的摆进固定大小的纸里）。它「预览即产出」，
+ * 但遇到「一条列表项里塞着几张图」这种块时只能整块挪页，纸上留下大片空白 ——
+ * 用户一眼就看出来了。浏览器按行盒排，能贴得更紧，所以这条路废掉了。
  *
  * ## 几个必须踩准的点
  *
- * 1. **打印色板要钉死**（白底 / 黑白两档时）。正文是从预览里抠出来的 HTML，里面全是
- *    `text-ink-soft` 这类 Tailwind 类，最终落到 `--color-*` 上；用户开着深色主题时那是
- *    浅灰 —— 白纸浅字，打出来几乎空白。所以那两档在容器上重声明一整套浅色值。
- *    「原样」档反过来：**什么都不覆盖**，主题是什么样就打什么样。
- * 2. **页边距交给 `@page`，不靠 padding**。打印时纸盒只是内容区，四周的空白由 `@page`
- *    留出来 —— 那个位置也正好是 WebView2 画页眉页脚的地方（我们在预览里近似画一遍）。
+ * 1. **打印色板要钉死**（黑白时）。正文是从预览里抠出来的 HTML，里面全是
+ *    `text-ink-soft` 这类 Tailwind 类；黑白档靠 `grayOutTree` 就地换色。
+ * 2. **页边距交给 `@page`（打印那条）或后端（`print_pdf`）**，不要用 padding ——
+ *    两处都写就是双重边距，一张纸会溢出成两三页。
  * 3. **图片要先把 `loading="lazy"` 摘掉**。屏幕外的图在打印那一刻根本没开始加载，
  *    PDF 里就是一片空白。
- * 4. **打印前必须 `toSheet()`**：把整叠纸挪成 `body` 的直接子元素，别让面板的
- *    `overflow: auto` 把它们裁掉。
+ * 4. **文档要挂在 `document.body` 下**：打印 CSS 会把 body 的其它直接子元素
+ *    `display: none` 掉，只留下这一份。
  */
 
-import { paginate, type PageBox, type PageMetrics } from "./paginate";
 import type { PdfExportSettings } from "./settings";
 import { paperSizeMm } from "./settings";
 
-/** 容器、纸、内容盒的类名。打印 CSS 靠它们挑出「留下哪些」。 */
+/** 容器、正文、标题的类名。打印 CSS 靠它们挑出「留下哪些」。 */
 export const PRINT_ROOT_CLASS = "floral-print-root";
-const FRAME_CLASS = "floral-sheet";
-/** 摆在导出面板里的那一份：不铺满屏幕，老老实实待在预览框里。 */
-const EMBEDDED_CLASS = "is-embedded";
+const PRINT_DOC_CLASS = "is-print-doc";
+const DOC_CLASS = "floral-print-doc";
 
-/** 屏幕上的观感：灰底上一张张白纸。 */
+/**
+ * 屏幕上的位置：**扔到视口外**。
+ *
+ * 这份文档只给打印引擎看，用户不该看见它 —— 预览是拿它生成 PDF 之后再画出来的。
+ * 早先它铺满窗口，于是「每改一次设置生成一次预览」都会闪一下白屏。
+ *
+ * 打印时 `PRINT_CSS` 会把它改回 `static`，屏幕外这一套就都不作数了。
+ */
 const SCREEN_CSS = `
 .${PRINT_ROOT_CLASS} {
-  position: fixed;
-  /* 顶上留出标题栏：主窗口没有系统边框，那一条是**拖窗口的手柄**，盖住它用户就
-     「拖不动窗口」了。默认 0，由 mountPrintView 的 topInset 给。 */
-  top: var(--floral-top-inset, 0px);
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 2147483600;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 18px;
-  padding: 18px 0 40px;
-  overflow: auto;
-  background: #6f6d68;
-}
-/*
- * 面板里的那一份：不铺满屏幕，待在预览框里。
- *
- * ⚠️ **打印之前必须把它挪回 document.body**（见 toSheet）：预览框是 overflow: auto 的，
- * 纸会被那个滚动容器**裁掉** —— 长笔记打出来只剩第一屏。
- */
-.${PRINT_ROOT_CLASS}.${EMBEDDED_CLASS} {
-  position: static;
-  inset: auto;
-  z-index: auto;
-  display: flex;
-  padding: 0;
-  overflow: visible;
-  background: transparent;
-}
-.${FRAME_CLASS} {
-  position: relative;
-  flex: none;
-  box-shadow: 0 6px 24px rgb(0 0 0 / 0.32);
-  /*
-   * 纸的底色＝**应用里正文区那层的底色**，也就是 --color-cloud（主窗口那层就是 bg-cloud）。
-   * 不是 --color-paper：那个是「正文区、侧栏」那一档，比窗口底暗一点，
-   * 印出来会比屏幕上看到的黄/暗一点点 —— 用户一眼就看出「和屏幕不一致」。
-   */
-  background: var(--color-cloud, #ffffff);
-}
-/*
- * 预览里给**版心**描一圈极淡的虚线：打印时内容正好到这儿为止，光看白纸「怼到头」很别扭，
- * 有条线就知道边界在哪。打印时不要（PRINT_CSS 里关掉）。
- */
-.${FRAME_CLASS} .floral-page { outline: 1px dashed rgb(0 0 0 / 0.10); outline-offset: 0; }
-
-/* 预览里的页眉页脚：真打出来时那两行是 WebView2 画的，位置样式只能近似。 */
-.${FRAME_CLASS} .floral-sheet-margin {
   position: absolute;
-  left: 0;
-  right: 0;
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 0 2mm;
-  font: 9px/1.2 system-ui, sans-serif;
-  color: var(--color-ink-ghost, #b8b8ae);
-  overflow: hidden;
-  white-space: nowrap;
+  top: 0;
+  left: -100000px;
+  width: 210mm;
+  background: var(--color-paper, #ffffff);
 }
-.${FRAME_CLASS} .floral-sheet-head { top: 3mm; }
-.${FRAME_CLASS} .floral-sheet-foot { bottom: 3mm; }
+.${DOC_CLASS} {
+  padding: 16mm 18mm;
+  background: var(--color-paper, #ffffff);
+}
 `;
 
 /**
  * 打印时的 CSS。
  *
- * 核心是两件事：**只留下这叠纸**（`display: none` 掉 body 的其它直接子元素 —— 必须用
- * `display`，`visibility: hidden` 会留着布局空间，前面会多出空白页），以及**一张纸一页**
- * （`break-after: page`）。页边距交给 `@page`，所以纸四周的空白（以及 WebView2 画的
- * 页眉页脚）都在可打印区之外 —— 预览里那两行属于「近似」，打印时藏掉。
+ * 核心是两件事：**只留下这一份文档**（`display: none` 掉 body 的其它直接子元素 ——
+ * 必须用 `display`，`visibility: hidden` 会留着布局空间，前面会多出空白页），
+ * 以及**别给文档加内边距**（页边距由 `@page` 或后端给）。
  */
 const PRINT_CSS = `
 @media print {
-  html, body { margin: 0 !important; padding: 0 !important; }
-  /*
-   * ⚠️ **纸的底色不要在这里写死白色**（原来这几条都带着 background: #ffffff !important，
-   * 那是个 bug）。「原样」档（默认那一档）用的是 var(--color-paper) —— 主题、或者
-   * 样式目录里的 custom.css 改过它的时候，屏幕上是一张调过的纸、**导出的 PDF 却是纯白**。
-   *
-   * 浅色 / 黑白两档不需要写死白色：PAPER_CSS 已经把 --color-paper 钉成 #ffffff，
-   * 纸自己就是白的。所以下面 .floral-sheet 那条干脆不写 background，让它用
-   * SCREEN_CSS 里那句 var(--color-paper)。
-   *
-   * ❗**@page 留出来的那圈页边上不了色**（实测记在这里，免得以后有人再试一遍）：
-   * html / body 的背景压根铺不进去，换成固定定位、inset: -100mm 的伪元素也只盖住
-   * 一小块 —— Chromium 的 @page margin box 不在 CSS 的绘制范围里。所以那圈一直是白的，
-   * 纸本身（.floral-sheet）的颜色才是要紧的。
-   */
-  body { background: transparent !important; }
+  html, body { margin: 0 !important; padding: 0 !important; background: transparent !important; }
   body > *:not(.${PRINT_ROOT_CLASS}) { display: none !important; }
   body * { visibility: hidden !important; }
   .${PRINT_ROOT_CLASS}, .${PRINT_ROOT_CLASS} * { visibility: visible !important; }
@@ -139,134 +73,62 @@ const PRINT_CSS = `
     inset: auto !important;
     z-index: auto !important;
     display: block !important;
+    /* 屏幕上是 210mm 宽、扔在视口外；打印时要回到页面宽度。 */
+    width: auto !important;
     padding: 0 !important;
-    gap: 0 !important;
     overflow: visible !important;
-    /* 屏幕上是灰底（或预览里的透明），打印时都不要 —— 底色交给纸自己。 */
     background: transparent !important;
-    background-image: none !important;
   }
-  .${FRAME_CLASS} {
-    box-shadow: none !important;
-    /* 纸的底色**不写死**：SCREEN_CSS 给的就是 var(--color-paper)，
-       PAPER_CSS 会把浅色 / 黑白两档的 --color-paper 钉成白色。 */
-    /*
-     * ⚠️ 打印时纸要**缩回内容盒**：纸张的尺寸与四周的空白都已经由 @page 管了，
-     * 这里再算一遍就是双重边距 —— 一张 210×297 的盒子塞进 170×261 的可打印区，
-     * 结果是**每张纸溢出成两三页**（实测 5 张纸印成 12 页）。
-     */
-    width: var(--floral-content-w) !important;
-    height: var(--floral-content-h) !important;
-    padding: 0 !important;
-    border: 0 !important;
-    /* 一张纸换一页。最后一张不加 —— 加了会多出一张空白页。 */
-    break-after: page;
-    page-break-after: always;
-  }
-  .${FRAME_CLASS}:last-child { break-after: auto; page-break-after: auto; }
-  /* 页眉页脚由 WebView2 在可打印区外面画，预览里那一份别跟着印进去。 */
-  .${FRAME_CLASS} .floral-sheet-margin { display: none !important; }
-  /* 版心那圈虚线是给人看的，别印进 PDF。 */
-  .${FRAME_CLASS} .floral-page { outline: none !important; }
+  .${PRINT_ROOT_CLASS} .${DOC_CLASS} { padding: 0 !important; }
 }
 `;
 
-/**
- * 三档配色**共用**的那点东西：图片别撑破纸、预览里那些只在鼠标下才出现的按钮、
- * 以及「别把一块劈成两半」。**这里不碰颜色与字体** —— 那是下面两段的事。
- */
 const BASE_CSS = `
-.${PRINT_ROOT_CLASS} .floral-page img { max-width: 100%; height: auto; }
+.${PRINT_ROOT_CLASS} img { max-width: 100%; height: auto; }
 
-/* 预览里那些只在鼠标下才出现的东西（代码块的复制按钮之类） */
-.${PRINT_ROOT_CLASS} .floral-page button { display: none !important; }
+/* 预览里那些只在鼠标下才出现的按钮（代码块 / 表格的复制按钮） */
+.${PRINT_ROOT_CLASS} button { display: none !important; }
 
-/* 表格切分时重画的表头：每一页顶上都要有一份列名 */
-.${PRINT_ROOT_CLASS} .floral-page thead { display: table-header-group; }
-`;
+/* 表格跨页时每页都要有列名 */
+.${PRINT_ROOT_CLASS} thead { display: table-header-group; }
 
-/**
- * 「白底」：**只把纸换成白的，别的什么都不动**。
- *
- * 用户定的语义：字体、字号、行距、文字颜色、表格底纹的深浅关系全部保持原样，
- * 变的只有「底下那张纸」。
- *
- * ⚠️ 这里以前顺手把整套浅色板钉了上去（含 `font-family: serif` / `font-size: 12pt` /
- * 行距 / 逐个标签的 `color: … !important`）。那让「白底」变成了「换一套排版」——
- * 标题跟着变字体、正文跟着变色，用户报的就是这个。**只留背景那几个变量。**
- *
- * 换的是 `--color-paper*` 这三个**背景**变量（`--color-cloud` 是纸本身，
- * `--color-paper-warm` 是表格行 / 代码块那层底纹，`--color-paper-deep` 是描边）。
- * 值取中性灰而不是原来的米色：既然叫「白底」，底纹就该是白的深浅，不该泛黄。
- *
- * ❗**深色主题下它会是白纸浅字**（文字颜色归 `--color-ink*`，这里不碰）。
- * 这是「只改背景」的必然结果 —— 用户是这么要的；真要在深色主题下打印，
- * 用「原样」即可。
+/*
+ * 列表标记画在**列表内容盒的左边**（list-style-position: outside）。正文里的 ul / ol
+ * 被重置成 padding-left: 0，标记就只能贴着版心边缘 —— 屏幕上还有个内边距挡着，纸上就
+ * 直接顶到纸边了（用户报的「无序列表前面的点超出了边界」）。
  */
-const PAPER_CSS = `
-.${PRINT_ROOT_CLASS}[data-palette="light"] {
-  --color-cloud: #ffffff;
-  --color-paper: #ffffff;
-  --color-paper-warm: #f6f6f6;
-  --color-paper-deep: #e4e4e4;
+.${PRINT_ROOT_CLASS} ul,
+.${PRINT_ROOT_CLASS} ol {
+  padding-left: 1.4em;
 }
 `;
-
-/**
- * 黑白：**明度一个都不动，只把颜色去掉** —— 也就是「没有颜色的那张纸」。
- *
- * ## 为什么是 JS 而不是一段 CSS
- *
- * 两条看着最省事的路都试过，都不行：
- *
- * - **`filter: grayscale(1)`** —— 语义最直白（它本来就是按亮度加权的），但 Chromium
- *   会把整棵子树**先栅格化成一张图**再印。实测：8 页纯文字的文档 **49KB → 1.07MB**，
- *   22 倍；真实长笔记那份是 31KB → 11.8MB。字也从「可选中」变成图片里的像素。
- * - **`mix-blend-mode: color` 盖一层中性灰** —— 纸上算是对的（取浮层的色相饱和度、
- *   取底下的明度），但**打印路径直接忽略混合模式**：实测印出来整张纸就是 #808080，
- *   也就是浮层自己的颜色，一点没混。
- *
- * 所以改成渲染时**把每个元素的计算颜色就地换成同明度的灰**。好处是彻底：
- * 不管那个颜色是来自主题变量、还是语法高亮里写死的十六进制，一律按各自的明度变灰，
- * 不用去认识它们。代价是一次 O(元素数) 的遍历 —— 只在黑白档跑。
- *
- * ⚠️ **先读完再写**：边读边写会让每一步都会触发一次样式重算（读写交替的经典抖动）。
- */
 
 /**
  * 一个 CSS 颜色 → **同明度的灰**表达。不想动的返回 `null`。
  *
- * ## 为什么不自己算
+ * 第一版是按 Rec.709 加权自己算的，**漏了一大类颜色**：应用里到处是 Tailwind 4 的
+ * `/透明度` 修饰符，它编译成 `color-mix(in oklab, …)`，而计算样式给出的是
+ * `oklab(0.628 0.225 0.126 / 0.7)` —— 根本不是 `rgb(...)`。
  *
- * 第一版是按 Rec.709 加权（`0.2126R + 0.7152G + 0.0722B`）自己算的，**漏了一大类颜色**：
- * 应用里到处是 Tailwind 4 的 `/透明度` 修饰符，它编译成 `color-mix(in oklab, …)`，
- * 而计算样式给出的是 **`oklab(0.628 0.225 0.126 / 0.7)`** —— 根本不是 `rgb(...)`。
- * 只认 `rgb()`/`rgba()` 的话，这些颜色会原样留在「黑白」档里（用户截图里那行粉字、
- * 那个 `.csv` 小标签就是这么漏掉的）。
+ * 改成**让浏览器算**：CSS 相对颜色语法 `oklch(from X l 0 h)` —— 取 X 的感知明度、
+ * 彩度压成 0。一行通吃 rgb / hsl / oklab / color(display-p3 …)，alpha 也保留。
  *
- * 改成**让浏览器算**：CSS 相对颜色语法 `oklch(from X l 0 h)` —— 取 X 的感知明度 `l`、
- * 彩度压成 0、色相随便（彩度是 0，留着不影响）。一行，任何颜色格式通吃
- *（rgb / hsl / oklab / color(display-p3 …) 都行），alpha 也自动保留。
- *
- * 而且 `oklch` 的 `l` 是**感知明度**，比 Rec.709 那种线性加权更贴「看起来一样亮」：
- * 纯红在 OKLCH 里 L ≈ 0.63，对应的灰是中等灰；按 Rec.709 算会得到 `rgb(54,54,54)`
- * 那种近黑的红，明显偏暗。
- *
- * 抽成导出的纯函数是为了能单测：把 `transparent` 也一起处理了会变成实心黑方块，
- * 那种错误在纸上很显眼、在代码里很隐蔽。
+ * ⚠️ `transparent` 一动就成了实心黑方块，`currentColor` / `none` 交给它们自己解析。
  */
 export function toGrayColor(color: string): string | null {
   const value = color.trim();
-  // 这几个不是颜色值（或者不该碰）：`currentColor` 交给它自己解析；
-  // `transparent` 一动就成了实心黑方块。
   if (!value || value === "transparent" || value === "currentColor" || value === "none") {
     return null;
   }
   return `oklch(from ${value} l 0 h)`;
 }
-function grayOutTree(root: HTMLElement): void {
-  const toGray = toGrayColor;
 
+/**
+ * 把整棵树的颜色就地换成同明度的灰（只在「黑白」档跑）。
+ *
+ * **先读完再写**：边读边写会让每一步都触发一次样式重算。
+ */
+function grayOutTree(root: HTMLElement): void {
   const PROPS = [
     "color",
     "backgroundColor",
@@ -282,7 +144,7 @@ function grayOutTree(root: HTMLElement): void {
   for (const node of nodes) {
     const computed = getComputedStyle(node);
     for (const prop of PROPS) {
-      const gray = toGray(computed[prop]);
+      const gray = toGrayColor(computed[prop]);
       if (gray && gray !== computed[prop]) plan.push([node, prop, gray]);
     }
   }
@@ -293,270 +155,120 @@ function grayOutTree(root: HTMLElement): void {
   }
 }
 
-
 let styleElement: HTMLStyleElement | null = null;
 
 function ensureStyles(): void {
   if (styleElement && styleElement.isConnected) return;
   const style = document.createElement("style");
   style.dataset.floral = "pdf-export";
-  style.textContent = `${SCREEN_CSS}\n${PRINT_CSS}\n${BASE_CSS}\n${PAPER_CSS}`;
+  style.textContent = `${SCREEN_CSS}\n${PRINT_CSS}\n${BASE_CSS}`;
   document.head.append(style);
   styleElement = style;
 }
 
-export interface PrintView {
-  /** 整叠纸（含面板里那一层）。 */
+export interface PrintDocument {
   element: HTMLElement;
-  /**
-   * 等「字体与图就位之后的第二次排版」完成。
-   *
-   * ⚠️ **打印之前一定要等它**：不等的话可能正好印在「用替身字体量的那一版」上 ——
-   * 分页、行高全是错的。面板里等它顺手刷新页数，直接导出那条路等它才开始写文件。
-   */
-  settled: Promise<void>;
-  /** 现在一共有几页。 */
-  pageCount: () => number;
-  /** 有块比一页还高、又切不开 —— 产出页数可能与预览对不上，界面上该说一句。 */
-  overflowed: () => boolean;
-  /** 改设置（用户还在调）时重排一遍，不用重建 DOM 外壳。 */
-  update: (settings: PdfExportSettings) => void;
-  /** 挪到 `document.body` 底下、铺满屏幕 —— **打印之前必须调**。 */
-  toSheet: () => void;
-  /** 挪回面板的预览框里（用户取消打印、或导出失败时）。 */
-  toEmbedded: () => void;
-  /** 收拾干净：把容器、样式、`@page` 规则都撤掉。 */
   cleanup: () => void;
 }
 
-export interface MountOptions {
-  /** 挂在哪儿。默认 `document.body`。 */
-  parent?: HTMLElement;
-  /** 是不是面板里的那一份（不铺满屏幕）。 */
-  embedded?: boolean;
-  /** 铺满屏幕时顶上留多少像素给标题栏（拖窗口用）。默认 0。 */
-  topInset?: number;
+export interface PrintDocumentOptions {
+  /**
+   * 写 `@page { size }`。**只给 `window.print()` 那条用**：它的纸张默认取打印机自己的，
+   * 不写的话面板里选的 B4 到了预览里会变成默认的 A4。
+   *
+   * `print_pdf` 那条**必须为 false** —— 纸张与方向是后端通过 COM 设的，两处都写会打架，
+   * 而 CSS 那一条还不一定生效（Chromium 要 `preferCSSPageSize` 才认）。
+   */
+  cssPageSize?: boolean;
+  /**
+   * 用 CSS `zoom` 实现设置里的「缩放」。**只给 `window.print()` 那条用** ——
+   * `print_pdf` 那条后端已经 `SetScaleFactor` 了，再乘一遍就是双重缩放。
+   */
+  cssScale?: boolean;
 }
 
 /**
- * 把「标题 + 正文」摆成一叠纸。
+ * 造一份**不分页**的打印文档。
  *
  * `bodyHtml` 是**已经渲染好的 HTML**（预览区抠出来的，或 `markdownToHtml` 转出来的）。
  */
-export function mountPrintView(
+export function mountPrintDocument(
   title: string,
   bodyHtml: string,
   settings: PdfExportSettings,
-  options: MountOptions = {},
-): PrintView {
+  options: PrintDocumentOptions = {},
+): PrintDocument {
   ensureStyles();
 
   const root = document.createElement("div");
-  root.className = options.embedded ? `${PRINT_ROOT_CLASS} ${EMBEDDED_CLASS}` : PRINT_ROOT_CLASS;
-  if (options.topInset) root.style.setProperty("--floral-top-inset", `${options.topInset}px`);
+  root.className = `${PRINT_ROOT_CLASS} ${PRINT_DOC_CLASS}`;
 
-  // `@page` 的边距只能靠注入一条规则来改 —— 它不吃 CSS 变量。
+  const body = document.createElement("div");
+  body.className = DOC_CLASS;
+  body.innerHTML = bodyHtml;
+  if (options.cssScale && settings.scale !== 1) {
+    body.style.zoom = String(settings.scale);
+  }
+
+  const heading = document.createElement("h1");
+  heading.className = "floral-print-title";
+  heading.textContent = title;
+  heading.style.fontSize = `${settings.title.sizePt}pt`;
+  heading.style.textAlign = settings.title.align;
+  heading.style.fontWeight = "700";
+  heading.style.margin = "0 0 8mm 0";
+  heading.style.paddingBottom = settings.title.rule ? "3mm" : "0";
+  heading.style.borderBottom = settings.title.rule
+    ? "2px solid var(--color-ink, #333333)"
+    : "none";
+  heading.style.color = "var(--color-ink, #1a1a1a)";
+  body.prepend(heading);
+
+  root.append(body);
+  document.body.append(root);
+
+  /*
+   * `@page`：**边距两条路都写**（老版本就是这么干的，实测没有和后端那份叠加成双倍）；
+   * `size` 只有打印预览那条写 —— 保存那条的纸张是后端通过 COM 设的，两处都写会打架，
+   * 而 CSS 那一条还不一定生效（Chromium 要 `preferCSSPageSize` 才认）。
+   */
+  const { top, right, bottom, left } = settings.marginMm;
+  let pageRule = `@page { margin: ${top}mm ${right}mm ${bottom}mm ${left}mm;`;
+  if (options.cssPageSize) {
+    const { width, height } = paperSizeMm(settings.paper, settings.landscape);
+    pageRule += ` size: ${width}mm ${height}mm;`;
+  }
   const pageStyle = document.createElement("style");
   pageStyle.dataset.floral = "pdf-page";
+  pageStyle.textContent = pageRule + " }";
   document.head.append(pageStyle);
 
-  // 量内容用的隐藏容器。必须**在文档里**才量得到（游离节点全是 0）。
-  const source = document.createElement("div");
-  source.className = "floral-print-source";
-  source.style.position = "absolute";
-  source.style.left = "-100000px";
-  source.style.top = "0";
-  source.style.visibility = "hidden";
-  source.style.pointerEvents = "none";
+  // 懒加载的图在屏幕外不会开始加载 —— 打印那一刻它们还没开始，PDF 里就是空白。
+  for (const image of root.querySelectorAll("img")) {
+    image.loading = "eager";
+    image.removeAttribute("loading");
+  }
 
-  (options.parent ?? document.body).append(root);
-  document.body.append(source);
-
-  let pages: PageBox[] = [];
-  let didOverflow = false;
-  /** 当前这份设置；`update()` 换它，稳下来之后的重排也用它。 */
-  let latest = settings;
-  let disposed = false;
-
-  const metricsOf = (next: PdfExportSettings): PageMetrics => {
-    const { width, height } = paperSizeMm(next.paper, next.landscape);
-    return {
-      pageWidth: width,
-      pageHeight: height,
-      margin: {
-        top: next.marginMm.top,
-        right: next.marginMm.right,
-        bottom: next.marginMm.bottom,
-        left: next.marginMm.left,
-      },
-    };
-  };
-
-  /** 造一张「纸」：纸面 + 页边距 + 页眉页脚预览，里面放分页器给的内容盒。 */
-  const makeSheet = (metrics: PageMetrics, zoom: number): PageBox => {
-    const sheet = document.createElement("div");
-    sheet.className = FRAME_CLASS;
-    sheet.style.width = `${metrics.pageWidth}mm`;
-    sheet.style.height = `${metrics.pageHeight}mm`;
-    // 页边距是纸上的空白：内容盒靠它定位。打印时这套 padding 会被清掉，
-    // 空白改由 `@page` 留（见 PRINT_CSS）。
-    sheet.style.padding = `${metrics.margin.top}mm ${metrics.margin.right}mm ${metrics.margin.bottom}mm ${metrics.margin.left}mm`;
-    sheet.style.position = "relative";
-    sheet.style.overflow = "hidden";
-    // ⚠️ 必须显式写：`width: 210mm` + 左右各 20mm 的内边距，在 `content-box` 下就是
-    // **250mm 宽**的一「张」纸 —— 比 A4 还宽，打印时会被缩掉或被裁掉。应用里
-    // Tailwind 的 preflight 已经把它设成 border-box 了，但这里不能靠环境。
-    sheet.style.boxSizing = "border-box";
-    // 打印时用它们把纸缩回**内容盒**（见 PRINT_CSS 里那段说明）。
-    const contentSize = {
-      width: metrics.pageWidth - metrics.margin.left - metrics.margin.right,
-      height: metrics.pageHeight - metrics.margin.top - metrics.margin.bottom,
-    };
-    sheet.style.setProperty("--floral-content-w", `${contentSize.width}mm`);
-    sheet.style.setProperty("--floral-content-h", `${contentSize.height}mm`);
-
-    const box = document.createElement("div");
-    // ❗**这个类不能漏**。`paginate.ts` 的 `createPage` 也会给它，但我们传了自己的
-    // `createPage`（要包一层页眉页脚），于是那条路被绕开了 —— 结果**所有**
-    // `.floral-page …` 的规则一条都没生效过：按页设色的那十几条（`[data-palette=light]
-    // .floral-page p` 之类）、图片的 `max-width`、预览里那些复制按钮的隐藏…
-    // 症状是「换配色档只变了个别东西」，而且查起来毫无线索（类在 HTML 里根本不在）。
-    box.className = "floral-page";
-    box.style.width = "100%";
-    box.style.height = "100%";
-    box.style.overflow = "hidden";
-    box.style.display = "flow-root";
-
-    const content = document.createElement("div");
-    content.className = "floral-page-content";
-    content.style.display = "flow-root";
-    if (zoom !== 1) content.style.zoom = String(zoom);
-    box.append(content);
-
-    const header = document.createElement("div");
-    header.className = "floral-sheet-margin floral-sheet-head";
-    const footer = document.createElement("div");
-    footer.className = "floral-sheet-margin floral-sheet-foot";
-
-    sheet.append(header, box, footer);
-    root.append(sheet);
-
-    // 分页器要的是 `{ box, content }`，`box` 得能报出「有没有溢出」。
-    return { box, content };
-  };
-
-  /**
-   * 重排一遍。
-   *
-   * 每次都从原始 HTML 重建 —— 分页会把节点**搬走**，第二次不能指着旧的在。
-   */
-  const render = (next: PdfExportSettings) => {
-    root.replaceChildren();
-    root.dataset.palette = next.colorMode;
-
-    const metrics = metricsOf(next);
-    const { top, right, bottom, left } = next.marginMm;
-    // ⚠️ 这里**只写边距**，不写 `size`：纸张与方向已经在打印设置里给了
-    //（`PageWidth/PageHeight` + `SetOrientation`）。两处都写就是在互相打架，
-    // 而 CSS 那一条还不一定生效（Chromium 要 `preferCSSPageSize` 才认）。
-    pageStyle.textContent = `@page { margin: ${top}mm ${right}mm ${bottom}mm ${left}mm; }`;
-
-    // 内容源：标题 + 正文，宽度 = 版心宽。
-    source.style.width = `${Math.max(1, metrics.pageWidth - right - left)}mm`;
-    source.innerHTML = bodyHtml;
-    // 懒加载的图在屏幕外根本不会开始加载（见文件头第 3 条）。
-    for (const image of source.querySelectorAll("img")) {
-      image.loading = "eager";
-      image.removeAttribute("loading");
+  // 黑白档：把整棵树的颜色就地换成同明度的灰（见 `grayOutTree`）。
+  if (settings.colorMode === "mono") {
+    grayOutTree(root);
+    /*
+     * ⚠️ **图片也得去色**。`grayOutTree` 只改 CSS 颜色，管不到位图 —— 笔记里的谱图、
+     * 散点图本身就是彩色的，不处理的话「黑白」印出来还是花的（实测整页非灰像素
+     * 1.14%，全都落在图上）。
+     *
+     * 这里可以放心用 `filter: grayscale(1)`：它**只加在 `<img>` 上**，位图本来就是位图，
+     * 不会像加在整棵树上那样把整页栅格化（那时文件会暴涨 20 倍，见 `Docs/pdf-export.md`）。
+     */
+    for (const image of root.querySelectorAll("img")) {
+      image.style.filter = "grayscale(1)";
     }
-
-    const heading = document.createElement("h1");
-    heading.className = "floral-print-title";
-    heading.textContent = title;
-    heading.style.fontSize = `${next.title.sizePt}pt`;
-    heading.style.textAlign = next.title.align;
-    heading.style.fontWeight = "700";
-    heading.style.margin = "0 0 8mm 0";
-    heading.style.paddingBottom = next.title.rule ? "3mm" : "0";
-    heading.style.borderBottom = next.title.rule
-      ? "2px solid var(--color-ink, #333333)"
-      : "none";
-    heading.style.color = "var(--color-ink, #1a1a1a)";
-    source.prepend(heading);
-
-    const result = paginate(source, metrics, {
-      zoom: next.scale,
-      createPage: (pageMetrics, zoom) => makeSheet(pageMetrics, zoom),
-    });
-    pages = result.pages;
-    didOverflow = result.overflowed;
-
-    // 黑白档：把整叠纸的颜色就地换成同明度的灰（见 `grayOutTree` 里那两段说明）。
-    // 放在分页**之后** —— 换色会改 DOM，分页量的是几何，别让两件事互相干扰。
-    if (next.colorMode === "mono") grayOutTree(root);
-
-    // 画上页眉页脚与页码（真打出来时这两行是 WebView2 画的，位置样式只能近似）。
-    const sheets = [...root.children] as HTMLElement[];
-    sheets.forEach((sheet, index) => {
-      const head = sheet.querySelector<HTMLElement>(".floral-sheet-head");
-      const foot = sheet.querySelector<HTMLElement>(".floral-sheet-foot");
-      // 页眉：只在左上角写标题（Chromium 那条页眉也是这么排的）。
-      if (head) {
-        head.append(document.createTextNode(next.headerFooter ? next.headerTitle : ""));
-      }
-      // 页脚：左边页脚文字、右边页码 —— 那个 `1 / 3` 原本在两个地方都出现，看着像印重了。
-      if (foot) {
-        foot.append(document.createTextNode(next.headerFooter ? next.footerText : ""));
-        const number = document.createElement("span");
-        number.textContent = next.headerFooter ? `${index + 1} / ${sheets.length}` : "";
-        // 页脚文字为空时 `space-between` 会把它顶到左边（只有一个弹性项）——
-        // 页码固定在右下角，与打印出来的一致。
-        number.style.marginLeft = "auto";
-        foot.append(number);
-      }
-    });
-  };
-
-  render(settings);
-
-  /**
-   * ⚠️ **量完还得再量一遍**。
-   *
-   * 第一次 render 时字体可能还没换好、图还没解码 —— 用**替身字体**量出来的行高是错的，
-   * 于是分页也错。这一步等字体与图都就位了再排一次，那次才是准的。
-   *
-   * 实测过：同一份内容，字体就位前后差了**整整一页**（5 → 6）。而 PDF 是按就位后的排版
-   * 出的，所以不重排的话预览会比产出少一页。
-   */
-  const settled = waitForPrintable(root).then(() => {
-    if (disposed) return;
-    render(latest);
-  });
+  }
 
   return {
     element: root,
-    settled,
-    pageCount: () => Math.max(1, pages.length),
-    overflowed: () => didOverflow,
-    update: (next) => {
-      latest = next;
-      render(next);
-    },
-    toSheet: () => {
-      // 挪一个节点不会重建它 —— 图已经加载好的状态原样带过去。
-      root.classList.remove(EMBEDDED_CLASS);
-      document.body.append(root);
-    },
-    toEmbedded: () => {
-      const parent = options.parent;
-      if (!parent) return;
-      root.classList.add(EMBEDDED_CLASS);
-      parent.append(root);
-    },
     cleanup: () => {
-      disposed = true;
       root.remove();
-      source.remove();
       pageStyle.remove();
       if (styleElement) {
         styleElement.remove();
@@ -567,14 +279,12 @@ export function mountPrintView(
 }
 
 /**
- * 等这一份真的**画得出来**了再动手打印。
+ * 等这一份真的**画得出来**了再打印。
  *
- * 打印机拿到的是某一瞬间的排版结果：字体还没换好、图还没解码，印出来的就是错版。
- * 所以等字体、等图、再等两帧 —— 分页已经量过了，这里只是等资源。
+ * 打印机拿到的是某一瞬间的排版：字体还没换好、图还没解码，印出来的就是错版。
+ * 所以等字体、等图、再等两帧。
  */
 export async function waitForPrintable(element: HTMLElement): Promise<void> {
-  // 字体：没装好时量出来的行高是错的（分页也跟着错，不过我们已经量完了 —— 真正要紧的
-  // 是别把没换好字的那一版印出去）。
   await Promise.race([
     document.fonts?.ready ?? Promise.resolve(),
     new Promise((resolve) => setTimeout(resolve, 3000)),

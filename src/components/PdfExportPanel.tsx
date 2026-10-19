@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useTranslation } from "react-i18next";
 import { getErrorMessage } from "../features/notes/api";
 import {
-  mountPrintView,
+  mountPrintDocument,
   waitForPrintable,
-  type PrintView,
+  type PrintDocument,
 } from "../features/pdfExport/printView";
 import {
   PAPERS,
@@ -16,17 +16,26 @@ import {
   type PaperId,
   type PdfExportSettings,
 } from "../features/pdfExport/settings";
-import { printPdf, printWithSystemDialog } from "../features/pdfExport/api";
+import { printPdf, printPdfPreview, printWithSystemDialog } from "../features/pdfExport/api";
+import { PdfPreview } from "./PdfPreview";
 import { showToast } from "./Toast";
 
 /**
- * 「导出 PDF」那个界面。
+ * 「导出 PDF」那个界面：**左边设置，右边预览**。
  *
- * 左边是**真的会打出来的那一份**（同一份 DOM，见 `features/pdfExport/printView.ts`），
- * 右边是设置。做完就两条路：保存为 PDF（后端 WebView2 直接写文件）或交给系统打印对话框。
+ * ## 预览是谁排的版
  *
- * ⚠️ 打印之前要把预览挪出面板（`view.toSheet()`）。预览框是 `overflow: auto` 的，
- * 不挪走的话长文档只会打出被裁掉的第一屏 —— 这条踩过，注释留在 `printView.ts` 里。
+ * 右边画的**不是**我们自己画的近似图，而是后端刚用 `PrintToPdf` 排出来的那份 **PDF**
+ *（`print_pdf_preview` 把字节直接还回来，前端用 pdf.js 画）。参数与「保存为 PDF」
+ * 完全一致，所以**预览就是产出** —— 页数、断点、表格在哪里切，全由浏览器说了算。
+ *
+ * 早先自己算过分页（把内容摆进固定大小的纸里）。遇到「一条列表项里塞着几张图」时它只能
+ * 整块挪页，纸上留大片空白 —— 那正是浏览器排得好的地方，所以那一套已经废掉了。
+ *
+ * ## 两条出口
+ *
+ * - **保存为 PDF**：`print_pdf` 直接写文件（不弹对话框，产出是真文字）；
+ * - **打印…**：`window.print()` 弹浏览器自带的打印预览（纸、缩放、背景都能调）。
  */
 
 interface PdfExportPanelProps {
@@ -54,91 +63,127 @@ export function PdfExportPanel({ title, bodyHtml, onClose, topInset = 44 }: PdfE
       : { ...remembered, headerTitle: title };
   });
   const [busy, setBusy] = useState(false);
-  /** 分页结果：给用户看「共几页」，以及「有块切不开」的提醒。 */
-  const [pageInfo, setPageInfo] = useState({ pages: 1, overflowed: false });
-  /**
-   * 预览的缩放（只影响**眼睛**，不影响产出）。
-   *
-   * 与设置里的「缩放」是两回事：那个是打印出来的字号，这个纯粹是把纸拉近拉远看细节。
-   * Ctrl + 滚轮调它 —— 和浏览器/编辑器里的习惯一致。
-   */
-  const [previewZoom, setPreviewZoom] = useState(1);
+  /** 预览用的 PDF 字节；`null` = 第一版还在生成。 */
+  const [previewBytes, setPreviewBytes] = useState<ArrayBuffer | null>(null);
+  const [previewPages, setPreviewPages] = useState(0);
+  const [previewing, setPreviewing] = useState(false);
 
-  const previewRef = useRef<HTMLDivElement>(null);
-  const viewRef = useRef<PrintView | null>(null);
-
-  // 摆一次纸，之后改设置只是就地重排。
   useEffect(() => {
-    const parent = previewRef.current;
-    if (!parent) return;
-    const view = mountPrintView(title, bodyHtml, settings, {
-      parent,
-      embedded: true,
-      topInset,
-    });
-    viewRef.current = view;
-    return () => {
-      view.cleanup();
-      viewRef.current = null;
-    };
-    // 只在开面板时摆一次：`settings` 的后续变化走下面那个 effect 的 `update`。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, bodyHtml, topInset]);
-
-  /**
-   * 设置一变就重排。
-   *
-   * **要防抖**：拖一下边距数字、点两下缩放，每次重排都要把整篇 HTML 重新解析 + 逐块测量，
-   * 长文档上那就是几百毫秒一次的卡顿。150ms 足够让人「停下来」。
-   */
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const view = viewRef.current;
-      if (!view) return;
-      view.update(settings);
-      setPageInfo({ pages: view.pageCount(), overflowed: view.overflowed() });
-      savePdfSettings(settings);
-    }, 150);
-    return () => clearTimeout(timer);
+    savePdfSettings(settings);
   }, [settings]);
 
-  // 第一次量完还会在「字体与图就位」之后再量一遍（见 printView 的说明），页数可能变，
-  // 所以延迟再读一次。
-  useEffect(() => {
-    const read = () => {
-      const view = viewRef.current;
-      if (view) setPageInfo({ pages: view.pageCount(), overflowed: view.overflowed() });
-    };
-    read();
-    const timer = setTimeout(read, 1200);
-    void viewRef.current?.settled.then(read);
-    return () => clearTimeout(timer);
+  /**
+   * 同一时刻**只能有一份打印文档**挂在页面上。
+   *
+   * `PrintToPdf` 印的是**整个 webview**，而打印 CSS 只留下 `.floral-print-root` 那一层。
+   * 两份文档同时挂上去的话，两边都会被印进同一份 PDF —— 所以预览、保存、打印全部排进
+   * 同一个队列，一次只跑一个。
+   */
+  const queueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const runExclusive = useCallback(<T,>(task: () => Promise<T>): Promise<T> => {
+    const run = queueRef.current.then(task, task);
+    queueRef.current = run.catch(() => undefined);
+    return run;
   }, []);
+
+  /** 最新的那一次预览请求；旧的排队任务看到编号变了就直接放弃。 */
+  const jobRef = useRef(0);
+
+  /**
+   * 系统打印对话框弹出来之后**留在页面上的**那份文档。
+   *
+   * `ShowPrintUI` 弹出来就返回，真正的打印要等用户确认 —— 这期间文档必须还在。
+   * 它会在下一次「要挂新文档」时（生成预览、保存）被收掉，面板关闭时也收掉。
+   */
+  const printDocRef = useRef<PrintDocument | null>(null);
+
+  /** 在一份临时文档上跑一次打印动作，跑完立刻收拾干净。 */
+  const withPrintDocument = useCallback(
+    async (options: { cssPageSize: boolean; cssScale: boolean }, task: (doc: PrintDocument) => Promise<void>) => {
+      // 上一次系统打印留下的那份还在 —— 不清掉的话两份会一起被印进同一份 PDF。
+      printDocRef.current?.cleanup();
+      printDocRef.current = null;
+
+      const doc = mountPrintDocument(title, bodyHtml, settings, options);
+      try {
+        await waitForPrintable(doc.element);
+        await task(doc);
+      } finally {
+        doc.cleanup();
+      }
+    },
+    [bodyHtml, settings, title],
+  );
+
+  // 面板关掉时把可能还挂着的那份系统打印文档收掉。
+  useEffect(() => {
+    return () => {
+      printDocRef.current?.cleanup();
+      printDocRef.current = null;
+    };
+  }, []);
+
+  /**
+   * 设置一变就重新生成预览（防抖 400ms）。
+   *
+   * 生成一版要走一次完整的 `PrintToPdf`，所以**不能**在每次按键时都跑；旧的预览留在
+   * 屏幕上，新的好了再换，界面不闪白。
+   */
+  useEffect(() => {
+    const job = ++jobRef.current;
+    const timer = setTimeout(() => {
+      void runExclusive(async () => {
+        // 更晚的设置已经排队了 —— 这一版不用跑。
+        if (job !== jobRef.current) return;
+        setPreviewing(true);
+        try {
+          const bytes = await (async () => {
+            let result: ArrayBuffer | null = null;
+            await withPrintDocument({ cssPageSize: false, cssScale: false }, async () => {
+              result = await printPdfPreview(settings);
+            });
+            return result as ArrayBuffer | null;
+          })();
+          if (job === jobRef.current && bytes) setPreviewBytes(bytes);
+        } catch (error) {
+          if (job === jobRef.current) {
+            showToast(
+              t("pdfExport.previewFailed", {
+                message: getErrorMessage(error),
+                defaultValue: "预览生成失败：{{message}}",
+              }),
+            );
+          }
+        } finally {
+          if (job === jobRef.current) setPreviewing(false);
+        }
+      });
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [runExclusive, settings, t, withPrintDocument]);
 
   const patch = useCallback((next: Partial<PdfExportSettings>) => {
     setSettings((current) => normalizePdfSettings({ ...current, ...next }));
   }, []);
 
+  /** 「保存为 PDF」：问路径 → 造一份不分页文档 → 让后端 `PrintToPdf` 写文件。 */
   const handleSave = useCallback(async () => {
-    const view = viewRef.current;
-    if (!view) return;
-    setBusy(true);
-    let moved = false;
-    try {
-      const { save } = await import("@tauri-apps/plugin-dialog");
-      const path = await save({
-        defaultPath: pdfFileName(title),
-        filters: [{ name: "PDF", extensions: ["pdf"] }],
-      });
-      if (typeof path !== "string") return;
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const path = await save({
+      defaultPath: pdfFileName(title),
+      filters: [{ name: "PDF", extensions: ["pdf"] }],
+    });
+    if (typeof path !== "string") return;
 
-      // 到这里才动 DOM：用户取消对话框的话，界面不该有任何变化。
-      view.toSheet();
-      moved = true;
-      // 等那一次「字体就位后的重排」落地，不然印出来的可能是用替身字体量的那一版。
-      await view.settled;
-      await waitForPrintable(view.element);
-      await printPdf(path, settings);
+    setBusy(true);
+    try {
+      await runExclusive(() =>
+        // 纸张、边距、缩放都由后端通过 COM 设，CSS 里不再写一遍。
+        withPrintDocument({ cssPageSize: false, cssScale: false }, async () => {
+          await printPdf(path, settings);
+        }),
+      );
       showToast(t("pdfExport.saved", { path, defaultValue: "已保存到 {{path}}" }));
       onClose();
     } catch (error) {
@@ -148,54 +193,51 @@ export function PdfExportPanel({ title, bodyHtml, onClose, topInset = 44 }: PdfE
           defaultValue: "导出失败：{{message}}",
         }),
       );
-      // 失败了就把纸放回面板里 —— 那张铺满屏幕的纸会让用户以为界面卡死了。
-      if (moved) view.toEmbedded();
     } finally {
       setBusy(false);
     }
-  }, [onClose, settings, t, title]);
-
-  const handleSystemPrinter = useCallback(async () => {
-    const view = viewRef.current;
-    if (!view) return;
-    setBusy(true);
-    try {
-      view.toSheet();
-      await view.settled;
-      await waitForPrintable(view.element);
-      // 先把纸摆好再弹系统对话框：那个对话框是**真的窗口**，点打印时读的就是此刻的页面。
-      try {
-        await printWithSystemDialog();
-      } catch (error) {
-        // 拿不到原生命令（老系统 / 非 Windows）就退回浏览器自带那条 —— 至少还能打。
-        console.warn("[pdf-export] 系统打印对话框打不开，退回 window.print()", error);
-        window.print();
-      }
-      view.toEmbedded();
-    } finally {
-      setBusy(false);
-    }
-  }, []);
+  }, [onClose, runExclusive, settings, t, title, withPrintDocument]);
 
   /**
-   * Ctrl + 滚轮缩放预览。
+   * 「打印…」——**系统打印对话框**（Windows 自己那个），接上打印机就能直接打。
    *
-   * ⚠️ 必须用**原生**监听 + `{ passive: false }`：React 的 `onWheel` 挂在被动监听上，
-   * 里面 `preventDefault()` 是无效的 —— 结果是既缩放了预览、又把整个 WebView 的页面
-   * 缩放也一起改了。
+   * 纸张、份数这些由对话框与打印机首选项说了算，所以这边**不写 `@page size`**；
+   * 「缩放」仍然用 CSS `zoom`（系统对话框里没有这一项）。
+   *
+   * ⚠️ `ShowPrintUI` **弹出来就返回**，真正的打印要等用户点确认 —— 文档不能在这时候
+   * 拆掉，所以这里不 cleanup，交给 `printDocRef` 管着。
    */
-  useEffect(() => {
-    const node = previewRef.current;
-    if (!node) return;
-    const onWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey) return;
-      event.preventDefault();
-      const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
-      setPreviewZoom((current) => Math.min(2, Math.max(0.4, current * factor)));
-    };
-    node.addEventListener("wheel", onWheel, { passive: false });
-    return () => node.removeEventListener("wheel", onWheel);
-  }, []);
+  const handlePrint = useCallback(async () => {
+    setBusy(true);
+    try {
+      await runExclusive(async () => {
+        printDocRef.current?.cleanup();
+        printDocRef.current = null;
+
+        const doc = mountPrintDocument(title, bodyHtml, settings, {
+          cssPageSize: false,
+          cssScale: true,
+        });
+        try {
+          await waitForPrintable(doc.element);
+          await printWithSystemDialog();
+        } catch (error) {
+          doc.cleanup();
+          throw error;
+        }
+        printDocRef.current = doc;
+      });
+    } catch (error) {
+      showToast(
+        t("pdfExport.failed", {
+          message: getErrorMessage(error),
+          defaultValue: "导出失败：{{message}}",
+        }),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }, [bodyHtml, runExclusive, settings, t, title]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -228,10 +270,10 @@ export function PdfExportPanel({ title, bodyHtml, onClose, topInset = 44 }: PdfE
         <button
           type="button"
           disabled={busy}
-          onClick={() => void handleSystemPrinter()}
+          onClick={() => void handlePrint()}
           className="px-3 h-7 rounded-lg text-[11px] text-ink-soft hover:bg-paper-warm transition-colors cursor-pointer disabled:opacity-40"
         >
-          {t("pdfExport.systemPrinter", { defaultValue: "用系统打印机…" })}
+          {t("pdfExport.systemPrinter", { defaultValue: "打印…" })}
         </button>
         <button
           type="button"
@@ -371,10 +413,7 @@ export function PdfExportPanel({ title, bodyHtml, onClose, topInset = 44 }: PdfE
           <Section title={t("pdfExport.color", { defaultValue: "颜色" })}>
             <div className="flex gap-1">
               <Choice active={settings.colorMode === "as-is"} onClick={() => patch({ colorMode: "as-is" })}>
-                {t("pdfExport.colorAsIs", { defaultValue: "原样" })}
-              </Choice>
-              <Choice active={settings.colorMode === "light"} onClick={() => patch({ colorMode: "light" })}>
-                {t("pdfExport.colorLight", { defaultValue: "白底" })}
+                {t("pdfExport.colorAsIs", { defaultValue: "彩色" })}
               </Choice>
               <Choice active={settings.colorMode === "mono"} onClick={() => patch({ colorMode: "mono" })}>
                 {t("pdfExport.colorMono", { defaultValue: "黑白" })}
@@ -383,8 +422,7 @@ export function PdfExportPanel({ title, bodyHtml, onClose, topInset = 44 }: PdfE
             <p className="text-[10px] text-ink-ghost leading-relaxed mt-1">
               {t("pdfExport.colorHint", {
                 defaultValue:
-                  "原样 = 界面上什么样就印什么样（含你在样式目录里改的底色与配色）；" +
-                  "白底 = 只把纸换成白的，字与字体不动；黑白 = 明度全保持，只去掉颜色",
+                  "彩色 = 界面上什么样就印什么样（含你在样式目录里改的底色与配色）；黑白 = 全保持明度，只去掉颜色",
               })}
             </p>
             <div className="mt-2">
@@ -402,38 +440,28 @@ export function PdfExportPanel({ title, bodyHtml, onClose, topInset = 44 }: PdfE
           </Section>
         </aside>
 
-        <div className="flex-1 min-w-0 flex flex-col">
-          <div
-            ref={previewRef}
-            className="flex-1 min-h-0 overflow-auto bg-[#6f6d68] p-6"
-            style={{ zoom: previewZoom }}
+        {/* 预览：画的是后端刚生成的那份 PDF，也就是「保存为 PDF」会写出来的样子。 */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <PdfPreview
+            bytes={previewBytes}
+            onPages={setPreviewPages}
+            generating={previewing}
+            emptyText={t("pdfExport.previewGenerating", { defaultValue: "正在生成预览…" })}
           />
         </div>
       </div>
 
-      {/* 底部状态条：像正文下面那条一样，别让预览直接怼到窗口边上。 */}
       <div className="flex items-center gap-3 h-7 px-4 shrink-0 bg-cloud/95 border-t border-paper-deep/50 text-[10px] text-ink-ghost">
         <span>
-          {t("pdfExport.pageCount", { count: pageInfo.pages, defaultValue: "共 {{count}} 页" })}
+          {t("pdfExport.pageCount", { count: previewPages, defaultValue: "共 {{count}} 页" })}
         </span>
-        <button
-          type="button"
-          onClick={() => setPreviewZoom(1)}
-          title={t("pdfExport.zoomHint", { defaultValue: "Ctrl + 滚轮缩放预览，点一下复位" })}
-          className="cursor-pointer hover:text-ink-soft tabular-nums"
-        >
-          {Math.round(previewZoom * 100)}%
-        </button>
         <span className="flex-1" />
-        {pageInfo.overflowed ? (
-          <span className="text-rust">
-            {t("pdfExport.overflowed", { defaultValue: "有内容超出一页" })}
-          </span>
-        ) : null}
         <span className="opacity-70">
-          {t("pdfExport.previewNote", {
-            defaultValue: "预览就是产出的样子；改设置会立刻重排。",
-          })}
+          {previewing
+            ? t("pdfExport.previewGenerating", { defaultValue: "正在生成预览…" })
+            : t("pdfExport.previewNote", {
+                defaultValue: "预览由浏览器排版生成，与导出的 PDF 逐页一致。",
+              })}
         </span>
       </div>
     </div>

@@ -94,6 +94,7 @@
       "delete": "Delete Category",
       "emptyFolder": "Empty Folder",
       "new": "New Category",
+      "newNoteHere": "New note in this category",
       "placeholder": "Enter category name…",
       "rename": "Rename",
       "uncategorized": "Uncategorized"
@@ -227,9 +228,9 @@
   "pdfExport": {
     "title": "Export PDF",
     "preview": "Preview",
-    "previewNote": "Page-break lines are estimated from the paper height; the real breaks are decided when the file is generated.",
+    "previewNote": "Pagination and layout are done by the browser — use Print… to preview.",
     "headerFooter": "Header and footer",
-    "headerHint": "The header shows the title, the footer shows the page number; the page number is drawn by the browser and cannot be reworded",
+    "headerHint": "Header shows the title, footer the page number — for “Save as PDF” only; printing uses the system dialog.",
     "headerText": "Header text",
     "footerText": "Footer text",
     "scale": "Scale",
@@ -245,9 +246,8 @@
     "color": "Colors",
     "colorColor": "Color",
     "colorMono": "Black & white",
-    "colorAsIs": "As shown",
-    "colorLight": "White paper",
-    "colorHint": "\"As shown\" prints exactly what you see, theme included (a dark theme gives you dark pages)",
+    "colorAsIs": "Color",
+    "colorHint": "Color prints exactly what you see (theme and custom CSS included); black & white keeps every lightness and only drops the colour.",
     "titleStyle": "Title",
     "titleSize": "Size",
     "titleAlign": "Align",
@@ -255,14 +255,15 @@
     "alignCenter": "Center",
     "titleRule": "Rule under the title",
     "save": "Save as PDF",
-    "systemPrinter": "System printer…",
+    "systemPrinter": "Print…",
     "saving": "Generating…",
     "saved": "Saved to {{path}}",
     "failed": "Export failed: {{message}}",
-    "pageCount": "{{count}} pages",
-    "overflowed": "A block exceeds one page",
     "overflowedHint": "One block is taller than a page and cannot be split, so that page is stretched — the real page count may be higher.",
-    "zoomHint": "Ctrl + wheel to zoom the preview; click to reset"
+    "paperHint": "Printing uses the system dialog — paper comes from the printer",
+    "pageCount": "{{count}} pages",
+    "previewGenerating": "Generating preview…",
+    "previewFailed": "Preview failed: {{message}}"
   },
   "settings": {
     "autoSave": {

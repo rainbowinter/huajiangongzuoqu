@@ -42,7 +42,14 @@ export function paperSizeMm(paper: PaperId, landscape: boolean): { width: number
   return landscape ? { width: height, height: width } : { width, height };
 }
 
-export type PdfColorMode = "as-is" | "light" | "mono";
+/**
+ * 两档配色：**彩色**、**黑白**。
+ *
+ * 早先中间还有一档 `light`（白底）。现在分页与排版都交给浏览器，那一档的价值不再明显，
+ * 用户要的就是「看到什么打什么」和「去掉颜色」两种；`light` 只作为旧设置里的残留值被
+ * 归一化成 `as-is`（见 `normalizePdfSettings`）。
+ */
+export type PdfColorMode = "as-is" | "mono";
 
 export interface PdfTitleStyle {
   /** 标题字号（磅）。 */
@@ -69,10 +76,9 @@ export interface PdfExportSettings {
   /**
    * 用什么配色打。
    *
-   * - `as-is`：**当前渲染成什么样就打什么样** —— 跟随应用主题（深色主题就是深色纸）、
+   * - `as-is`（彩色）：**当前渲染成什么样就打什么样** —— 跟随应用主题（深色主题就是深色纸）、
    *   笔记自己的表格底色与文字颜色原样保留。默认这一档。
-   * - `light`：把色板钉成浅色（白纸深字）。深色主题下想把笔记打成浅色纸时用。
-   * - `mono`：浅色纸 + 文字全压成灰，语法高亮那些彩色一起压平。
+   * - `mono`（黑白）：明度全部保持，只把颜色去掉。
    */
   colorMode: PdfColorMode;
   title: PdfTitleStyle;
@@ -162,10 +168,9 @@ export function normalizePdfSettings(raw: Partial<PdfExportSettings>): PdfExport
       left: clampNumber(margin.left, 0, 60, defaults.marginMm.left),
     },
     backgrounds: typeof raw.backgrounds === "boolean" ? raw.backgrounds : defaults.backgrounds,
+    // `light` 是旧版本留下的那一档 —— 现在按「彩色」处理。
     colorMode:
-      raw.colorMode === "light" || raw.colorMode === "mono" || raw.colorMode === "as-is"
-        ? raw.colorMode
-        : defaults.colorMode,
+      raw.colorMode === "mono" || raw.colorMode === "as-is" ? raw.colorMode : defaults.colorMode,
     title: {
       sizePt: clampNumber(title.sizePt, 8, 48, defaults.title.sizePt),
       align: title.align === "center" ? "center" : "left",

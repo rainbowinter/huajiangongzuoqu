@@ -96,6 +96,7 @@
       "delete": "删除分类",
       "emptyFolder": "空文件夹",
       "new": "新建分类",
+      "newNoteHere": "在这个分类里新建笔记",
       "placeholder": "输入分类名…",
       "rename": "重命名",
       "uncategorized": "未分类"
@@ -231,9 +232,9 @@
   "pdfExport": {
     "title": "导出 PDF",
     "preview": "预览",
-    "previewNote": "分页线是按纸张高度估的，真正的分页等生成时才定。",
+    "previewNote": "分页与排版由浏览器完成；点「打印…」可以先看效果。",
     "headerFooter": "页眉页脚",
-    "headerHint": "页眉写标题、页脚带页码；页码由浏览器绘制，文案改不了",
+    "headerHint": "页眉写标题、页脚带页码；只对「保存为 PDF」生效（打印时用系统对话框的设置）",
     "headerText": "页眉文字",
     "footerText": "页脚文字",
     "scale": "缩放",
@@ -249,9 +250,8 @@
     "color": "颜色",
     "colorColor": "彩色",
     "colorMono": "黑白",
-    "colorAsIs": "原样",
-    "colorLight": "白底",
-    "colorHint": "「原样」= 现在看到什么就打什么（跟着主题，深色主题就是深色纸）",
+    "colorAsIs": "彩色",
+    "colorHint": "彩色 = 界面上什么样就印什么样（含你在样式目录里改的底色与配色）；黑白 = 明度全保持，只去掉颜色",
     "titleStyle": "标题",
     "titleSize": "字号",
     "titleAlign": "对齐",
@@ -259,14 +259,15 @@
     "alignCenter": "居中",
     "titleRule": "标题下加一条横线",
     "save": "保存为 PDF",
-    "systemPrinter": "用系统打印机…",
+    "systemPrinter": "打印…",
     "saving": "正在生成…",
     "saved": "已保存到 {{path}}",
     "failed": "导出失败：{{message}}",
-    "pageCount": "共 {{count}} 页",
-    "overflowed": "有内容超出一页",
     "overflowedHint": "有一块内容比一页还高、又切不开，那一页会被撑高 —— 实际页数可能比这里多。",
-    "zoomHint": "Ctrl + 滚轮缩放预览，点一下复位"
+    "paperHint": "打印走系统对话框，纸张由打印机决定",
+    "pageCount": "共 {{count}} 页",
+    "previewGenerating": "正在生成预览…",
+    "previewFailed": "预览生成失败：{{message}}"
   },
   "settings": {
     "autoSave": {

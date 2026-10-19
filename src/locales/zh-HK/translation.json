@@ -94,6 +94,7 @@
       "delete": "刪除分類",
       "emptyFolder": "空資料夾",
       "new": "新增分類",
+      "newNoteHere": "在這個分類裡新增筆記",
       "placeholder": "輸入分類名稱…",
       "rename": "重新命名",
       "uncategorized": "未分類"
@@ -227,9 +228,9 @@
   "pdfExport": {
     "title": "匯出 PDF",
     "preview": "預覽",
-    "previewNote": "分頁線是按紙張高度估的，真正的分頁等生成時才定。",
+    "previewNote": "分頁與排版由瀏覽器完成；點「列印…」可以先看效果。",
     "headerFooter": "頁首頁尾",
-    "headerHint": "頁首寫標題、頁尾帶頁碼；頁碼由瀏覽器繪製，文案改不了",
+    "headerHint": "頁眉寫標題、頁腳帶頁碼；只對「儲存為 PDF」生效（列印時用系統對話框的設定）",
     "headerText": "頁首文字",
     "footerText": "頁尾文字",
     "scale": "縮放",
@@ -245,9 +246,8 @@
     "color": "顏色",
     "colorColor": "彩色",
     "colorMono": "黑白",
-    "colorAsIs": "原樣",
-    "colorLight": "白底",
-    "colorHint": "「原樣」= 現在看到什麼就打什麼（跟著主題，深色主題就是深色紙）",
+    "colorAsIs": "彩色",
+    "colorHint": "彩色 = 介面上什麼樣就印什麼樣（含你在樣式目錄裡改的底色與配色）；黑白 = 明度全保持，只去掉顏色",
     "titleStyle": "標題",
     "titleSize": "字號",
     "titleAlign": "對齊",
@@ -255,14 +255,15 @@
     "alignCenter": "居中",
     "titleRule": "標題下加一條橫線",
     "save": "儲存為 PDF",
-    "systemPrinter": "用系統印表機…",
+    "systemPrinter": "列印…",
     "saving": "正在生成…",
     "saved": "已儲存到 {{path}}",
     "failed": "匯出失敗：{{message}}",
-    "pageCount": "共 {{count}} 頁",
-    "overflowed": "有內容超出一頁",
     "overflowedHint": "有一塊內容比一頁還高、又切不開，那一頁會被撐高 —— 實際頁數可能比這裡多。",
-    "zoomHint": "Ctrl + 滾輪縮放預覽，點一下復位"
+    "paperHint": "列印走系統對話框，紙張由印表機決定",
+    "pageCount": "共 {{count}} 頁",
+    "previewGenerating": "正在生成預覽…",
+    "previewFailed": "預覽生成失敗：{{message}}"
   },
   "settings": {
     "autoSave": {
