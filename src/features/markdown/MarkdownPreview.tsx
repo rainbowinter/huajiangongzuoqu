@@ -16,6 +16,7 @@ import "katex/dist/katex.min.css";
 // 现在由 `codeThemes.ts` 在运行时注入，跟随应用主题或当前文件类型的声明。
 import remarkAlerts from "./remarkAlerts";
 import remarkAlign from "./remarkAlign";
+import remarkLocalImages from "./remarkLocalImages";
 import { sliceBlockSource } from "./blockSource";
 import { highlightCode } from "./highlight";
 import { parseImageLayout } from "./imageLayout";
@@ -201,7 +202,7 @@ interface MarkdownPreviewProps {
   imageBaseDir?: string;
 }
 
-const remarkPlugins = [remarkGfm, remarkMath, remarkAlerts, remarkAlign];
+const remarkPlugins = [remarkLocalImages, remarkGfm, remarkMath, remarkAlerts, remarkAlign];
 const sanitizeSchema = {
   ...defaultSchema,
   tagNames: [...(defaultSchema.tagNames ?? []), "mark", "center", "font", "u", "abbr"],
@@ -216,6 +217,12 @@ const sanitizeSchema = {
     ],
     font: ["color", "size", "face"],
     abbr: ["title"],
+  },
+  // `file:` 要放行：本地绝对路径的图片会被 `remarkLocalImages` 转成 `file://`，
+  // 不在这里放行的话 sanitize 会直接把 src 丢掉。
+  protocols: {
+    ...defaultSchema.protocols,
+    src: [...(defaultSchema.protocols?.src ?? []), "file"],
   },
 };
 const rehypePluginsDefault = [rehypeKatex, rehypeSlug];

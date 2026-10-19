@@ -42,4 +42,27 @@ describe("resolveMarkdownImageSrc", () => {
   test("returns an empty string for missing sources", () => {
     expect(resolveMarkdownImageSrc(undefined, "/notes/note-1", convertFileSrc)).toBe("");
   });
+
+  test("绝对路径（盘符 / UNC）也走 asset 协议", () => {
+    expect(
+      resolveMarkdownImageSrc("E:/Projects/exp/fig.png", undefined, convertFileSrc),
+    ).toBe("asset://E:/Projects/exp/fig.png");
+    expect(convertFileSrc).toHaveBeenCalledWith("E:/Projects/exp/fig.png");
+
+    // 反斜杠先归一化
+    expect(
+      resolveMarkdownImageSrc("E:\\Projects\\exp\\fig.png", undefined, convertFileSrc),
+    ).toBe("asset://E:/Projects/exp/fig.png");
+  });
+
+  test("file:// 还原成路径再交给 asset 协议，%20 解回来", () => {
+    expect(
+      resolveMarkdownImageSrc(
+        "file:///E:/My%20Pics/a.png",
+        undefined,
+        convertFileSrc,
+      ),
+    ).toBe("asset://E:/My Pics/a.png");
+    expect(convertFileSrc).toHaveBeenCalledWith("E:/My Pics/a.png");
+  });
 });
