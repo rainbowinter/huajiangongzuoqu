@@ -20,7 +20,7 @@ import remarkLocalImages from "./remarkLocalImages";
 import { sliceBlockSource } from "./blockSource";
 import { highlightCode } from "./highlight";
 import { parseImageLayout } from "./imageLayout";
-import { resolveMarkdownImageSrc } from "./imageSrc";
+import { allowLocalFileUrls, resolveMarkdownImageSrc } from "./imageSrc";
 
 /**
  * 块右上角的复制按钮。代码块与表格共用。
@@ -203,6 +203,7 @@ interface MarkdownPreviewProps {
 }
 
 const remarkPlugins = [remarkLocalImages, remarkGfm, remarkMath, remarkAlerts, remarkAlign];
+
 const sanitizeSchema = {
   ...defaultSchema,
   tagNames: [...(defaultSchema.tagNames ?? []), "mark", "center", "font", "u", "abbr"],
@@ -527,6 +528,8 @@ function MarkdownPreviewView({
           remarkPlugins={remarkPlugins}
           rehypePlugins={renderHtml ? rehypePluginsWithHtml : rehypePluginsDefault}
           components={components}
+          // 放行 `file://` 图片（见 `allowLocalFileUrls` 的说明）。
+          urlTransform={allowLocalFileUrls}
         >
           {content}
         </Markdown>

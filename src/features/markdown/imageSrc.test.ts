@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { resolveMarkdownImageSrc } from "./imageSrc";
+import { allowLocalFileUrls, resolveMarkdownImageSrc } from "./imageSrc";
 
 describe("resolveMarkdownImageSrc", () => {
   const convertFileSrc = vi.fn((path: string) => `asset://${path}`);
@@ -64,5 +64,25 @@ describe("resolveMarkdownImageSrc", () => {
       ),
     ).toBe("asset://E:/My Pics/a.png");
     expect(convertFileSrc).toHaveBeenCalledWith("E:/My Pics/a.png");
+  });
+});
+
+describe("allowLocalFileUrls", () => {
+  test("图片的 file:// 放行（不然 react-markdown 会把 src 清成空串）", () => {
+    expect(allowLocalFileUrls("file:///E:/My%20Pics/a.png", "src")).toBe(
+      "file:///E:/My%20Pics/a.png",
+    );
+  });
+
+  test("其它协议仍然走默认过滤", () => {
+    expect(allowLocalFileUrls("javascript:alert(1)", "src")).toBe("");
+    expect(allowLocalFileUrls("https://example.com/a.png", "src")).toBe(
+      "https://example.com/a.png",
+    );
+    expect(allowLocalFileUrls("images/a.png", "src")).toBe("images/a.png");
+  });
+
+  test("链接（href）不放行 file:", () => {
+    expect(allowLocalFileUrls("file:///E:/a.md", "href")).toBe("");
   });
 });

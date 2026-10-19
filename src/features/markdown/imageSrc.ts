@@ -1,4 +1,21 @@
+import { defaultUrlTransform } from "react-markdown";
+
 export type FileSrcConverter = (path: string) => string;
+
+/**
+ * react-markdown 默认会过滤 URL：`defaultUrlTransform` 只放行 http / https / mailto 与
+ * **相对地址**，别的协议一律换成空串。
+ *
+ * 本地绝对路径的图片是 `remarkLocalImages` 转出来的 `file://…` —— 不在那个白名单里，
+ * 于是 `src` 被清成 `""`，界面上只剩一个破图标和 alt（用户报的）。
+ *
+ * 这里只对 `src` 放行 `file:`，链接（`href`）仍走默认规则 —— 在 webview 里点 `file:` 链接
+ * 本来也打不开。
+ */
+export function allowLocalFileUrls(url: string, key: string): string {
+  if (key === "src" && /^file:/i.test(url)) return url;
+  return defaultUrlTransform(url);
+}
 
 const NOTE_IMAGE_PREFIX = "images/";
 
