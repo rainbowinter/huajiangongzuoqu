@@ -7,7 +7,11 @@ import { invoke } from "@tauri-apps/api/core";
  * （`src-tauri/src/docs.rs` 的 `ALLOWED_DOCS`）一眼能对上 —— 那边不认识的名字会被
  * 直接拒绝。两边要一起加。
  */
-export type BundledDocName = "whats-new.md" | "guide.md" | "feedback.md";
+export type BundledDocName =
+  | "whats-new.md"
+  | "guide.md"
+  | "custom-css.md"
+  | "feedback.md";
 
 /** 读一篇随包文档的正文（Markdown 源码）。读不到会抛错，由调用方决定怎么提示。 */
 export async function readBundledDoc(name: BundledDocName): Promise<string> {

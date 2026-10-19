@@ -11,8 +11,8 @@ import { showToast } from "./Toast";
 
 interface AboutPanelProps {
   onClose: () => void;
-  /** 打开一篇只读文档。正文区是主窗口的地盘，这里只管请求。 */
-  onOpenDoc: (title: string, content: string) => void;
+  /** 打开一篇只读文档（作为标签页）。`key` 用来去重，随包文档传文件名。 */
+  onOpenDoc: (title: string, content: string, key?: string) => void;
   /** 笔记所在目录。由主窗口从设置里取 —— 这里不再去问一遍后端。 */
   notesDir?: string;
 }
@@ -98,7 +98,7 @@ export function AboutPanel({ onClose, onOpenDoc, notesDir }: AboutPanelProps) {
   const openDoc = (doc: (typeof ABOUT_DOCS)[number]) => {
     const title = t(doc.titleKey, { defaultValue: doc.fallbackTitle });
     void readBundledDoc(doc.name)
-      .then((content) => onOpenDoc(title, content))
+      .then((content) => onOpenDoc(title, content, doc.name))
       .catch((error) => showToast(String(error)));
   };
 

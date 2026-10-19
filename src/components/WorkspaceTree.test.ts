@@ -1,5 +1,12 @@
 import { describe, expect, test } from "vitest";
-import { folderName, shortenPath } from "./WorkspaceTree";
+import {
+  collapseSelectedPaths,
+  dirOf,
+  extensionOf,
+  folderName,
+  shortenPath,
+  validateDraftName,
+} from "./WorkspaceTree";
 
 /**
  * 侧栏标题行的两个纯函数。
@@ -19,6 +26,85 @@ describe("folderName", () => {
     expect(folderName("E:\\fwinter\\Projects\\floral-notepaper-main\\")).toBe(
       "floral-notepaper-main",
     );
+  });
+});
+
+describe("dirOf / extensionOf", () => {
+  test("取父目录，两种分隔符都认", () => {
+    expect(dirOf("E:\\a\\b\\c.md")).toBe("E:\\a\\b");
+    expect(dirOf("E:/a/b/c.md")).toBe("E:/a/b");
+  });
+
+  test("扩展名小写、无扩展名返回 null", () => {
+    expect(extensionOf("README.MD")).toBe("md");
+    expect(extensionOf("Makefile")).toBeNull();
+    expect(extensionOf(".gitignore")).toBeNull();
+  });
+});
+
+describe("validateDraftName", () => {
+  test("已注册的扩展名通过", () => {
+    expect(validateDraftName("note.md")).toBeNull();
+  });
+
+  test("路径分隔符、空名、点结尾都拒绝", () => {
+    expect(validateDraftName("")).not.toBeNull();
+    expect(validateDraftName("a/b.md")).not.toBeNull();
+    expect(validateDraftName("a\\b.md")).not.toBeNull();
+    expect(validateDraftName("note.")).not.toBeNull();
+  });
+
+  test("没有被文件类型认领的扩展名拒绝", () => {
+    expect(validateDraftName("note.xyz")).toContain("没有插件认领");
+  });
+});
+
+describe("collapseSelectedPaths", () => {
+  const root = "E:\\workspace";
+  const dirs = new Set([
+    "E:\\workspace\\src",
+    "E:\\workspace\\src\\deep",
+    "E:\\workspace\\docs",
+  ]);
+
+  test("祖先文件夹已选中时，里面的文件不再单独处理", () => {
+    const result = collapseSelectedPaths(
+      root,
+      ["E:\\workspace\\src", "E:\\workspace\\src\\main.ts", "E:\\workspace\\README.md"],
+      dirs,
+    );
+
+    expect(result).toEqual(["E:\\workspace\\README.md", "E:\\workspace\\src"]);
+  });
+
+  test("嵌套文件夹只留最外层", () => {
+    const result = collapseSelectedPaths(
+      root,
+      ["E:\\workspace\\src\\deep\\file.ts", "E:\\workspace\\src\\deep", "E:\\workspace\\src"],
+      dirs,
+    );
+
+    expect(result).toEqual(["E:\\workspace\\src"]);
+  });
+
+  test("互不相干的兄弟都保留，重复项去重", () => {
+    const result = collapseSelectedPaths(
+      root,
+      ["E:\\workspace\\docs", "E:\\workspace\\docs", "E:\\workspace\\README.md"],
+      dirs,
+    );
+
+    expect(result).toEqual(["E:\\workspace\\README.md", "E:\\workspace\\docs"]);
+  });
+
+  test("前缀相同的兄弟不会被当成祖孙", () => {
+    const result = collapseSelectedPaths(
+      root,
+      ["E:\\workspace\\src", "E:\\workspace\\src2\\file.ts"],
+      new Set(["E:\\workspace\\src"]),
+    );
+
+    expect(result).toEqual(["E:\\workspace\\src", "E:\\workspace\\src2\\file.ts"]);
   });
 });
 

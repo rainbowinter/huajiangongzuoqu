@@ -184,7 +184,9 @@ export function PdfExportPanel({ title, bodyHtml, onClose, topInset = 44 }: PdfE
           await printPdf(path, settings);
         }),
       );
-      showToast(t("pdfExport.saved", { path, defaultValue: "已保存到 {{path}}" }));
+      // 成功提示用 info —— `showToast` 的缺省类型是 error（红叉），「已保存」配红叉
+      // 会让人以为写盘失败了。
+      showToast(t("pdfExport.saved", { path, defaultValue: "已保存到 {{path}}" }), "info");
       onClose();
     } catch (error) {
       showToast(

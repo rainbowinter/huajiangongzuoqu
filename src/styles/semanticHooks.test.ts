@@ -1,11 +1,17 @@
 import { describe, expect, test } from "vitest";
+// 说明文档是 `.md`，用 `?raw` 读原文；它会被随包发到安装目录的 `docs/`，
+// 同时在「关于 → 说明文档」里打开。钩子清单以它为准。
+import customCssDoc from "../../Docs/user/custom-css.md?raw";
 
 /**
- * `custom.css` 第 3 节那张「语义钩子」清单，是给用户与插件作者看的**接口**。
+ * `Docs/user/custom-css.md` 第 3 节那张「语义钩子」清单，是给用户与插件作者看的**接口**。
  * 一旦清单里写着一个界面上根本没有的类名，照着它写 CSS 的人就会对着空气调半天。
  *
  * 所以这里做一件很朴素的事：**把清单抄出来，逐个到源码里找**。找不到就是清单过时了
  * —— 要么把类名补上去，要么把它从清单里删掉。
+ *
+ * 清单原先写在 `src/styles/custom.css` 的注释里；那份文件现在出厂是空的（用户拿到的
+ * 是一张白纸），说明搬到了 Markdown 文档，所以测试也跟着搬过来读。
  *
  * 「源码」= `src/` 下所有 `.ts` / `.tsx` / `.css` 的正文（**去掉注释**、**去掉测试文件**）。
  * 之所以把 `.css` 也算进来：清单里有一部分是**本来就带样式**的既有语义类
@@ -29,16 +35,13 @@ const CODE_FILES = import.meta.glob("/src/**/*.{ts,tsx}", {
   eager: true,
 }) as Record<string, string>;
 
-/** 从 custom.css 的「3. 语义钩子」一节里抄出所有 `.foo-bar` 名字。 */
+/** 从说明文档的「3. 语义钩子」一节里抄出所有 `.foo-bar` 名字。 */
 function documentedHooks(): string[] {
-  const css = Object.entries(CSS_FILES).find(([file]) => file.endsWith("/styles/custom.css"));
-  expect(css, "没找到 src/styles/custom.css").toBeTruthy();
-
-  const text = css![1];
-  const from = text.indexOf("* 3. 语义钩子");
-  const to = text.indexOf("* 4. 万一还是得盖");
-  expect(from, "custom.css 里找不到第 3 节").toBeGreaterThan(-1);
-  expect(to, "custom.css 里找不到第 4 节").toBeGreaterThan(from);
+  const text = customCssDoc;
+  const from = text.indexOf("## 3. 语义钩子");
+  const to = text.indexOf("## 4. 万一还是得盖");
+  expect(from, "custom-css.md 里找不到第 3 节").toBeGreaterThan(-1);
+  expect(to, "custom-css.md 里找不到第 4 节").toBeGreaterThan(from);
 
   const block = text.slice(from, to);
   const names = new Set<string>();
@@ -60,8 +63,8 @@ function sourceText(): string {
   const files = { ...CSS_FILES, ...CODE_FILES };
   let text = "";
   for (const [file, raw] of Object.entries(files)) {
-    // ⚠️ 跳过 custom.css 自己 —— 清单就写在那份文件的注释里，把它算进「源码」的话，
-    // 每个钩子都能在那段注释里找到自己，这个测试就永远绿。
+    // custom.css 现在出厂是空的；仍跳过它 —— 万一有人把清单又抄回注释里，
+    // 也不算「源码里有这个钩子」。
     if (file.endsWith("/styles/custom.css")) continue;
     // 测试文件里提到某个类名，不等于界面上真的有它。
     if (/\.test\.tsx?$/.test(file)) continue;
@@ -71,7 +74,7 @@ function sourceText(): string {
   return text;
 }
 
-describe("custom.css 里那张语义钩子清单", () => {
+describe("说明文档里那张语义钩子清单", () => {
   const hooks = documentedHooks();
   const haystack = sourceText();
 
@@ -87,7 +90,7 @@ describe("custom.css 里那张语义钩子清单", () => {
     expect(
       missing,
       `这些类名写在文档里、源码里却不存在：${missing.join(", ")}\n` +
-        "要么把类名补到对应的元素上，要么把它从 custom.css 第 3 节删掉。",
+        "要么把类名补到对应的元素上，要么把它从 custom-css.md 第 3 节删掉。",
     ).toEqual([]);
   });
 });

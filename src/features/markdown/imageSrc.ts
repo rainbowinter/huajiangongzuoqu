@@ -28,13 +28,20 @@ function decodePercent(value: string): string {
   }
 }
 
-export function resolveMarkdownImageSrc(
+/**
+ * 把 Markdown 图片的原始 `src` 还原成磁盘上的绝对路径。
+ *
+ * 与 `resolveMarkdownImageSrc` 共用同一套判断，区别只在最后一步：这里不转成 asset URL，
+ * 而是留着真实路径 —— 「复制图片」要把**原文件**放进剪贴板，asset URL 是拿不到文件的。
+ *
+ * 不是本地图片（外链、`data:`、相对的非笔记图片）时返回 `null`。
+ */
+export function resolveMarkdownImagePath(
   src: string | undefined,
   imageBaseDir: string | undefined,
-  convertFileSrc: FileSrcConverter,
-): string {
+): string | null {
   if (!src) {
-    return "";
+    return null;
   }
 
   const normalizedSrc = src.replace(/\\/g, "/");
@@ -44,10 +51,9 @@ export function resolveMarkdownImageSrc(
    *（直接写 `E:/…` 会被 sanitize 当成 `e:` 协议丢掉）。
    */
   if (/^file:\/\//i.test(normalizedSrc)) {
-    const path = decodePercent(
+    return decodePercent(
       normalizedSrc.replace(/^file:\/\//i, "").replace(/^\/([A-Za-z]:)/, "$1"),
     );
-    return convertFileSrc(path);
   }
 
   /*
@@ -56,12 +62,21 @@ export function resolveMarkdownImageSrc(
    * 一样能加载。
    */
   if (/^[A-Za-z]:\//.test(normalizedSrc) || /^\/\/[^/]/.test(normalizedSrc)) {
-    return convertFileSrc(decodePercent(normalizedSrc));
+    return decodePercent(normalizedSrc);
   }
 
   if (!imageBaseDir || !normalizedSrc.startsWith(NOTE_IMAGE_PREFIX)) {
-    return src;
+    return null;
   }
 
-  return convertFileSrc(`${imageBaseDir}/${normalizedSrc}`);
+  return `${imageBaseDir.replace(/\\/g, "/").replace(/\/+$/, "")}/${normalizedSrc}`;
+}
+
+export function resolveMarkdownImageSrc(
+  src: string | undefined,
+  imageBaseDir: string | undefined,
+  convertFileSrc: FileSrcConverter,
+): string {
+  const path = resolveMarkdownImagePath(src, imageBaseDir);
+  return path ? convertFileSrc(path) : (src ?? "");
 }

@@ -1,4 +1,4 @@
-//! 随包分发的说明文档 ——「关于」面板那三篇。
+//! 随包分发的说明文档 ——「关于」面板里的那几篇。
 //!
 //! 文档本体放在仓库的 `Docs/user/` 下，由 `tauri.conf.json` 的 `bundle.resources`
 //! 映射成安装目录里的 `docs/`。和 `example-plugins-v2` 走的是同一条路：`tauri_build`
@@ -16,7 +16,8 @@ use tauri::{AppHandle, Manager};
 use crate::services::notes::AppError;
 
 /// 允许读取的文档文件名。加一篇说明文档时，这里和 `Docs/user/` 要一起动。
-pub const ALLOWED_DOCS: &[&str] = &["whats-new.md", "guide.md", "feedback.md"];
+pub const ALLOWED_DOCS: &[&str] =
+    &["whats-new.md", "guide.md", "custom-css.md", "feedback.md"];
 
 /// 资源目录下的子目录名，与 `tauri.conf.json` 里 `bundle.resources` 的映射目标一致。
 const DOCS_DIR: &str = "docs";
@@ -74,6 +75,7 @@ mod tests {
     fn only_whitelisted_documents_are_readable() {
         assert!(is_allowed_doc("guide.md"));
         assert!(is_allowed_doc("whats-new.md"));
+        assert!(is_allowed_doc("custom-css.md"));
         assert!(is_allowed_doc("feedback.md"));
 
         assert!(!is_allowed_doc("plugin-api.md"));

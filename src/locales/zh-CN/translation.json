@@ -68,7 +68,9 @@
       "important": "重要",
       "warning": "警告",
       "caution": "注意"
-    }
+    },
+    "copyImage": "复制图片",
+    "copyFailed": "复制失败"
   },
   "main": {
     "about": {
@@ -83,7 +85,8 @@
       "updateSourceNone": "未配置",
       "dataLocation": "数据位置",
       "notesDir": "笔记",
-      "pluginsDir": "插件"
+      "pluginsDir": "插件",
+      "customCss": "自定义样式"
     },
     "doc": {
       "label": "说明文档 · 只读",
@@ -184,12 +187,60 @@
       "quickNotepad": "快捷便签",
       "restore": "还原",
       "settings": "设置"
+    },
+    "tabs": {
+      "close": "关闭标签"
+    },
+    "workspace": {
+      "openInNewTab": "在新标签页中打开",
+      "rename": "重命名",
+      "copyFile": "复制",
+      "displayDetails": "简易信息（日期、大小、正文预览）",
+      "displayCompact": "格式图标 + 标题",
+      "rootFolder": "根目录",
+      "pathCopied": "已复制文件路径",
+      "clipboardEmpty": "剪贴板里没有文件",
+      "deletedCount": "已删除 {{count}} 个项目",
+      "copiedCount": "已复制 {{count}} 个项目",
+      "movedCount": "已移动 {{count}} 个项目",
+      "createHere": "在这里新建文件",
+      "emptyLevel": "没有可显示的文件",
+      "searchPlaceholder": "搜索文件…",
+      "searching": "搜索中…",
+      "noResults": "没有匹配的文件",
+      "searchCapped": "文件过多，搜索只覆盖了一部分目录",
+      "newFile": "新建文件",
+      "view": "查看方式",
+      "viewList": "列表",
+      "viewCards": "卡片",
+      "viewIcons": "图标",
+      "selectedCount": "已选 {{count}} 项",
+      "copyCount": "复制（{{count}} 项）",
+      "copyPath": "复制文件路径",
+      "pasteHere": "粘贴到这里",
+      "openWith": "打开方式…",
+      "properties": "属性",
+      "moveTo": "移动到…",
+      "deleteCount": "删除（{{count}} 项）",
+      "deleteFile": "删除文件",
+      "confirmDeleteTitle": "删除项目",
+      "confirmCopyTitle": "复制到工作区",
+      "confirmDeleteBatch": "确定删除 {{count}} 个项目吗？文件夹会连同里面的所有文件一起删除，不可恢复。",
+      "confirmCopyBatch": "确定把 {{count}} 个项目复制到「{{target}}」下吗？文件夹会连同里面的所有文件一起复制。",
+      "confirmDelete": "确认删除",
+      "confirmCopy": "复制",
+      "moveToTitle": "移动到…",
+      "moveHere": "移动到这里",
+      "noSubfolders": "没有子文件夹",
+      "truncated": "条目过多，仅显示前一部分",
+      "deleteFolder": "删除文件夹"
     }
   },
   "noteMenu": {
     "delete": "删除笔记",
     "export": "导出 Markdown",
-    "moveToCategory": "移动到分类…"
+    "moveToCategory": "移动到分类…",
+    "openInTab": "在新标签页中打开"
   },
   "notepad": {
     "button": {

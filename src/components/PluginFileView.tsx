@@ -237,6 +237,7 @@ export function PluginFileView({ path, type }: PluginFileViewProps) {
                   path,
                   defaultValue: "已保存到 {{path}}",
                 }),
+                "info",
               );
             } catch (error) {
               showToast(

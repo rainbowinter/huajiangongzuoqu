@@ -139,7 +139,7 @@ pub fn roots_from_config(folders: &[String]) -> Vec<PathBuf> {
 /// 这里拿 `canonicalize()` 之后的目标去比前缀，如果根本身没规范化，两边形态不同就会被
 /// 误判成"越界"——在 Windows 上尤其容易踩到，因为 `%TEMP%` 这类路径的短名（8.3）与长名
 /// 是不同的字符串。
-fn ensure_inside(roots: &[PathBuf], target: &Path) -> Result<PathBuf, AppError> {
+pub(crate) fn ensure_inside(roots: &[PathBuf], target: &Path) -> Result<PathBuf, AppError> {
     debug_assert!(
         roots.iter().all(|root| root.is_absolute()),
         "roots 必须是规范化后的绝对路径"
@@ -397,6 +397,314 @@ pub fn move_entry(roots: &[PathBuf], raw: &str, target_dir: &str) -> Result<Stri
     Ok(to_frontend_path(&destination))
 }
 
+/// 校验一个新文件名。
+///
+/// 规则比 `Component::Normal` 更严：Windows 上 `<>:"|?*`、结尾的空格/点、以及
+/// `CON` / `NUL` / `COM1` 这些设备名都不能作为文件名。这里**在所有平台都拒绝**，
+/// 免得同一份笔记换台电脑就打不开。
+fn validate_file_name(new_name: &str) -> Result<&str, AppError> {
+    let name = new_name.trim();
+
+    if name.is_empty() {
+        return Err(err("workspaceRenameEmpty", "文件名不能为空"));
+    }
+    if name == "." || name == ".." {
+        return Err(err("workspaceRenameInvalid", "文件名不能是 . 或 .."));
+    }
+    if name.contains('/') || name.contains('\\') {
+        return Err(err("workspaceRenameInvalid", "文件名不能包含路径分隔符"));
+    }
+    if name
+        .chars()
+        .any(|ch| matches!(ch, '<' | '>' | ':' | '"' | '|' | '?' | '*') || ch.is_control())
+    {
+        return Err(err(
+            "workspaceRenameInvalid",
+            "文件名包含 Windows 不允许的字符",
+        ));
+    }
+    if name.ends_with(' ') || name.ends_with('.') {
+        return Err(err(
+            "workspaceRenameInvalid",
+            "文件名不能以空格或点结尾",
+        ));
+    }
+
+    // 设备名是「主干」决定的：`CON.txt` 同样打不开。
+    let stem = name.split('.').next().unwrap_or(name).to_ascii_uppercase();
+    let reserved = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (stem.len() == 4
+            && (stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.as_bytes()[3].is_ascii_digit());
+    if reserved {
+        return Err(err(
+            "workspaceRenameInvalid",
+            "这个名称是 Windows 保留的设备名",
+        ));
+    }
+
+    Ok(name)
+}
+
+/// 重命名一个**文件**（不移动位置）。
+///
+/// 目录重命名不做：目录一改，里面所有打开中的文件路径都要跟着改，而「移动到…」已经
+/// 覆盖了整理目录的需求。文件名只允许落在原父目录里 —— 想换目录请用移动。
+///
+/// Windows 上 `A.md → a.md` 这种只改大小写的情况，`destination.exists()` 会返回真
+///（同一个文件），所以要经一个临时名中转；其余同名情况一律报冲突，不覆盖。
+pub fn rename_entry(roots: &[PathBuf], raw: &str, new_name: &str) -> Result<String, AppError> {
+    let source = ensure_inside(roots, Path::new(raw.trim()))?;
+
+    if !source.is_file() {
+        return Err(err("workspaceRenameNotFile", "只能重命名文件"));
+    }
+
+    let name = validate_file_name(new_name)?;
+    let parent = source
+        .parent()
+        .ok_or_else(|| err("workspacePathInvalid", "路径缺少父目录"))?;
+    let destination = parent.join(name);
+
+    if destination == source {
+        return Ok(to_frontend_path(&source));
+    }
+
+    let rename_failed = |error: std::io::Error| AppError {
+        code: "workspaceRenameFailed".into(),
+        message: format!("重命名失败：{error}"),
+        details: BTreeMap::new(),
+    };
+
+    if destination.exists() {
+        let same_name = destination
+            .to_string_lossy()
+            .eq_ignore_ascii_case(&source.to_string_lossy());
+        if !same_name {
+            return Err(err("workspaceRenameConflict", "目标名称已被占用"));
+        }
+
+        // 只改大小写：先改成临时名，再改成目标名。
+        let temp = parent.join(format!(".floral-rename-{}", uuid::Uuid::new_v4()));
+        std::fs::rename(&source, &temp).map_err(rename_failed)?;
+        if let Err(error) = std::fs::rename(&temp, &destination) {
+            // 尽量把文件改回原名，别让用户卡在一个临时名上。
+            let _ = std::fs::rename(&temp, &source);
+            return Err(rename_failed(error));
+        }
+        return Ok(to_frontend_path(&destination));
+    }
+
+    std::fs::rename(&source, &destination).map_err(rename_failed)?;
+    Ok(to_frontend_path(&destination))
+}
+
+/// 选中的路径里如果有**祖先目录**也被选中，去掉后代。
+///
+/// 批量删除 / 移动 / 复制到剪贴板时，一个文件夹已经包含它的子树；再单独处理里面的
+/// 文件会造成「删两次 / 目标已存在」之类的假冲突。排序后父目录一定排在子目录前面，
+/// 所以只要看已经收下的那些即可。
+pub fn collapse_selection(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut sorted = paths;
+    sorted.sort();
+    sorted.dedup();
+
+    let mut result: Vec<PathBuf> = Vec::new();
+    for path in sorted {
+        let covered = result
+            .iter()
+            .any(|parent| parent != &path && path.starts_with(parent) && parent.is_dir());
+        if !covered {
+            result.push(path);
+        }
+    }
+    result
+}
+
+/// 目标位置（含子树里任意一层）是否已有同名项。
+fn destination_conflicts(source: &Path, destination: &Path) -> bool {
+    if destination.exists() {
+        return true;
+    }
+    if source.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(source) {
+            for entry in entries.flatten() {
+                if destination_conflicts(&entry.path(), &destination.join(entry.file_name())) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// 递归复制。符号链接**跳过**，避免把一个链接当成实体拷出一大坨、也避免环。
+fn copy_tree(source: &Path, destination: &Path) -> std::io::Result<()> {
+    let metadata = std::fs::symlink_metadata(source)?;
+    if metadata.file_type().is_symlink() {
+        return Ok(());
+    }
+
+    if metadata.is_dir() {
+        std::fs::create_dir_all(destination)?;
+        for entry in std::fs::read_dir(source)? {
+            let entry = entry?;
+            copy_tree(&entry.path(), &destination.join(entry.file_name()))?;
+        }
+        return Ok(());
+    }
+
+    std::fs::copy(source, destination)?;
+    Ok(())
+}
+
+/// 把外部文件 / 文件夹**复制进**一个工作目录。返回顶层项目数。
+///
+/// 来源可以不在工作区里（从资源管理器拖进来 / 剪贴板粘贴），所以只校验**目标**
+/// 落在已授权的根内；来源只读。文件夹连同里面的所有内容一起复制。
+pub fn copy_entries(
+    roots: &[PathBuf],
+    sources: &[String],
+    target_dir: &str,
+) -> Result<usize, AppError> {
+    let target = ensure_inside(roots, Path::new(target_dir.trim()))?;
+    if !target.is_dir() {
+        return Err(err("workspaceNotDir", "目标不是文件夹"));
+    }
+
+    let mut plans: Vec<(PathBuf, PathBuf)> = Vec::new();
+    for raw in sources {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let source = PathBuf::from(trimmed)
+            .canonicalize()
+            .map_err(|_| err("workspaceCopySourceMissing", format!("来源不存在：{trimmed}")))?;
+        let name = source
+            .file_name()
+            .ok_or_else(|| err("workspacePathInvalid", "来源缺少名称"))?;
+        let destination = target.join(name);
+
+        if destination == source {
+            return Err(err("workspaceCopySame", "来源和目标在同一个文件夹里"));
+        }
+        if source.is_dir() && destination.starts_with(&source) {
+            return Err(err(
+                "workspaceCopyIntoItself",
+                "不能把文件夹复制到它自己里面",
+            ));
+        }
+        if destination_conflicts(&source, &destination)
+            || plans.iter().any(|(_, planned)| planned == &destination)
+        {
+            return Err(err(
+                "workspaceCopyConflict",
+                format!("目标位置已有同名项目：{}", name.to_string_lossy()),
+            ));
+        }
+
+        plans.push((source, destination));
+    }
+
+    // 全部检查完再动手：中途失败不会留下「拷了一半」的目录。
+    for (source, destination) in &plans {
+        copy_tree(source, destination).map_err(|error| AppError {
+            code: "workspaceCopyFailed".into(),
+            message: format!("复制失败：{error}"),
+            details: BTreeMap::new(),
+        })?;
+    }
+
+    Ok(plans.len())
+}
+
+/// 批量删除（文件或整个文件夹）。返回实际删除的顶层项目数。
+pub fn delete_entries(roots: &[PathBuf], sources: &[String]) -> Result<usize, AppError> {
+    let mut resolved = Vec::new();
+    for raw in sources {
+        let path = ensure_inside(roots, Path::new(raw.trim()))?;
+        if roots.iter().any(|root| root == &path) {
+            return Err(err("workspaceDeleteRoot", "不能删除工作文件夹本身"));
+        }
+        resolved.push(path);
+    }
+
+    let resolved = collapse_selection(resolved);
+    for path in &resolved {
+        if path.is_dir() {
+            std::fs::remove_dir_all(path).map_err(|error| AppError {
+                code: "workspaceDeleteFailed".into(),
+                message: format!("删除失败：{error}"),
+                details: BTreeMap::new(),
+            })?;
+        } else {
+            std::fs::remove_file(path).map_err(|error| AppError {
+                code: "workspaceDeleteFailed".into(),
+                message: format!("删除失败：{error}"),
+                details: BTreeMap::new(),
+            })?;
+        }
+    }
+
+    Ok(resolved.len())
+}
+
+/// 批量移动到一个目标目录。返回实际移动的顶层项目数。
+pub fn move_entries(
+    roots: &[PathBuf],
+    sources: &[String],
+    target_dir: &str,
+) -> Result<usize, AppError> {
+    let target = ensure_inside(roots, Path::new(target_dir.trim()))?;
+    if !target.is_dir() {
+        return Err(err("workspaceNotDir", "目标不是文件夹"));
+    }
+
+    let mut resolved = Vec::new();
+    for raw in sources {
+        resolved.push(ensure_inside(roots, Path::new(raw.trim()))?);
+    }
+
+    let resolved = collapse_selection(resolved);
+    let mut plans: Vec<(PathBuf, PathBuf)> = Vec::new();
+    for source in resolved {
+        if source.is_dir() && target.starts_with(&source) {
+            return Err(err(
+                "workspaceMoveIntoItself",
+                "不能把文件夹移动到它自己里面",
+            ));
+        }
+
+        let name = source
+            .file_name()
+            .ok_or_else(|| err("workspacePathInvalid", "路径缺少名称"))?;
+        let destination = target.join(name);
+
+        if destination == source {
+            continue;
+        }
+        if destination.exists() || plans.iter().any(|(_, planned)| planned == &destination) {
+            return Err(err(
+                "workspaceMoveConflict",
+                format!("目标位置已有同名项目：{}", name.to_string_lossy()),
+            ));
+        }
+        plans.push((source, destination));
+    }
+
+    for (source, destination) in &plans {
+        std::fs::rename(source, destination).map_err(|error| AppError {
+            code: "workspaceMoveFailed".into(),
+            message: format!("移动失败：{error}"),
+            details: BTreeMap::new(),
+        })?;
+    }
+
+    Ok(plans.len())
+}
+
 /// 列出根目录下的所有子目录（递归、有上限），供「移动到…」选择目标。
 ///
 /// 跳过名字以 `.` 开头的目录：`.git`、`.venv` 这类几乎不可能是用户想放文件的地方，
@@ -643,6 +951,199 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(self_nesting.code, "workspaceMoveIntoItself");
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn renames_files_within_the_same_directory() {
+        let root = temp_dir("rename");
+        let file = root.join("old.md");
+        fs::write(&file, b"hi").unwrap();
+
+        let renamed = rename_entry(&roots_of(&[&root]), &file.to_string_lossy(), "new.md").unwrap();
+
+        assert!(!file.exists(), "原名不应再存在");
+        assert_eq!(fs::read_to_string(&renamed).unwrap(), "hi");
+        assert!(renamed.ends_with("new.md"));
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn rename_refuses_overwrite_and_invalid_names() {
+        let root = temp_dir("rename-guard");
+        let first = root.join("a.md");
+        let second = root.join("b.md");
+        fs::write(&first, b"a").unwrap();
+        fs::write(&second, b"b").unwrap();
+        let roots = roots_of(&[&root]);
+
+        let conflict = rename_entry(&roots, &first.to_string_lossy(), "b.md").unwrap_err();
+        assert_eq!(conflict.code, "workspaceRenameConflict");
+        assert_eq!(fs::read_to_string(&second).unwrap(), "b", "不该覆盖");
+
+        for invalid in ["", ".", "..", "sub/a.md", "a?.md", "a.", "CON.txt"] {
+            let error = rename_entry(&roots, &first.to_string_lossy(), invalid).unwrap_err();
+            assert!(
+                error.code.starts_with("workspaceRename"),
+                "名称 {invalid:?} 应被拒绝，实际错误：{}",
+                error.code
+            );
+        }
+        assert!(first.exists(), "被拒绝的重命名不该动原文件");
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn rename_rejects_paths_outside_authorized_roots() {
+        let root = temp_dir("rename-root");
+        let outside = temp_dir("rename-outside");
+        let file = outside.join("x.md");
+        fs::write(&file, b"x").unwrap();
+
+        let error = rename_entry(
+            &roots_of(&[&root]),
+            &file.to_string_lossy(),
+            "y.md",
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "workspacePathOutside");
+
+        fs::remove_dir_all(root).ok();
+        fs::remove_dir_all(outside).ok();
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn rename_handles_case_only_changes() {
+        let root = temp_dir("rename-case");
+        let file = root.join("note.md");
+        fs::write(&file, b"hi").unwrap();
+
+        let renamed =
+            rename_entry(&roots_of(&[&root]), &file.to_string_lossy(), "Note.md").unwrap();
+
+        assert!(renamed.ends_with("Note.md"), "返回的应是用户写的新大小写");
+        assert_eq!(fs::read_to_string(root.join("Note.md")).unwrap(), "hi");
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn copies_files_and_folders_recursively_from_outside_the_workspace() {
+        let root = temp_dir("copy-root");
+        let outside = temp_dir("copy-src");
+        let target = root.join("target");
+        fs::create_dir_all(&target).unwrap();
+        fs::create_dir_all(outside.join("sub")).unwrap();
+        fs::write(outside.join("a.txt"), b"a").unwrap();
+        fs::write(outside.join("sub").join("b.txt"), b"b").unwrap();
+
+        let sources = vec![
+            outside.join("sub").to_string_lossy().to_string(),
+            outside.join("a.txt").to_string_lossy().to_string(),
+        ];
+        let count = copy_entries(&roots_of(&[&root]), &sources, &target.to_string_lossy()).unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(fs::read_to_string(target.join("a.txt")).unwrap(), "a");
+        assert_eq!(fs::read_to_string(target.join("sub").join("b.txt")).unwrap(), "b");
+
+        fs::remove_dir_all(root).ok();
+        fs::remove_dir_all(outside).ok();
+    }
+
+    #[test]
+    fn copy_refuses_conflicts_and_copying_a_folder_into_itself() {
+        let root = temp_dir("copy-guard");
+        let target = root.join("target");
+        fs::create_dir_all(&target).unwrap();
+        fs::write(root.join("a.txt"), b"a").unwrap();
+        fs::write(target.join("a.txt"), b"existing").unwrap();
+        let roots = roots_of(&[&root]);
+
+        let conflict = copy_entries(
+            &roots,
+            &[root.join("a.txt").to_string_lossy().to_string()],
+            &target.to_string_lossy(),
+        )
+        .unwrap_err();
+        assert_eq!(conflict.code, "workspaceCopyConflict");
+
+        fs::create_dir_all(root.join("folder").join("inner")).unwrap();
+        let into_itself = copy_entries(
+            &roots,
+            &[root.join("folder").to_string_lossy().to_string()],
+            &root.join("folder").to_string_lossy(),
+        )
+        .unwrap_err();
+        assert_eq!(into_itself.code, "workspaceCopyIntoItself");
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn delete_entries_handles_folders_and_collapses_descendants() {
+        let root = temp_dir("delete-batch");
+        let folder = root.join("folder");
+        fs::create_dir_all(folder.join("inner")).unwrap();
+        fs::write(folder.join("inner").join("a.txt"), b"a").unwrap();
+        fs::write(root.join("b.txt"), b"b").unwrap();
+        let roots = roots_of(&[&root]);
+
+        // 同时选中文件夹与它的子文件：按文件夹算一项。
+        let count = delete_entries(
+            &roots,
+            &[
+                folder.to_string_lossy().to_string(),
+                folder.join("inner").join("a.txt").to_string_lossy().to_string(),
+                root.join("b.txt").to_string_lossy().to_string(),
+            ],
+        )
+        .unwrap();
+        assert_eq!(count, 2);
+        assert!(!folder.exists());
+        assert!(!root.join("b.txt").exists());
+
+        let root_delete = delete_entries(&roots, &[root.to_string_lossy().to_string()]).unwrap_err();
+        assert_eq!(root_delete.code, "workspaceDeleteRoot");
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn moves_multiple_entries_and_refuses_conflicts() {
+        let root = temp_dir("move-batch");
+        let source = root.join("a");
+        let target = root.join("b");
+        fs::create_dir_all(&source).unwrap();
+        fs::create_dir_all(&target).unwrap();
+        fs::write(source.join("one.txt"), b"1").unwrap();
+        fs::write(source.join("two.txt"), b"2").unwrap();
+        let roots = roots_of(&[&root]);
+
+        let count = move_entries(
+            &roots,
+            &[
+                source.join("one.txt").to_string_lossy().to_string(),
+                source.join("two.txt").to_string_lossy().to_string(),
+            ],
+            &target.to_string_lossy(),
+        )
+        .unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(fs::read_to_string(target.join("one.txt")).unwrap(), "1");
+        assert_eq!(fs::read_to_string(target.join("two.txt")).unwrap(), "2");
+
+        fs::write(source.join("one.txt"), b"again").unwrap();
+        let conflict = move_entries(
+            &roots,
+            &[source.join("one.txt").to_string_lossy().to_string()],
+            &target.to_string_lossy(),
+        )
+        .unwrap_err();
+        assert_eq!(conflict.code, "workspaceMoveConflict");
 
         fs::remove_dir_all(&root).ok();
     }

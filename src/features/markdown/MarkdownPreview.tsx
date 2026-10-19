@@ -20,7 +20,12 @@ import remarkLocalImages from "./remarkLocalImages";
 import { sliceBlockSource } from "./blockSource";
 import { highlightCode } from "./highlight";
 import { parseImageLayout } from "./imageLayout";
-import { allowLocalFileUrls, resolveMarkdownImageSrc } from "./imageSrc";
+import {
+  allowLocalFileUrls,
+  resolveMarkdownImagePath,
+  resolveMarkdownImageSrc,
+} from "./imageSrc";
+import { ImageCopyButton, useImageCopyMenu } from "../../components/ImageCopyOverlay";
 
 /**
  * 块右上角的复制按钮。代码块与表格共用。
@@ -65,6 +70,66 @@ function containsImage(node: unknown): boolean {
   if (element.type === "element" && element.tagName === "img") return true;
 
   return (element.children ?? []).some(containsImage);
+}
+
+type MarkdownImageProps = React.ComponentPropsWithoutRef<"img"> & {
+  /** hast 节点，必须摘掉，不能落到 DOM 上。 */
+  node?: unknown;
+  imageBaseDir?: string;
+};
+
+/**
+ * Markdown 里的一张图。
+ *
+ * 单独提出来是为了能在这里用 hook（右键菜单的状态）。尺寸 / 对齐参数写在 alt 里，
+ * 见 `imageLayout.ts`；外层那个 div 的宽度就是图片宽度，复制按钮才能贴在**图片**的
+ * 右上角，而不是整块正文的右上角。
+ */
+function MarkdownImage({
+  src,
+  alt,
+  title,
+  node: _node,
+  imageBaseDir,
+  ...props
+}: MarkdownImageProps) {
+  const resolvedSrc = resolveMarkdownImageSrc(src, imageBaseDir, convertFileSrc);
+  const absolutePath = resolveMarkdownImagePath(src, imageBaseDir);
+  const { openMenu, menu } = useImageCopyMenu(absolutePath);
+
+  const layout = parseImageLayout(alt);
+  const caption = title || layout.alt || "";
+  const alignClass =
+    layout.align === "left"
+      ? "ml-0 mr-auto"
+      : layout.align === "right"
+        ? "ml-auto mr-0"
+        : "mx-auto";
+
+  return (
+    <figure className="my-3 group" onContextMenu={openMenu}>
+      <div
+        className={`relative ${alignClass}`}
+        style={{ width: layout.width ?? "50%" }}
+      >
+        <img
+          src={resolvedSrc}
+          alt={layout.alt}
+          loading="lazy"
+          className="rounded block w-full"
+          style={layout.height ? { height: layout.height } : undefined}
+          {...props}
+        />
+        {absolutePath ? <ImageCopyButton path={absolutePath} /> : null}
+      </div>
+      {caption ? (
+        <figcaption className="text-center text-[0.85em] md-caption mt-1.5">
+          {caption}
+        </figcaption>
+      ) : null}
+      {menu}
+    </figure>
+  );
 }
 
 interface MermaidRenderer {
@@ -483,41 +548,7 @@ function MarkdownPreviewView({
       },
       // `node` 必须显式摘掉：react-markdown 会把它作为 prop 传进来，而 `...props`
       // 会把整个 hast 节点塞成 DOM 属性。
-      img: ({ src, alt, title, node: _node, ...props }) => {
-        const resolvedSrc = resolveMarkdownImageSrc(src, imageBaseDir, convertFileSrc);
-        // `![说明|300](url)` —— 尺寸与对齐写在 alt 里，见 imageLayout.ts。
-        // 没有参数时 width 回落到 50%，与改造前的固定宽度一致。
-        const layout = parseImageLayout(alt);
-        const caption = title || layout.alt || "";
-
-        const alignClass =
-          layout.align === "left"
-            ? "ml-0 mr-auto"
-            : layout.align === "right"
-              ? "ml-auto mr-0"
-              : "mx-auto";
-
-        return (
-          <figure className="my-3">
-            <img
-              src={resolvedSrc}
-              alt={layout.alt}
-              loading="lazy"
-              className={`rounded block ${alignClass}`}
-              style={{
-                width: layout.width ?? "50%",
-                ...(layout.height ? { height: layout.height } : {}),
-              }}
-              {...props}
-            />
-            {caption ? (
-              <figcaption className="text-center text-[0.85em] md-caption mt-1.5">
-                {caption}
-              </figcaption>
-            ) : null}
-          </figure>
-        );
-      },
+      img: (props) => <MarkdownImage {...props} imageBaseDir={imageBaseDir} />,
     }),
     [imageBaseDir],
   );

@@ -16,5 +16,7 @@ export interface AboutDoc {
 export const ABOUT_DOCS: readonly AboutDoc[] = Object.freeze([
   { name: "whats-new.md", titleKey: "main.about.whatsNew", fallbackTitle: "新功能" },
   { name: "guide.md", titleKey: "main.about.guide", fallbackTitle: "使用指南" },
+  // 自定义样式的例子原先整段写在 `custom.css` 的注释里；现在放到这份说明文档中间。
+  { name: "custom-css.md", titleKey: "main.about.customCss", fallbackTitle: "自定义样式" },
   { name: "feedback.md", titleKey: "main.about.feedback", fallbackTitle: "意见反馈" },
 ]);

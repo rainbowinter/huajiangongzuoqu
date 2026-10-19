@@ -21,7 +21,11 @@ export function Modal({
 }) {
   return (
     <div
-      className="modal-backdrop fixed inset-0 z-[9500] flex items-center justify-center bg-ink/20 backdrop-blur-[2px]"
+      /*
+       * 顶上留出 44px（`titlebar` 那条）：主窗口是无边框的，那一截就是拖窗口的手柄。
+       * 遮罩铺满整窗时用户第一反应是「窗口拖不动了」—— 模态开着也该能挪窗口。
+       */
+      className="modal-backdrop fixed inset-x-0 top-11 bottom-0 z-[9500] flex items-center justify-center bg-ink/20 backdrop-blur-[2px]"
       onClick={onCancel}
       role="presentation"
     >

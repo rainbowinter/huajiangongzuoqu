@@ -1,3 +1,4 @@
+pub mod clipboard;
 pub mod desktop;
 pub mod docs;
 pub mod json_io;
@@ -7,6 +8,7 @@ pub mod plugins;
 pub mod selfupdate;
 pub mod services;
 pub mod styles;
+pub mod system;
 pub mod updater;
 
 use locales::Locale;
@@ -420,6 +422,53 @@ fn workspace_move_entry(path: String, target_dir: String) -> Result<String, AppE
     )
 }
 
+/// 重命名工作区里的一个文件，返回新路径。
+#[tauri::command]
+fn workspace_rename_entry(path: String, new_name: String) -> Result<String, AppError> {
+    let store = default_store()?;
+    let config = store.load_config()?;
+    workspace::rename_entry(
+        &workspace::roots_from_config(&config.workspace_folders),
+        &path,
+        &new_name,
+    )
+}
+
+/// 把外部文件 / 文件夹复制进一个工作目录（拖入、粘贴都用它）。
+#[tauri::command]
+fn workspace_copy_entries(sources: Vec<String>, target_dir: String) -> Result<usize, AppError> {
+    let store = default_store()?;
+    let config = store.load_config()?;
+    workspace::copy_entries(
+        &workspace::roots_from_config(&config.workspace_folders),
+        &sources,
+        &target_dir,
+    )
+}
+
+/// 批量删除工作区里的文件 / 文件夹。
+#[tauri::command]
+fn workspace_delete_entries(paths: Vec<String>) -> Result<usize, AppError> {
+    let store = default_store()?;
+    let config = store.load_config()?;
+    workspace::delete_entries(
+        &workspace::roots_from_config(&config.workspace_folders),
+        &paths,
+    )
+}
+
+/// 批量把工作区里的项目移动到一个目标目录。
+#[tauri::command]
+fn workspace_move_entries(paths: Vec<String>, target_dir: String) -> Result<usize, AppError> {
+    let store = default_store()?;
+    let config = store.load_config()?;
+    workspace::move_entries(
+        &workspace::roots_from_config(&config.workspace_folders),
+        &paths,
+        &target_dir,
+    )
+}
+
 /// 列出某个工作目录下的所有子目录，供「移动到…」选择目标。
 #[tauri::command]
 fn workspace_list_subdirs(dir: String) -> Result<Vec<String>, AppError> {
@@ -756,6 +805,7 @@ pub fn run() {
         .plugin(tauri_plugin_cli::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_drag::init())
         .plugin(tauri_plugin_opener::init())
         // 自更新。端点来自 `tauri.conf.json` 的 `plugins.updater.endpoints`，
         // **默认为空 = 整个功能关闭**：前端问过 `update_endpoint` 之后连一次请求都不会发。
@@ -900,8 +950,16 @@ pub fn run() {
             workspace_cache_info,
             workspace_cache_clear,
             workspace_delete_file,
+            workspace_delete_entries,
             workspace_move_entry,
+            workspace_move_entries,
+            workspace_rename_entry,
+            workspace_copy_entries,
             workspace_list_subdirs,
+            clipboard::clipboard_copy_files,
+            clipboard::clipboard_read_files,
+            system::system_open_with,
+            system::system_show_properties,
             take_startup_file,
             workspace_read_file_bytes,
             read_external_file_bytes,

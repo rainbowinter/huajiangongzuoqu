@@ -66,7 +66,9 @@
       "important": "Important",
       "warning": "Warning",
       "caution": "Caution"
-    }
+    },
+    "copyImage": "Copy image",
+    "copyFailed": "Copy failed"
   },
   "main": {
     "about": {
@@ -81,7 +83,8 @@
       "updateSourceNone": "Not configured",
       "dataLocation": "Where your data lives",
       "notesDir": "Notes",
-      "pluginsDir": "Plugins"
+      "pluginsDir": "Plugins",
+      "customCss": "Custom styles"
     },
     "doc": {
       "label": "Documentation · read-only",
@@ -182,12 +185,60 @@
       "quickNotepad": "Quick Note",
       "restore": "Restore",
       "settings": "Settings"
+    },
+    "tabs": {
+      "close": "Close tab"
+    },
+    "workspace": {
+      "openInNewTab": "Open in new tab",
+      "rename": "Rename",
+      "copyFile": "Copy",
+      "displayDetails": "Detailed info",
+      "displayCompact": "Icon + title",
+      "rootFolder": "Root",
+      "pathCopied": "File paths copied",
+      "clipboardEmpty": "The clipboard has no files",
+      "deletedCount": "Deleted {{count}} item(s)",
+      "copiedCount": "Copied {{count}} item(s)",
+      "movedCount": "Moved {{count}} item(s)",
+      "createHere": "New file here",
+      "emptyLevel": "No files to show",
+      "searchPlaceholder": "Search files…",
+      "searching": "Searching…",
+      "noResults": "No matching files",
+      "searchCapped": "Too many files; the search covered only part of the folder",
+      "newFile": "New file",
+      "view": "View",
+      "viewList": "List",
+      "viewCards": "Cards",
+      "viewIcons": "Icons",
+      "selectedCount": "{{count}} selected",
+      "copyCount": "Copy ({{count}} items)",
+      "copyPath": "Copy file path",
+      "pasteHere": "Paste here",
+      "openWith": "Open with…",
+      "properties": "Properties",
+      "moveTo": "Move to…",
+      "deleteCount": "Delete ({{count}} items)",
+      "deleteFile": "Delete file",
+      "confirmDeleteTitle": "Delete items",
+      "confirmCopyTitle": "Copy into workspace",
+      "confirmDeleteBatch": "Delete {{count}} item(s)? Folders and everything inside them will be removed permanently.",
+      "confirmCopyBatch": "Copy {{count}} item(s) into “{{target}}”? Folders and everything inside them will be copied.",
+      "confirmDelete": "Delete",
+      "confirmCopy": "Copy",
+      "moveToTitle": "Move to…",
+      "moveHere": "Move here",
+      "noSubfolders": "No subfolders",
+      "truncated": "Too many entries; only the first part is shown",
+      "deleteFolder": "Delete folder"
     }
   },
   "noteMenu": {
     "delete": "Delete Note",
     "export": "Export Markdown",
-    "moveToCategory": "Move to category…"
+    "moveToCategory": "Move to category…",
+    "openInTab": "Open in new tab"
   },
   "notepad": {
     "button": {

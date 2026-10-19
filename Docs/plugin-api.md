@@ -542,10 +542,10 @@ api.ui.registerDocumentAction({
 
 ```js
 api.ui.registerRowAction({
-  id: "open-styles-workspace",
-  title: "打开样式工作区",
+  id: "open-plugin-data",
+  title: "打开插件数据文件夹",
   run: async () => {
-    await api.workspace.openFolder("@data/styles");
+    await api.workspace.openFolder("@data");
   },
 });
 ```
@@ -575,8 +575,8 @@ await api.workspace.openFolder("@data"); //         <数据目录>
 是用户说了算，插件不该猜；反过来说，允许任意路径就等于给了一个「把 `C:\` 挂进侧栏」的
 能力，对用户没有任何好处。想挂别的目录，用户自己在活动栏点 `+`。
 
-典型用法：某个插件的相关文件放在数据目录下（css-modifier 的 `styles/` 就是这样），
-用户根本看不到它们 —— 顺手加进工作区，就能在花笺里直接编辑。
+典型用法：某个插件的相关文件放在数据目录下，用户根本看不到它们 —— 顺手加进工作区，
+就能在花笺里直接编辑。
 
 ### `api.files` — 文件类型
 

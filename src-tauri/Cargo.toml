@@ -1,6 +1,6 @@
 [package]
 name = "floral-notepaper"
-version = "2.0.4"
+version = "2.1.0"
 description = "A lightweight cross-platform desktop note app"
 authors = ["Achilng"]
 edition = "2021"
@@ -34,6 +34,9 @@ serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 tauri-plugin-clipboard-manager = "2"
+# 把工作区里的文件**拖出窗口**到资源管理器。Tauri 自己没有这个 API（`start_dragging`
+# 移动的是窗口），这个插件封装了 Windows 的 DoDragDrop / macOS 的 NSDragging。
+tauri-plugin-drag = "2"
 # 应用自更新。用官方插件，端点指向**自己的**发布地址（见 `selfupdate.rs`）——
 # 原来是自研的那套，指向上游仓库，走完会把上游代码装进来，所以被停用了。
 tauri-plugin-updater = "~2.14"
@@ -61,6 +64,10 @@ dirs = "6"
 libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
+# 「复制文件」要写 Windows 的 CF_HDROP（文件列表）。clipboard-manager 插件没有这个能力，
+# 而 clipboard-win 5.4.1 已经是 arboard 的传递依赖（就在 Cargo.lock 里），加直接依赖
+# 不会新增编译产物。见 `src/clipboard.rs`。
+clipboard-win = { version = "5", features = ["std"] }
 # 「导出 PDF」直接写文件，走 WebView2 自己的 `PrintToPdf`（见 `src/pdf.rs`）。
 # 版本必须与 tauri 2.12 拖进来的那份**完全一致**（Cargo.lock 里是 0.39.1 / windows 0.62.2）：
 # `with_webview` 交出来的 `ICoreWebView2Controller` 就是这一版的类型，对不上编译器立刻会喊。
@@ -75,6 +82,7 @@ windows-sys = { version = "0.59", features = [
   "Win32_System_Registry",
   "Win32_System_Threading",
   "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { getErrorMessage, readExternalFile } from "../features/notes/api";
 import { sanitizePluginHtml } from "../features/plugins/sanitizeHtml";
 import { readWorkspaceFile } from "../features/workspace/api";
+import { ImageCopyButton, useImageCopyMenu } from "./ImageCopyOverlay";
 import { PluginFileView } from "./PluginFileView";
 import {
   getFileRenderer,
@@ -163,6 +164,8 @@ export function FilePreview({ path, type }: FilePreviewProps) {
   const [error, setError] = useState<string | null>(null);
 
   const name = path.split(/[\\/]/).pop() ?? path;
+  // 图片预览的右键菜单。其它类型不会打开它，但 hook 必须无条件调用。
+  const { openMenu, menu } = useImageCopyMenu(path);
 
   // 只有插件自定义类型需要宿主先读内容；图片/媒体走 asset 协议。
   useEffect(() => {
@@ -224,12 +227,19 @@ export function FilePreview({ path, type }: FilePreviewProps) {
 
   if (type.kind === "image") {
     return (
-      <div className={`file-preview file-preview-media ${centered}`}>
+      <div
+        className={`file-preview file-preview-media group relative ${centered}`}
+        onContextMenu={openMenu}
+      >
+        {/* 图片直接挂在居中容器里，保留原来的 max-w/max-h 约束（中间再套一层
+            会把百分比高度变成不确定值，竖图会溢出）。复制按钮贴在容器右上角。 */}
         <img
           src={convertFileSrc(path)}
           alt={name}
           className="max-w-full max-h-full rounded object-contain"
         />
+        <ImageCopyButton path={path} />
+        {menu}
       </div>
     );
   }

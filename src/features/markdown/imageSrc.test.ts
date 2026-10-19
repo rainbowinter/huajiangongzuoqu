@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { allowLocalFileUrls, resolveMarkdownImageSrc } from "./imageSrc";
+import {
+  allowLocalFileUrls,
+  resolveMarkdownImagePath,
+  resolveMarkdownImageSrc,
+} from "./imageSrc";
 
 describe("resolveMarkdownImageSrc", () => {
   const convertFileSrc = vi.fn((path: string) => `asset://${path}`);
@@ -64,6 +68,32 @@ describe("resolveMarkdownImageSrc", () => {
       ),
     ).toBe("asset://E:/My Pics/a.png");
     expect(convertFileSrc).toHaveBeenCalledWith("E:/My Pics/a.png");
+  });
+});
+
+describe("resolveMarkdownImagePath", () => {
+  test("笔记图片还原成数据目录下的绝对路径", () => {
+    expect(resolveMarkdownImagePath("images/photo.png", "E:/data")).toBe(
+      "E:/data/images/photo.png",
+    );
+    expect(resolveMarkdownImagePath("images\\photo.png", "E:/data/")).toBe(
+      "E:/data/images/photo.png",
+    );
+  });
+
+  test("file:// 与绝对路径原样还原", () => {
+    expect(resolveMarkdownImagePath("file:///E:/My%20Pics/a.png", undefined)).toBe(
+      "E:/My Pics/a.png",
+    );
+    expect(resolveMarkdownImagePath("E:/Projects/fig.png", undefined)).toBe(
+      "E:/Projects/fig.png",
+    );
+  });
+
+  test("外链与认不出的相对路径返回 null（没有可复制的本地文件）", () => {
+    expect(resolveMarkdownImagePath("https://example.com/a.png", "E:/data")).toBeNull();
+    expect(resolveMarkdownImagePath("./a.png", "E:/data")).toBeNull();
+    expect(resolveMarkdownImagePath(undefined, "E:/data")).toBeNull();
   });
 });
 

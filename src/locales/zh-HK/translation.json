@@ -66,7 +66,9 @@
       "important": "重要",
       "warning": "警告",
       "caution": "注意"
-    }
+    },
+    "copyImage": "複製圖片",
+    "copyFailed": "複製失敗"
   },
   "main": {
     "about": {
@@ -81,7 +83,8 @@
       "updateSourceNone": "未設定",
       "dataLocation": "資料位置",
       "notesDir": "筆記",
-      "pluginsDir": "外掛"
+      "pluginsDir": "外掛",
+      "customCss": "自訂樣式"
     },
     "doc": {
       "label": "說明文件 · 唯讀",
@@ -182,12 +185,60 @@
       "quickNotepad": "快捷便箋",
       "restore": "還原視窗",
       "settings": "設定"
+    },
+    "tabs": {
+      "close": "關閉分頁"
+    },
+    "workspace": {
+      "openInNewTab": "在新分頁中開啟",
+      "rename": "重新命名",
+      "copyFile": "複製",
+      "displayDetails": "簡易資訊（日期、大小、正文預覽）",
+      "displayCompact": "格式圖示 + 標題",
+      "rootFolder": "根目錄",
+      "pathCopied": "已複製檔案路徑",
+      "clipboardEmpty": "剪貼簿裡沒有檔案",
+      "deletedCount": "已刪除 {{count}} 個項目",
+      "copiedCount": "已複製 {{count}} 個項目",
+      "movedCount": "已移動 {{count}} 個項目",
+      "createHere": "在這裡新建檔案",
+      "emptyLevel": "沒有可顯示的檔案",
+      "searchPlaceholder": "搜尋檔案…",
+      "searching": "搜尋中…",
+      "noResults": "沒有符合的檔案",
+      "searchCapped": "檔案過多，搜尋只涵蓋了一部分目錄",
+      "newFile": "新建檔案",
+      "view": "檢視方式",
+      "viewList": "清單",
+      "viewCards": "卡片",
+      "viewIcons": "圖示",
+      "selectedCount": "已選 {{count}} 項",
+      "copyCount": "複製（{{count}} 項）",
+      "copyPath": "複製檔案路徑",
+      "pasteHere": "貼到這裡",
+      "openWith": "開啟方式…",
+      "properties": "屬性",
+      "moveTo": "移動到…",
+      "deleteCount": "刪除（{{count}} 項）",
+      "deleteFile": "刪除檔案",
+      "confirmDeleteTitle": "刪除項目",
+      "confirmCopyTitle": "複製到工作區",
+      "confirmDeleteBatch": "確定刪除 {{count}} 個項目嗎？資料夾會連同裡面的所有檔案一起刪除，無法復原。",
+      "confirmCopyBatch": "確定把 {{count}} 個項目複製到「{{target}}」下嗎？資料夾會連同裡面的所有檔案一起複製。",
+      "confirmDelete": "確認刪除",
+      "confirmCopy": "複製",
+      "moveToTitle": "移動到…",
+      "moveHere": "移動到這裡",
+      "noSubfolders": "沒有子資料夾",
+      "truncated": "項目過多，僅顯示前一部分",
+      "deleteFolder": "刪除資料夾"
     }
   },
   "noteMenu": {
     "delete": "刪除筆記",
     "export": "匯出 Markdown",
-    "moveToCategory": "移至分類…"
+    "moveToCategory": "移至分類…",
+    "openInTab": "在新分頁中開啟"
   },
   "notepad": {
     "button": {

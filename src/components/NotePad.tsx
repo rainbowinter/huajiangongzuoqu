@@ -588,6 +588,7 @@ export function NotePad({
     setContent,
     markDirty: () => setStatus("dirty"),
     onEnsureNoteSaved: ensureNoteSaved,
+    imageBaseDir: imageBaseDir ?? undefined,
     onError: showToast,
     t,
   });

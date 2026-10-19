@@ -27,6 +27,7 @@
     "opener:default",
     "clipboard-manager:allow-write-text",
     "clipboard-manager:allow-read-text",
+    "drag:default",
     "updater:default",
     "process:allow-restart"
   ]

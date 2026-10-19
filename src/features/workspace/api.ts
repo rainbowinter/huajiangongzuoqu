@@ -63,6 +63,30 @@ export function moveWorkspaceEntry(path: string, targetDir: string): Promise<str
   return invoke("workspace_move_entry", { path, targetDir });
 }
 
+/**
+ * 重命名一个**文件**（不换目录），返回新路径。
+ *
+ * 目录重命名由「移动到…」覆盖；后端会拒绝 `..`、路径分隔符与 Windows 非法字符。
+ */
+export function renameWorkspaceEntry(path: string, newName: string): Promise<string> {
+  return invoke("workspace_rename_entry", { path, newName });
+}
+
+/** 把外部文件 / 文件夹复制进一个工作目录；返回顶层项目数。 */
+export function copyWorkspaceEntries(sources: string[], targetDir: string): Promise<number> {
+  return invoke("workspace_copy_entries", { sources, targetDir });
+}
+
+/** 批量删除文件 / 文件夹；返回实际删除的顶层项目数。 */
+export function deleteWorkspaceEntries(paths: string[]): Promise<number> {
+  return invoke("workspace_delete_entries", { paths });
+}
+
+/** 批量移动到另一个目录；返回实际移动的顶层项目数。 */
+export function moveWorkspaceEntries(paths: string[], targetDir: string): Promise<number> {
+  return invoke("workspace_move_entries", { paths, targetDir });
+}
+
 /** 列出某个目录下的所有子目录（递归、有上限），供「移动到…」选择目标。 */
 export function listWorkspaceSubdirs(dir: string): Promise<string[]> {
   return invoke("workspace_list_subdirs", { dir });

@@ -108,6 +108,16 @@ import {
   type WorkspaceCacheInfo,
   type WorkspaceEntry,
 } from "../features/workspace/api";
+import {
+  closeDocument,
+  documentTitleFromPath,
+  findDocument,
+  makeDocument,
+  neighborKey,
+  openDocumentKey,
+  upsertDocument,
+  type OpenDocument,
+} from "../features/tabs/openDocuments";
 import { postActiveViewCommand } from "../features/plugins/activeView";
 import { isIconAssetPath } from "../features/plugins/viewAssets";
 import { usePluginIcons } from "../features/plugins/usePluginIcons";
@@ -144,7 +154,9 @@ import { FilePreview, TablePreview } from "./FilePreview";
 import { Modal } from "./Modal";
 import { PdfExportPanel } from "./PdfExportPanel";
 import { EditorScrollbar } from "./EditorScrollbar";
-import { WorkspaceTree, folderName, shortenPath } from "./WorkspaceTree";
+import { WorkspaceTree, extensionOf, folderName, shortenPath } from "./WorkspaceTree";
+import { FileKindIcon } from "./FileKindIcon";
+import { dropOntoWorkspace } from "../features/workspace/dropBridge";
 import { POPUP_VIEWPORT_MARGIN, useViewportPopupPosition } from "./popupPosition";
 import { disposeListener } from "./listeners";
 import { SettingsPanel } from "./SettingsPanel";
@@ -186,6 +198,10 @@ import {
 } from "../features/notes/noteUtils";
 import type { CategoryGroup } from "../features/notes/noteUtils";
 import {
+  readCollapsedCategories,
+  writeCollapsedCategories,
+} from "../features/notes/categoryPrefs";
+import {
   getNoteContextMenuItems,
   type NoteContextMenuAction,
 } from "../features/notes/noteContextMenu";
@@ -200,6 +216,20 @@ import {
 } from "../features/windows/controls";
 
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
+
+/**
+ * 每个标签上一次离开时的快照。切回来时恢复滚动位置与光标，并让「保存失败」时
+ * 的草稿有地方待着（不会因为切换而丢掉）。
+ *
+ * 只缓存**非活动**标签；活动文档的真身仍是那套 `content/title/saveState`。
+ */
+interface TabBuffer {
+  content: string;
+  title: string;
+  saveState: SaveState;
+  scrollTop: number;
+  caret: number;
+}
 /** 侧栏模式与「哪个 id 挂哪一层」的映射都在 features/windows/sidePanelMode.ts。 */
 
 /** 活动栏里「笔记」那一格的 id。工作文件夹的 id 直接用它自己的绝对路径。 */
@@ -732,6 +762,16 @@ export function MainWindow({
   const [notes, setNotes] = useState<NoteMetadata[]>([]);
   const [externalFiles, setExternalFiles] = useState<ExternalFile[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** 打开的标签。活动标签由 `selectedId` 推导，不另存一份。 */
+  const [openDocuments, setOpenDocuments] = useState<OpenDocument[]>([]);
+  const openDocumentsRef = useRef(openDocuments);
+  openDocumentsRef.current = openDocuments;
+  const tabBuffersRef = useRef(new Map<string, TabBuffer>());
+  const activationQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  /** 标签打开实现。启动期 / 事件监听里用它，避开定义顺序。 */
+  const openDocumentRef = useRef<
+    (document: OpenDocument, mode?: "replace" | "append") => Promise<void>
+  >(async () => {});
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>(
     normalizeViewMode(initialConfig?.defaultViewMode ?? "split"),
@@ -761,10 +801,19 @@ export function MainWindow({
    * 也不是外部文件 —— 所以它绕开保存路由，也完全不碰 `externalFiles`（那个列表同时
    * 还是「这是不是外部文件」的判据，往里塞东西会连累保存逻辑）。
    *
-   * 用户在左侧选了别的东西就把它清掉（见三处 `setSelectedId`）：文档是「临时看一眼」，
-   * 不该粘在笔记上面不走。
+   * 说明文档现在是**标签页的一种**（`kind: "doc"`）：切到笔记时由激活流程把 `docView`
+   * 清掉，切回来时从 `docTabsRef` 里取回同一份内存内容。`key` 是标签去重用的稳定键
+   * （随包文档用文件名，插件 README 用标题）。
    */
-  const [docView, setDocView] = useState<{ title: string; content: string } | null>(null);
+  const [docView, setDocView] = useState<{
+    key: string;
+    title: string;
+    content: string;
+  } | null>(null);
+  /** 只读文档的正文：标签只存 key，内容在这里，切回来不必重新读盘。 */
+  const docTabsRef = useRef(new Map<string, { title: string; content: string }>());
+  const docViewRef = useRef(docView);
+  docViewRef.current = docView;
   const [standalonePanels, setStandalonePanels] = useState<PluginPanelDef[]>(() =>
     listPluginPanels().filter((panel) => panel.standalone),
   );
@@ -842,6 +891,15 @@ export function MainWindow({
   );
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+  /**
+   * 拖侧栏边框时**只改这两个 DOM 的 `--sidebar-width`**，不 setState。
+   *
+   * 以前每来一个 mousemove 就 `setSidebarWidth`：MainWindow 是几千行的大组件，一渲染
+   * 整棵目录树（可能有几百个图片缩略图）跟着协调，拖起来就卡。现在宽度走 CSS 变量，
+   * 浏览器自己排版；松手时才把最终值提交回 state。
+   */
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const sidebarInnerRef = useRef<HTMLDivElement>(null);
   const [splitRatio, setSplitRatio] = useState(0.5);
   const [isResizingSplit, setIsResizingSplit] = useState(false);
   const splitContainerRef = useRef<HTMLDivElement>(null);
@@ -1096,6 +1154,20 @@ export function MainWindow({
 
   /** 当前打开的外部文件路径。工作文件夹里的文件也走同一条通道。 */
   const activeFilePath = selectedExternalFile?.filePath ?? null;
+
+  /**
+   * 活动标签的键。**由 `selectedId` / `docView` 推导**：`selectedId` 同时是保存路由、
+   * 撤销栈、插件镜像与侧栏选中的依据，再维护一份 activeTab 只会到处不同步。
+   *
+   * 只读文档显示时 `selectedId` 已经被清空（见 `performActivation`），所以它必须优先。
+   */
+  const activeDocumentKey = docView
+    ? openDocumentKey("doc", docView.key)
+    : selectedId
+      ? openDocumentKey(selectedExternalFile ? "file" : "note", selectedId)
+      : null;
+  const activeDocumentKeyRef = useRef(activeDocumentKey);
+  activeDocumentKeyRef.current = activeDocumentKey;
 
   // 订阅文件类型注册表：插件装上之后，**已经打开**的文件也能立刻切到预览形态。
   const fileTypes = useSyncExternalStore(subscribeFileTypes, listFileTypes, listFileTypes);
@@ -1899,11 +1971,6 @@ export function MainWindow({
     };
   }, [openPopover, popoverRef]);
 
-  /** 打开一篇只读说明文档（「关于」的三篇、插件详细信息都走这里）。 */
-  const openDocView = useCallback((title: string, content: string) => {
-    setDocView({ title, content });
-  }, []);
-
   const saveStateLabel = useMemo<Record<SaveState, string>>(
     () => ({
       idle: t("main.statusBar.saveState.idle", { defaultValue: "未选择" }),
@@ -2335,19 +2402,6 @@ export function MainWindow({
     [commitRemoveWorkspaceFolder],
   );
 
-  /**
-   * 复用既有的「外部文件」通道：它已经处理好读取、编辑、自动保存与外部改动轮询。
-   *
-   * `fromWorkspace` 让这条**不列进侧栏的「外部文件」**：工作区树自己就是它的导航，
-   * 再在「笔记」面板里冒一条会让人以为凭空多了篇笔记。记账本身照旧（保存路由要靠它）。
-   */
-  const handleOpenWorkspaceFile = useCallback(
-    (entry: WorkspaceEntry) => {
-      void loadExternalFile(entry.path, { fromWorkspace: true });
-    },
-    [loadExternalFile],
-  );
-
   const handleSelectExplorer = useCallback(
     (id: string) => {
       // 点当前已选中的那一格 = 收起/展开面板（VSCode 的习惯）；点别的格 = 切过去并展开。
@@ -2417,10 +2471,15 @@ export function MainWindow({
         setViewMode(normalizeViewMode(loadedConfig.defaultViewMode));
         setNotes(loadedNotes);
         setCategories(loadedCategories);
-        setCollapsedCategories(new Set(loadedCategories));
+        setCollapsedCategories(readCollapsedCategories(loadedCategories));
         if (loadedNotes[0]) {
           const note = await getNote(loadedNotes[0].id);
-          if (!cancelled) applyNote(note);
+          if (!cancelled) {
+            applyNote(note);
+            const first = [makeDocument("note", note.id)];
+            openDocumentsRef.current = first;
+            setOpenDocuments(first);
+          }
         } else {
           clearCurrentNote();
         }
@@ -2429,7 +2488,7 @@ export function MainWindow({
           const startupFile = await takeStartupFile();
           if (!cancelled && startupFile) {
             revealExternalFiles();
-            await loadExternalFile(startupFile);
+            await openDocumentRef.current(makeDocument("file", startupFile), "append");
           }
         }
       } catch (error) {
@@ -2476,6 +2535,22 @@ export function MainWindow({
       void refreshNotes()
         .then((loaded) => {
           if (isStale()) return;
+
+          // 外部删除的笔记：把它的标签一并摘掉，别留一个点开就报错的死标签。
+          const alive = openDocumentsRef.current.filter(
+            (document) =>
+              document.kind !== "note" ||
+              loaded.some((note) => note.id === document.id),
+          );
+          if (alive.length !== openDocumentsRef.current.length) {
+            const aliveKeys = new Set(alive.map((document) => document.key));
+            for (const document of openDocumentsRef.current) {
+              if (!aliveKeys.has(document.key)) tabBuffersRef.current.delete(document.key);
+            }
+            openDocumentsRef.current = alive;
+            setOpenDocuments(alive);
+          }
+
           const currentId = selectedIdRef.current;
           if (!currentId) return;
           const stillExists = loaded.some((n) => n.id === currentId);
@@ -2499,8 +2574,12 @@ export function MainWindow({
             }
           } else if (selectedNoteRef.current) {
             if (loaded[0]) {
-              void loadNote(loaded[0].id);
+              // 先清空：当前这篇已经被删了，绝不能再走保存（会把它重新建出来）。
+              clearCurrentNote();
+              void openDocumentRef.current(makeDocument("note", loaded[0].id), "replace");
             } else {
+              openDocumentsRef.current = [];
+              setOpenDocuments([]);
               clearCurrentNote();
             }
           }
@@ -2520,6 +2599,12 @@ export function MainWindow({
     return () => window.removeEventListener("focus", handleFocus);
   }, [refreshNotes]);
 
+  // 分类折叠状态按本机记住：新建 / 删除分类后重开应用，视图还是离开时的样子。
+  useEffect(() => {
+    if (isLoading) return;
+    writeCollapsedCategories(collapsedCategories, categories);
+  }, [categories, collapsedCategories, isLoading]);
+
   useEffect(() => {
     const onResize = () => setSettingsOverlay(window.innerWidth < 1080);
     window.addEventListener("resize", onResize);
@@ -2529,12 +2614,12 @@ export function MainWindow({
   useEffect(() => {
     const unlisten = listen<string>("open-external-file", (event) => {
       revealExternalFiles();
-      void loadExternalFile(event.payload);
+      void openDocumentRef.current(makeDocument("file", event.payload), "append");
     });
     return () => {
       disposeListener(unlisten);
     };
-  }, [loadExternalFile, revealExternalFiles]);
+  }, [revealExternalFiles]);
 
   useEffect(() => {
     const TEXT_RE = /\.(md|markdown|txt)$/i;
@@ -2542,6 +2627,26 @@ export function MainWindow({
 
     const unlisten = getCurrentWindow().onDragDropEvent((event) => {
       if (event.payload.type !== "drop") return;
+
+      // 落在目录树上 = 「复制进这个文件夹」，不是「打开这个文件」。
+      // Tauri 给的是物理像素，`elementFromPoint` 要的是 CSS 像素。
+      const scale = window.devicePixelRatio || 1;
+      const point = document.elementFromPoint(
+        event.payload.position.x / scale,
+        event.payload.position.y / scale,
+      ) as HTMLElement | null;
+      if (point?.closest(".workspace-tree")) {
+        const target = point.closest("[data-workspace-drop]");
+        if (
+          dropOntoWorkspace(
+            event.payload.paths,
+            target?.getAttribute("data-workspace-drop") ?? null,
+          )
+        ) {
+          return;
+        }
+      }
+
       const textPaths: string[] = [];
       const imagePaths: string[] = [];
 
@@ -2554,7 +2659,7 @@ export function MainWindow({
         revealExternalFiles();
       }
       for (const p of textPaths) {
-        void loadExternalFile(p);
+        void openDocumentRef.current(makeDocument("file", p), "append");
       }
 
       if (imagePaths.length > 0 && selectedIdRef.current && !isExternalRef.current) {
@@ -2578,16 +2683,16 @@ export function MainWindow({
     return () => {
       disposeListener(unlisten);
     };
-  }, [loadExternalFile, revealExternalFiles, setContent]);
+  }, [revealExternalFiles, setContent]);
 
   useEffect(() => {
     const unlisten = listen<string>("open-note", (event) => {
-      void loadNote(event.payload);
+      void openDocumentRef.current(makeDocument("note", event.payload), "replace");
     });
     return () => {
       disposeListener(unlisten);
     };
-  }, [loadNote]);
+  }, []);
 
   useEffect(() => {
     const unlisten = listen<string>("shortcut-register-failed", (event) => {
@@ -2743,6 +2848,364 @@ export function MainWindow({
   // 供定义在本函数之前的 `loadExternalFile` 调用（见 `saveCurrentNoteRef` 的说明）。
   saveCurrentNoteRef.current = saveCurrentNote;
 
+  // ---------------------------------------------------------------- 标签页
+  //
+  // 活动文档只有一份（`content/title/saveState` 与它们的 ref）。标签页只负责
+  // 「打开过哪些文档」、切换时保存/恢复，以及每篇的滚动位置。详见
+  // `features/tabs/openDocuments.ts`。
+
+  const captureTabBuffer = useCallback(
+    (key: string) => {
+      const scrollTop =
+        effectiveViewMode === "preview"
+          ? (previewScrollRef.current?.scrollTop ?? 0)
+          : (contentRef.current?.scrollTop ?? 0);
+      tabBuffersRef.current.set(key, {
+        content: contentValueRef.current,
+        title: titleValueRef.current,
+        saveState: saveStateRef.current,
+        scrollTop,
+        caret: contentRef.current?.selectionStart ?? 0,
+      });
+    },
+    [effectiveViewMode],
+  );
+
+  const restoreTabBuffer = useCallback(
+    (key: string) => {
+      const buffer = tabBuffersRef.current.get(key);
+      if (!buffer) return;
+      requestAnimationFrame(() => {
+        if (effectiveViewMode === "preview") {
+          const scroller = previewScrollRef.current;
+          if (scroller) scroller.scrollTop = buffer.scrollTop;
+          return;
+        }
+        const textarea = contentRef.current;
+        if (!textarea) return;
+        textarea.scrollTop = buffer.scrollTop;
+        const caret = Math.max(0, Math.min(buffer.caret, textarea.value.length));
+        textarea.setSelectionRange(caret, caret);
+        textarea.focus();
+      });
+    },
+    [effectiveViewMode],
+  );
+
+  const performActivation = useCallback(
+    async (document: OpenDocument) => {
+      const targetKey = document.key;
+      const currentDoc = docViewRef.current;
+      const currentId = selectedIdRef.current;
+      const currentIsFile =
+        currentId !== null &&
+        externalFilesRef.current.some((file) => file.id === currentId);
+      const currentKey = currentDoc
+        ? openDocumentKey("doc", currentDoc.key)
+        : currentId
+          ? openDocumentKey(currentIsFile ? "file" : "note", currentId)
+          : null;
+
+      if (currentKey === targetKey) {
+        // 已经在这篇文档上：笔记 / 文件恢复滚动位置即可；只读文档刷新一下正文
+        // （插件 README 可能在两次打开之间被重写过）。
+        if (document.kind === "doc") {
+          const entry = docTabsRef.current.get(document.id);
+          if (entry && (currentDoc?.content !== entry.content || currentDoc?.title !== entry.title)) {
+            setDocView({ key: document.id, title: entry.title, content: entry.content });
+          }
+        } else {
+          setDocView(null);
+          restoreTabBuffer(targetKey);
+        }
+        return;
+      }
+
+      setDocView(null);
+
+      // 只读文档的正文在 `docTabsRef` 里，不需要把空的 content/title 记进缓冲区。
+      if (currentKey && !currentDoc) captureTabBuffer(currentKey);
+
+      // 空状态没有可保存的文档；`performSave` 在没有 id 时会返回 false。
+      //
+      // ⚠️ 这里**不能 force**：图片 / PDF 这类富预览的 `content` 是空串，强制保存
+      // 会把原文件写成空的。`saveCurrentNote()` 只在 dirty 时才写。
+      if (currentId) {
+        const saved = await saveCurrentNote();
+        if (!saved) return; // 保存失败：留在原文档，不丢内容
+      }
+
+      if (document.kind === "doc") {
+        const entry = docTabsRef.current.get(document.id);
+        if (!entry) {
+          showToast("这篇说明文档已经关闭，请重新打开");
+          return;
+        }
+        // 文档是只读的：清掉当前文档（笔记已经在上面保存过了），再显示它。
+        clearCurrentNote();
+        setDocView({ key: document.id, title: entry.title, content: entry.content });
+        return;
+      }
+
+      setIsLoading(true);
+      try {
+        if (document.kind === "note") {
+          await loadNote(document.id);
+        } else {
+          await loadExternalFile(document.id, { fromWorkspace: document.fromWorkspace });
+        }
+        restoreTabBuffer(targetKey);
+      } catch (error) {
+        showToast(getErrorMessage(error));
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [
+      captureTabBuffer,
+      clearCurrentNote,
+      loadExternalFile,
+      loadNote,
+      restoreTabBuffer,
+      saveCurrentNote,
+      showToast,
+    ],
+  );
+
+  /**
+   * 激活一个标签。所有切换**串行**执行：保存队列在真正执行时才读 `selectedIdRef`，
+   * 两次快速切换交错会把 A 的内容写进 B 的 id 下。
+   */
+  const activateDocument = useCallback(
+    (document: OpenDocument): Promise<void> => {
+      const run = activationQueueRef.current.then(
+        () => performActivation(document),
+        () => performActivation(document),
+      );
+      activationQueueRef.current = run.catch(() => undefined);
+      return run;
+    },
+    [performActivation],
+  );
+
+  /** 当前活动文档登记成标签（新建笔记 / 导入 / 粘贴自动建笔记走这里）。 */
+  const registerActiveDocument = useCallback((document: OpenDocument) => {
+    const next = upsertDocument(
+      openDocumentsRef.current,
+      document,
+      "replace",
+      activeDocumentKeyRef.current,
+    );
+    openDocumentsRef.current = next;
+    setOpenDocuments(next);
+  }, []);
+
+  const openDocumentInTab = useCallback(
+    async (document: OpenDocument, mode: "replace" | "append" = "replace") => {
+      const existing = findDocument(openDocumentsRef.current, document.kind, document.id);
+      if (existing) {
+        if (document.fromWorkspace && !existing.fromWorkspace) {
+          const next = openDocumentsRef.current.map((item) =>
+            item.key === existing.key ? { ...item, fromWorkspace: true } : item,
+          );
+          openDocumentsRef.current = next;
+          setOpenDocuments(next);
+        }
+        await activateDocument(existing);
+        return;
+      }
+
+      const next = upsertDocument(
+        openDocumentsRef.current,
+        document,
+        mode,
+        activeDocumentKeyRef.current,
+      );
+      openDocumentsRef.current = next;
+      setOpenDocuments(next);
+      await activateDocument(document);
+    },
+    [activateDocument],
+  );
+  openDocumentRef.current = openDocumentInTab;
+
+  /**
+   * 打开一篇只读说明文档：**放进标签页**（「关于」的几篇、插件详细信息都走这里）。
+   *
+   * `key` 是标签去重用的：同一篇文档再点一次只激活已有标签，不会堆出第二份。
+   * 随包文档传文件名；插件 README 不传，默认用标题（插件名本身是唯一的）。
+   */
+  const openDocView = useCallback(
+    (title: string, content: string, key: string = title) => {
+      docTabsRef.current.set(key, { title, content });
+      void openDocumentInTab(makeDocument("doc", key), "append");
+    },
+    [openDocumentInTab],
+  );
+
+  const closeTab = useCallback(
+    async (key: string) => {
+      const list = openDocumentsRef.current;
+      if (!list.some((document) => document.key === key)) return;
+
+      if (key === activeDocumentKeyRef.current) {
+        // 同上：非 force，避免把图片 / PDF 的空内容写回原文件。
+        const saved = await saveCurrentNote();
+        if (!saved) return;
+      }
+
+      const nextKey = neighborKey(list, key);
+      const closing = list.find((document) => document.key === key);
+      const next = closeDocument(list, key);
+      openDocumentsRef.current = next;
+      setOpenDocuments(next);
+      tabBuffersRef.current.delete(key);
+      // 关掉的是一篇只读文档：正文也没有必要留在内存里了。
+      if (closing?.kind === "doc") docTabsRef.current.delete(closing.id);
+
+      if (key === activeDocumentKeyRef.current) {
+        const target = nextKey
+          ? next.find((document) => document.key === nextKey)
+          : undefined;
+        if (target) {
+          await activateDocument(target);
+          // 激活过程会把「旧文档」的 buffer 再记一次；这个标签已经关了，删掉。
+          tabBuffersRef.current.delete(key);
+        } else {
+          clearCurrentNote();
+        }
+      }
+    },
+    [activateDocument, clearCurrentNote, saveCurrentNote],
+  );
+
+  /**
+   * 工作区里删掉了文件 / 文件夹：把对应的标签一起关掉。
+   *
+   * 活动标签**不能走 `closeTab`** —— 它会先 `saveCurrentNote()`，文件已经没了，
+   * 那一写会把刚删掉的文件又写回来。这里直接清空当前文档，再激活邻居。
+   */
+  const handleWorkspacePathsRemoved = useCallback(
+    (removed: string[]) => {
+      const list = openDocumentsRef.current;
+      if (list.length === 0 || removed.length === 0) return;
+
+      const bases = removed.map((base) => base.replace(/[\\/]+$/, ""));
+      const isRemoved = (id: string) =>
+        bases.some(
+          (base) => id === base || id.startsWith(`${base}\\`) || id.startsWith(`${base}/`),
+        );
+
+      const affected = list.filter((document) => document.kind === "file" && isRemoved(document.id));
+      if (affected.length === 0) return;
+
+      const affectedKeys = new Set(affected.map((document) => document.key));
+      const activeKey = activeDocumentKeyRef.current;
+      const activeRemoved = activeKey !== null && affectedKeys.has(activeKey);
+
+      const next = list.filter((document) => !affectedKeys.has(document.key));
+      openDocumentsRef.current = next;
+      setOpenDocuments(next);
+      for (const key of affectedKeys) tabBuffersRef.current.delete(key);
+
+      if (!activeRemoved) return;
+
+      const index = list.findIndex((document) => document.key === activeKey);
+      const neighbor = [...list.slice(index + 1), ...list.slice(0, index).reverse()].find(
+        (document) => !affectedKeys.has(document.key),
+      );
+
+      clearCurrentNote();
+      if (neighbor) {
+        activationQueueRef.current = activationQueueRef.current
+          .then(() => performActivation(neighbor), () => performActivation(neighbor))
+          .catch(() => undefined);
+      }
+    },
+    [clearCurrentNote, performActivation],
+  );
+
+  /**
+   * 工作区里移动了文件 / 文件夹：打开中的路径一起改。
+   *
+   * 与重命名走同一套改写，只是这里要把**子树里的路径**也换掉 —— 移动的是文件夹时，
+   * 打开着的可能是 `dir/a.md`。`from` / `to` 都是顶层项目，按前缀映射即可。
+   */
+  const handleWorkspacePathsMoved = useCallback(
+    (moves: Array<{ from: string; to: string }>) => {
+      if (moves.length === 0) return;
+      const pairs = moves.map((move) => {
+        const from = move.from.replace(/[\\/]+$/, "");
+        return {
+          from,
+          fromLower: from.toLowerCase(),
+          to: move.to.replace(/[\\/]+$/, ""),
+        };
+      });
+      const rewrite = (path: string): string | null => {
+        const lower = path.toLowerCase();
+        for (const pair of pairs) {
+          if (lower === pair.fromLower) return pair.to;
+          if (
+            lower.startsWith(`${pair.fromLower}\\`) ||
+            lower.startsWith(`${pair.fromLower}/`)
+          ) {
+            return `${pair.to}${path.slice(pair.from.length)}`;
+          }
+        }
+        return null;
+      };
+
+      // 标签键是**小写**路径（Windows 比较不区分大小写），而 `id` 保留原大小写。
+      // 所以先在带原大小写的 `id` 上算映射，再拿它去改缓冲区的键。
+      const keyMap = new Map<string, string>();
+      const list = openDocumentsRef.current.map((document) => {
+        if (document.kind !== "file") return document;
+        const nextId = rewrite(document.id);
+        if (!nextId) return document;
+        const nextKey = openDocumentKey("file", nextId);
+        keyMap.set(document.key, nextKey);
+        return { ...document, id: nextId, key: nextKey };
+      });
+      openDocumentsRef.current = list;
+      setOpenDocuments(list);
+
+      if (keyMap.size > 0 && tabBuffersRef.current.size > 0) {
+        const buffers = new Map<string, TabBuffer>();
+        for (const [key, buffer] of tabBuffersRef.current) {
+          buffers.set(keyMap.get(key) ?? key, buffer);
+        }
+        tabBuffersRef.current = buffers;
+      }
+
+      setExternalFiles((current) =>
+        current.map((file) => {
+          const nextId = rewrite(file.id);
+          return nextId
+            ? {
+                ...file,
+                id: nextId,
+                filePath: nextId,
+                title: documentTitleFromPath(nextId),
+              }
+            : file;
+        }),
+      );
+
+      if (selectedIdRef.current) {
+        const nextId = rewrite(selectedIdRef.current);
+        if (nextId) {
+          const nextTitle = documentTitleFromPath(nextId);
+          selectedIdRef.current = nextId;
+          titleValueRef.current = nextTitle;
+          setSelectedId(nextId);
+          setTitle(nextTitle);
+        }
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if ((event.ctrlKey || event.metaKey) && event.key === "s") {
@@ -2835,11 +3298,16 @@ export function MainWindow({
   ]);
 
   const handleNewNote = async () => {
-    await saveCurrentNote();
+    // 空状态下没有可保存的文档；`performSave` 会返回 false，别把它当成保存失败。
+    if (selectedIdRef.current) {
+      const saved = await saveCurrentNote();
+      if (!saved) return;
+    }
     try {
       const note = await createNote({ title: "", content: "", category: activeCategory });
       replaceNoteMetadata(note);
       applyNote(note);
+      registerActiveDocument(makeDocument("note", note.id));
     } catch (error) {
       showToast(getErrorMessage(error));
     }
@@ -2854,7 +3322,10 @@ export function MainWindow({
    * 所以顶上的「新建笔记」永远建在根目录，这也是要加这颗按钮的原因。
    */
   const handleNewNoteInCategory = async (category: string) => {
-    await saveCurrentNote();
+    if (selectedIdRef.current) {
+      const saved = await saveCurrentNote();
+      if (!saved) return;
+    }
     try {
       setCollapsedCategories((prev) => {
         if (!prev.has(category)) return prev;
@@ -2865,6 +3336,7 @@ export function MainWindow({
       const note = await createNote({ title: "", content: "", category });
       replaceNoteMetadata(note);
       applyNote(note);
+      registerActiveDocument(makeDocument("note", note.id));
     } catch (error) {
       showToast(getErrorMessage(error));
     }
@@ -2892,8 +3364,11 @@ export function MainWindow({
       setSettingsConfig(savedConfig);
       setSavedDataDir(savedConfig.dataDir);
       const loadedNotes = await refreshNotes();
+      // 数据目录整个换了：旧目录里的标签全部作废。
+      openDocumentsRef.current = [];
+      setOpenDocuments([]);
       if (loadedNotes[0]) {
-        await loadNote(loadedNotes[0].id);
+        await openDocumentRef.current(makeDocument("note", loadedNotes[0].id), "replace");
       } else {
         clearCurrentNote();
       }
@@ -2924,8 +3399,10 @@ export function MainWindow({
 
           if (savedConfig.dataDir !== previousDataDir) {
             const loadedNotes = await refreshNotes();
+            openDocumentsRef.current = [];
+            setOpenDocuments([]);
             if (loadedNotes[0]) {
-              await loadNote(loadedNotes[0].id);
+              await openDocumentRef.current(makeDocument("note", loadedNotes[0].id), "replace");
             } else {
               clearCurrentNote();
             }
@@ -3044,56 +3521,99 @@ export function MainWindow({
 
       replaceNoteMetadata(note);
       applyNote(note);
+      registerActiveDocument(makeDocument("note", note.id));
     } catch (error) {
       showToast(getErrorMessage(error));
-    }
-  };
-
-  const handleSelectNote = async (id: string) => {
-    if (id === selectedId) return;
-    setDeleteConfirm(false);
-    // 排队保存：等待可能在途的自动保存，并把尚未落盘的修改一并存掉
-    await saveCurrentNote();
-
-    setIsLoading(true);
-    try {
-      await loadNote(id);
-    } catch (error) {
-      showToast(getErrorMessage(error));
-    } finally {
-      setIsLoading(false);
     }
   };
 
   /**
-   * 点侧栏「外部文件」里的条目。
-   *
-   * **复用 `loadExternalFile`**，不再自己抄一遍读取逻辑。原来这里比它少两道关卡
-   * （`isRichPreviewPath` 与 `MAX_EDITABLE_CHARS`），于是图片/二进制文件能被加进列表，
-   * 点它却抛「不是有效的 UTF-8」，`setSelectedId` 执行不到 —— 条目就永远点不开了。
-   * 合成一处之后，两边不可能再分叉。
-   *
-   * 这里只保留 `loadExternalFile` 没有的两件事：开头那道「点的就是当前这个」的守卫，
-   * 以及把整段圈进 `setIsLoading`（那个标志由 bootstrap 与这里共同使用，不该让它接管）。
-   * 保存与错误提示都在 `loadExternalFile` 里面了。
+   * 工作区树点开一个文件。`fromWorkspace` 让这条**不列进侧栏的「外部文件」**：
+   * 工作区树自己就是它的导航，再在「笔记」面板里冒一条会让人以为凭空多了篇笔记。
+   * 记账本身照旧（保存路由要靠它）。
    */
-  const handleSelectExternalFile = async (id: string) => {
-    if (id === selectedId) return;
-    setDeleteConfirm(false);
-    setIsLoading(true);
-    try {
-      await loadExternalFile(id);
-    } catch (error) {
-      // `loadExternalFile` 自己会吞掉读取错误，这里只是兜底 —— 调用点全是 `void`，
-      // 漏出去的 rejection 没人接。
-      showToast(getErrorMessage(error));
-    } finally {
-      setIsLoading(false);
+  const handleOpenWorkspaceFile = useCallback(
+    (entry: WorkspaceEntry, options?: { newTab?: boolean }) => {
+      void openDocumentInTab(
+        makeDocument("file", entry.path, { fromWorkspace: true }),
+        options?.newTab ? "append" : "replace",
+      );
+    },
+    [openDocumentInTab],
+  );
+
+  /**
+   * 工作区里重命名了文件：把打开中的路径、标签键与外部文件条目一起改掉。
+   * 内容不需要重读 —— 重命名不改变内容。
+   */
+  const handlePathRenamed = useCallback((oldPath: string, newPath: string) => {
+    const oldKey = openDocumentKey("file", oldPath);
+    const renamed = makeDocument("file", newPath);
+
+    const list = openDocumentsRef.current.map((document) =>
+      document.key === oldKey
+        ? { ...document, key: renamed.key, id: renamed.id }
+        : document,
+    );
+    openDocumentsRef.current = list;
+    setOpenDocuments(list);
+
+    const buffer = tabBuffersRef.current.get(oldKey);
+    if (buffer) {
+      tabBuffersRef.current.delete(oldKey);
+      tabBuffersRef.current.set(renamed.key, buffer);
     }
-  };
+
+    setExternalFiles((current) =>
+      current.map((file) =>
+        file.id === oldPath
+          ? {
+              ...file,
+              id: newPath,
+              filePath: newPath,
+              title: documentTitleFromPath(newPath),
+            }
+          : file,
+      ),
+    );
+
+    if (selectedIdRef.current === oldPath) {
+      const nextTitle = documentTitleFromPath(newPath);
+      selectedIdRef.current = newPath;
+      titleValueRef.current = nextTitle;
+      setSelectedId(newPath);
+      setTitle(nextTitle);
+    }
+  }, []);
+
+  const handleSelectNote = useCallback(
+    (id: string, options?: { newTab?: boolean }) => {
+      setDeleteConfirm(false);
+      void openDocumentInTab(
+        makeDocument("note", id),
+        options?.newTab ? "append" : "replace",
+      );
+    },
+    [openDocumentInTab],
+  );
+
+  /**
+   * 点侧栏「外部文件」里的条目。打开 / 切换都走标签层，读取仍复用
+   * `loadExternalFile`（二进制与过大文件的判断都在那里）。
+   */
+  const handleSelectExternalFile = useCallback(
+    (id: string, options?: { newTab?: boolean }) => {
+      setDeleteConfirm(false);
+      void openDocumentInTab(
+        makeDocument("file", id),
+        options?.newTab ? "append" : "replace",
+      );
+    },
+    [openDocumentInTab],
+  );
 
   const handleRemoveExternalFile = async (id: string) => {
-    if (selectedId === id && saveState === "dirty") {
+    if (selectedIdRef.current === id && saveStateRef.current === "dirty") {
       const shouldSave = window.confirm(
         t("main.confirm.unsavedExternalFile", {
           title: title || t("common.untitledFile", { defaultValue: "未命名文件" }),
@@ -3105,9 +3625,24 @@ export function MainWindow({
         if (!saved) return;
       }
     }
+
+    const key = openDocumentKey("file", id);
+    const wasActive = selectedIdRef.current === id;
+    const list = openDocumentsRef.current;
+    const nextKey = neighborKey(list, key);
+    const next = closeDocument(list, key);
+    openDocumentsRef.current = next;
+    setOpenDocuments(next);
+    tabBuffersRef.current.delete(key);
     setExternalFiles((current) => current.filter((f) => f.id !== id));
-    if (selectedId === id) {
+
+    if (wasActive) {
+      // 先清空，避免切换时又去保存一个已经从列表里摘掉的路径。
       clearCurrentNote();
+      const target = nextKey
+        ? next.find((document) => document.key === nextKey)
+        : undefined;
+      if (target) await activateDocument(target);
     }
   };
 
@@ -3117,11 +3652,24 @@ export function MainWindow({
     setDeleteConfirm(false);
     try {
       await deleteNote(noteId);
-      const remaining = await refreshNotes();
-      if (noteId === selectedId && remaining[0]) {
-        await loadNote(remaining[0].id);
-      } else if (noteId === selectedId) {
+      await refreshNotes();
+
+      const key = openDocumentKey("note", noteId);
+      const wasActive = selectedIdRef.current === noteId;
+      const list = openDocumentsRef.current;
+      const nextKey = neighborKey(list, key);
+      const next = closeDocument(list, key);
+      openDocumentsRef.current = next;
+      setOpenDocuments(next);
+      tabBuffersRef.current.delete(key);
+
+      if (wasActive) {
+        // 笔记已经删了，绝不能再走一次保存（那会把它重新建出来）。
         clearCurrentNote();
+        const target = nextKey
+          ? next.find((document) => document.key === nextKey)
+          : undefined;
+        if (target) await activateDocument(target);
       }
     } catch (error) {
       showToast(getErrorMessage(error));
@@ -3164,6 +3712,12 @@ export function MainWindow({
     if (action === "export") {
       setNoteMenuClosing(true);
       void handleExportNote(note);
+      return;
+    }
+
+    if (action === "openInTab") {
+      setNoteMenuClosing(true);
+      void handleSelectNote(note.id, { newTab: true });
       return;
     }
 
@@ -3375,6 +3929,7 @@ export function MainWindow({
       const note = await createNote({ title, content, category: activeCategory });
       replaceNoteMetadata(note);
       applyNote(note);
+      registerActiveDocument(makeDocument("note", note.id));
       return note.id;
     } catch {
       return null;
@@ -3391,6 +3946,7 @@ export function MainWindow({
     setContent,
     markDirty,
     onEnsureNoteSaved: ensureNoteSaved,
+    imageBaseDir: imageBaseDir ?? undefined,
     disabled: isExternal,
     onError: showToast,
     t,
@@ -3478,21 +4034,48 @@ export function MainWindow({
     document.body.style.userSelect = "none";
     document.body.style.cursor = "col-resize";
 
-    const onMouseMove = (e: globalThis.MouseEvent) => {
-      const newWidth = Math.min(Math.max(e.clientX, 180), 500);
-      setSidebarWidth(newWidth);
+    let pendingWidth = sidebarWidth;
+    let frame = 0;
+
+    const applyWidth = () => {
+      frame = 0;
+      const width = `${Math.round(pendingWidth)}px`;
+      sidebarRef.current?.style.setProperty("--sidebar-width", width);
+      sidebarInnerRef.current?.style.setProperty("--sidebar-width", width);
     };
-    const onMouseUp = () => setIsResizingSidebar(false);
+
+    const onMouseMove = (e: globalThis.MouseEvent) => {
+      pendingWidth = Math.min(Math.max(e.clientX, 180), 500);
+      // 一帧最多改一次样式；鼠标事件比屏幕刷新快时，多的那几次直接丢掉。
+      if (!frame) frame = requestAnimationFrame(applyWidth);
+    };
+
+    const onMouseUp = () => {
+      if (frame) {
+        cancelAnimationFrame(frame);
+        frame = 0;
+        applyWidth();
+      }
+      // 先提交 state，再撤掉 CSS 变量：同一帧里 React 会把 width 换成同样的值，
+      // 不会闪一下旧宽度。
+      setSidebarWidth(Math.round(pendingWidth));
+      setIsResizingSidebar(false);
+      requestAnimationFrame(() => {
+        sidebarRef.current?.style.removeProperty("--sidebar-width");
+        sidebarInnerRef.current?.style.removeProperty("--sidebar-width");
+      });
+    };
 
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", onMouseUp);
     return () => {
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
+      if (frame) cancelAnimationFrame(frame);
       document.body.style.userSelect = "";
       document.body.style.cursor = "";
     };
-  }, [isResizingSidebar]);
+  }, [isResizingSidebar, sidebarWidth]);
 
   useEffect(() => {
     if (!isResizingSplit) return;
@@ -4255,14 +4838,30 @@ export function MainWindow({
             onSetIcon={(id, icon) => void handleSetWorkspaceIcon(id, icon)}
           />
           <div
+            ref={sidebarRef}
             className={`sidebar ${
               sidebarCollapsed ? "is-collapsed" : ""
-            } border-r border-paper-deep/30 bg-paper/40 shrink-0 overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]`}
-            style={{ width: sidebarCollapsed ? 0 : sidebarWidth }}
+            } border-r border-paper-deep/30 bg-paper/40 shrink-0 overflow-hidden ${
+              // 拖动过程中不能有 width 过渡：每帧都去追一个 300ms 的动画会明显「跟手慢」。
+              // 收起 / 展开才需要这条过渡。
+              isResizingSidebar
+                ? ""
+                : "transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+            }`}
+            /*
+             * 拖动时宽度由 `--sidebar-width` 直接改（见上面的 resize effect），
+             * React 不参与每一帧的重渲染；松手后 state 的值成为新的回退值。
+             */
+            style={{
+              width: sidebarCollapsed
+                ? 0
+                : `var(--sidebar-width, ${sidebarWidth}px)`,
+            }}
           >
             <div
+              ref={sidebarInnerRef}
               className="sidebar-inner flex flex-col h-full"
-              style={{ width: `${sidebarWidth}px` }}
+              style={{ width: `var(--sidebar-width, ${sidebarWidth}px)` }}
             >
               {/* 侧栏自己的标题行，两个视图共用。
 
@@ -4490,7 +5089,16 @@ export function MainWindow({
                                 key={file.id}
                                 role="button"
                                 tabIndex={0}
-                                onClick={() => void handleSelectExternalFile(file.id)}
+                                onClick={(event) =>
+                                  void handleSelectExternalFile(file.id, {
+                                    newTab: event.ctrlKey || event.metaKey,
+                                  })
+                                }
+                                onAuxClick={(event) => {
+                                  if (event.button === 1) {
+                                    void handleSelectExternalFile(file.id, { newTab: true });
+                                  }
+                                }}
                                 onKeyDown={(event) => {
                                   // 外层从 <button> 改成 <div role="button">：卡片里还有
                                   // 一个「从列表移除」的按钮，而 <button> 按规范不能包含
@@ -4606,7 +5214,14 @@ export function MainWindow({
                                     e.dataTransfer.setData("text/plain", note.id);
                                     e.dataTransfer.effectAllowed = "move";
                                   }}
-                                  onSelect={() => void handleSelectNote(note.id)}
+                                  onSelect={(event) =>
+                                    void handleSelectNote(note.id, {
+                                      newTab: event.ctrlKey || event.metaKey,
+                                    })
+                                  }
+                                  onAuxClick={() =>
+                                    void handleSelectNote(note.id, { newTab: true })
+                                  }
                                   onContextMenu={(event) => handleOpenNoteMenu(event, note.id)}
                                   onHoverChange={(hovered) =>
                                     setHoveredId(hovered ? note.id : null)
@@ -4721,9 +5336,11 @@ export function MainWindow({
                               </span>
                               {renamingCategory === group.category ? null : (
                                 /*
-                                 * 「在这个分类里新建笔记」。常显（不是悬停才出来）：
-                                 * 悬停才出现的按钮本来就难发现 —— 顶上那颗「新建分类」
-                                 * 当初就是因为这个被用户提意见，别在这里再犯一次。
+                                 * 「在这个分类里新建笔记」。
+                                 *
+                                 * **只在悬停这一行时出现**（用户明确要求的；和左侧
+                                 * 工作区目录树的文件夹保持一致）。键盘 Tab 到它时也会
+                                 * 显示，不然聚焦了一个看不见的按钮。
                                  */
                                 <button
                                   type="button"
@@ -4733,7 +5350,7 @@ export function MainWindow({
                                     event.stopPropagation();
                                     void handleNewNoteInCategory(group.category);
                                   }}
-                                  className="ml-1 w-5 h-5 shrink-0 flex items-center justify-center rounded text-bamboo/40 hover:text-bamboo hover:bg-bamboo/10 transition-colors cursor-pointer"
+                                  className="ml-1 w-5 h-5 shrink-0 flex items-center justify-center rounded text-bamboo/40 opacity-0 group-hover/cat:opacity-100 group-focus-within/cat:opacity-100 focus:opacity-100 hover:text-bamboo hover:bg-bamboo/10 transition-all cursor-pointer"
                                   aria-label={t("main.category.newNoteHere", {
                                     defaultValue: "在这个分类里新建笔记",
                                   })}
@@ -4787,7 +5404,14 @@ export function MainWindow({
                                         e.dataTransfer.setData("text/plain", note.id);
                                         e.dataTransfer.effectAllowed = "move";
                                       }}
-                                      onSelect={() => void handleSelectNote(note.id)}
+                                      onSelect={(event) =>
+                                    void handleSelectNote(note.id, {
+                                      newTab: event.ctrlKey || event.metaKey,
+                                    })
+                                  }
+                                  onAuxClick={() =>
+                                    void handleSelectNote(note.id, { newTab: true })
+                                  }
                                       onContextMenu={(event) => handleOpenNoteMenu(event, note.id)}
                                       onHoverChange={(hovered) =>
                                         setHoveredId(hovered ? note.id : null)
@@ -4834,6 +5458,10 @@ export function MainWindow({
                   root={activeExplorer}
                   selectedPath={selectedId}
                   onOpenFile={handleOpenWorkspaceFile}
+                  onPathRenamed={handlePathRenamed}
+                  onPathsRemoved={handleWorkspacePathsRemoved}
+                  onPathsMoved={handleWorkspacePathsMoved}
+                  resizing={isResizingSidebar}
                 />
               )}
             </div>
@@ -4854,6 +5482,80 @@ export function MainWindow({
           )}
 
           <div className="main-column flex-1 flex flex-col min-w-0">
+            {/*
+             * 标签条：在 `doc-toolbar` 与 `doc-header` 之外，切文档 / 切视图都不会
+             * 把它重挂。`docView` 打开时也留着它 —— 用户可以从这里切走、离开说明文档。
+             */}
+            {openDocuments.length > 0 ? (
+              <div className="doc-tab-bar flex items-center gap-1 px-2 py-1 shrink-0 border-b border-paper-deep/20 bg-paper/10 overflow-x-auto scrollbar-hidden">
+                {openDocuments.map((document) => {
+                  const isActive = document.key === activeDocumentKey;
+                  const isDirty =
+                    isActive &&
+                    (saveState === "dirty" || saveState === "saving" || saveState === "error");
+                  const label =
+                    document.kind === "doc"
+                      ? (docTabsRef.current.get(document.id)?.title ?? document.id)
+                      : document.kind === "file"
+                        ? documentTitleFromPath(document.id)
+                        : (() => {
+                            const note = notes.find((item) => item.id === document.id);
+                            return note
+                              ? getDisplayTitle(note, t)
+                              : t("common.untitledNote", { defaultValue: "无标题笔记" });
+                          })();
+                  const documentType =
+                    document.kind === "file" ? matchFileType(extensionOf(document.id)) : null;
+
+                  return (
+                    <div
+                      key={document.key}
+                      className={`doc-tab-item group flex items-center gap-1 h-7 pl-2.5 pr-1 rounded-lg border shrink-0 transition-all ${
+                        isActive
+                          ? "is-active bg-bamboo-mist/50 border-bamboo/25 text-bamboo"
+                          : "bg-transparent border-transparent text-ink-ghost hover:bg-paper-warm/70 hover:text-ink-soft"
+                      }${isDirty ? " is-dirty" : ""}`}
+                    >
+                      <FileKindIcon
+                        kind={
+                          document.kind === "doc"
+                            ? "doc"
+                            : (documentType?.kind ?? (document.kind === "note" ? "note" : "none"))
+                        }
+                        size={12}
+                        color={documentType?.color}
+                        className="shrink-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void activateDocument(document)}
+                        title={label}
+                        className="doc-tab-label max-w-[180px] truncate text-[11px] font-body cursor-pointer"
+                      >
+                        {label}
+                      </button>
+                      {isDirty ? (
+                        <span className="doc-tab-dirty w-1.5 h-1.5 rounded-full bg-amber-500/70 shrink-0" />
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void closeTab(document.key);
+                        }}
+                        title={t("main.tabs.close", { defaultValue: "关闭标签" })}
+                        className={`doc-tab-close w-4 h-4 flex items-center justify-center rounded text-[12px] leading-none transition-opacity cursor-pointer hover:bg-bamboo/15 hover:text-bamboo ${
+                          isActive ? "opacity-70" : "opacity-0 group-hover:opacity-70"
+                        }`}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+
             {/* 允许换行：插件多了之后（样式/统计/目录…）这一行放不下。原来固定 h-10
                 且不换行，按钮会被压到逐字竖排，插件页签还会和视图切换叠在一起。 */}
             <div
@@ -5145,7 +5847,7 @@ export function MainWindow({
                 「这篇笔记里写的居然是使用指南」。 */}
             {docView ? (
               <div
-                key={`doc-${docView.title}`}
+                key={`doc-${docView.key}`}
                 className="doc-header animate-note-enter px-6 pt-4 pb-2 shrink-0 border-b border-paper-deep/15 flex items-start justify-between gap-4"
               >
                 <div className="min-w-0">
@@ -5159,9 +5861,11 @@ export function MainWindow({
                   </div>
                 </div>
                 <button
-                  onClick={() => setDocView(null)}
+                  onClick={() => {
+                    if (activeDocumentKey) void closeTab(activeDocumentKey);
+                  }}
                   className="doc-header-close shrink-0 px-3 h-7 rounded-lg text-[11px] text-ink-ghost hover:text-bamboo hover:bg-bamboo-mist/40 transition-all cursor-pointer"
-                  title={t("main.doc.closeHint", { defaultValue: "关掉文档，回到原来的笔记" })}
+                  title={t("main.doc.closeHint", { defaultValue: "关闭这个文档标签" })}
                 >
                   {t("main.doc.close", { defaultValue: "关闭" })}
                 </button>
