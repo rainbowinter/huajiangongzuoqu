@@ -555,11 +555,18 @@ fn download_to_file(
     let mut response = client
         .get(url)
         .send()
-        .map_err(|error| with_detail(
-            app_error("marketDownloadFailed", format!("下载失败：{error}")),
-            "url",
-            url.to_string(),
-        ))?;
+        .map_err(|error| {
+            // 连不上 / 超时要说清楚 —— 否则用户只看到一句
+            // `error sending request for url (…)`，根本想不到是代理没开。
+            with_detail(
+                app_error(
+                    "marketDownloadFailed",
+                    format!("下载失败：{}", super::describe_request_error(&error)),
+                ),
+                "url",
+                url.to_string(),
+            )
+        })?;
 
     let status = response.status();
     if !status.is_success() {

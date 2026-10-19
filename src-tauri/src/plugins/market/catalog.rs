@@ -546,7 +546,9 @@ fn get_capped(
     let response = client
         .get(url)
         .send()
-        .map_err(|error| request_error(url, &error))?;
+        // `send` 的失败是 `reqwest::Error`：交给 `describe_request_error` 分类，别让用户
+        // 只看到一句 `error sending request for url (…)` 却不知道该去开代理。
+        .map_err(|error| request_error(url, super::describe_request_error(&error)))?;
 
     let status = response.status();
     if !status.is_success() {
@@ -580,10 +582,11 @@ fn get_capped(
     Ok(buffer)
 }
 
-/// `send` 报的是 `reqwest::Error`，读 body 报的是 `std::io::Error` —— 两者都要能包进来。
-fn request_error(url: &str, error: &impl std::fmt::Display) -> AppError {
+/// `send` 报的是 `reqwest::Error`，读 body 报的是 `std::io::Error` —— 两者都要能包进来，
+/// 所以这里收的是一句**已经翻好的话**，而不是错误对象本身。
+fn request_error(url: &str, message: impl std::fmt::Display) -> AppError {
     with_detail(
-        app_error("marketRequestFailed", format!("请求 {url} 失败：{error}")),
+        app_error("marketRequestFailed", format!("请求 {url} 失败：{message}")),
         "url",
         url.to_string(),
     )

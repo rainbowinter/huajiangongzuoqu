@@ -1,5 +1,6 @@
 import { t, type TFunction } from "i18next";
 import { invoke } from "@tauri-apps/api/core";
+import { describeNetworkFailure } from "../errors/network";
 import type { Note, NoteMetadata, SaveNoteRequest } from "./types";
 
 interface SerializedAppError {
@@ -232,6 +233,12 @@ function parseSerializedAppError(message: string, translate: TFunction): string 
 }
 
 export function getErrorMessage(error: unknown, translate: TFunction = t): string {
+  // 网络类的失败在这里统一补一句结论（超时 / 连不上），见 `describeNetworkFailure`。
+  // 放在这一个出口上，更新器与市场两边都会受益，不必逐个调用点去补。
+  return describeNetworkFailure(rawErrorMessage(error, translate));
+}
+
+function rawErrorMessage(error: unknown, translate: TFunction): string {
   if (typeof error === "string") {
     return parseSerializedAppError(error, translate) ?? error;
   }
