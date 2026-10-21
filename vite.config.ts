@@ -44,5 +44,20 @@ export default defineConfig(async () => ({
     // ⚠️ 这两条**不要加 `$` 锚点**：Vitest 拿去匹配的 id 末尾还挂着 `?raw` 查询串，
     // 锚死在结尾就一条都匹配不上，`?raw` 又退回空模块。
     css: { include: [/custom\.css/, /App\.css/] },
+    // ⚠️ `src-tauri/target/` 里会出现一份**构建时拷进去的 example-plugins-v2**；
+    // 不排除的话，插件目录里的 `*.test.js` 会被再跑一遍（同一个测试出现两次）。
+    // `.devdata/` 是隔离实例的数据目录，同样不是源码。
+    exclude: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/cypress/**",
+      "**/.{idea,git,cache,output,temp}/**",
+      "**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*",
+      "**/.devdata/**",
+      "**/src-tauri/target/**",
+      // office-viewer 的 `differential/reference` 里是一批**第三方参考实现**，
+      // 自带几十个 `.test.mjs`；它们不是花笺的测试，跑起来还会起服务 / 卡住。
+      "**/example-plugins-v2/office-viewer/differential/**",
+    ],
   },
 }));

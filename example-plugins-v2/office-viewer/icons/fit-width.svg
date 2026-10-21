@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- 只有一支双向箭头，**故意不加那两条竖线**：宿主把图标定死在 14px，竖线 + 横杆 +
+       两组箭头挤在 5px 里会糊成一坨黑点（实测过 14px 的真实栅格）。方向由箭头说，
+       「适应宽度」这四个字就在旁边。 -->
+  <path d="M4 12h16" />
+  <path d="m9 7-5 5 5 5" />
+  <path d="m15 7 5 5-5 5" />
+</svg>

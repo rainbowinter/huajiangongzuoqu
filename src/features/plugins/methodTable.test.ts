@@ -35,6 +35,7 @@ function fakeBridge(overrides: Partial<PluginHostBridge> = {}): PluginHostBridge
     listPluginAssets: vi.fn(async () => []),
     registerFonts: vi.fn(async () => ({ families: [], count: 0 })),
     openPanel: vi.fn(),
+    uiSendToView: vi.fn(() => true),
     editorGetContent: vi.fn(() => "正文"),
     editorSetContent: vi.fn(),
     editorGetSelection: vi.fn(() => null),
@@ -277,6 +278,32 @@ describe("权限门", () => {
       id: "bare",
       title: "最小",
       renderToken: "\u0000h:2",
+    });
+  });
+
+  test("ui.registerPanel 透传 onChange（下拉框 / 复选框）", async () => {
+    const bridge = fakeBridge();
+    await dispatchPluginCall(
+      context(["ui:panel"], ["ui:panel"], bridge),
+      "ui.registerPanel",
+      [
+        {
+          id: "home",
+          title: "开始",
+          standalone: true,
+          render: "\u0000h:0",
+          onClick: "\u0000h:1",
+          onChange: "\u0000h:2",
+        },
+      ],
+    );
+    expect(bridge.registerPanel).toHaveBeenLastCalledWith({
+      id: "home",
+      title: "开始",
+      standalone: true,
+      renderToken: "\u0000h:0",
+      onClickToken: "\u0000h:1",
+      onChangeToken: "\u0000h:2",
     });
   });
 
@@ -549,6 +576,49 @@ describe("权限门", () => {
     expect(allowed.registerFileType).toHaveBeenCalledWith(contribution);
   });
 
+  test("files.registerType 透传新建文件模板", async () => {
+    const bridge = fakeBridge();
+    await dispatchPluginCall(
+      context(["files:register"], ["files:register"], bridge),
+      "files.registerType",
+      [
+        {
+          id: "docx",
+          extensions: ["docx"],
+          label: "Word 文档",
+          badge: "DOC",
+          color: "#2b579a",
+          kind: "text",
+          newFile: "UEsDBA==",
+        },
+      ],
+    );
+
+    expect(bridge.registerFileType).toHaveBeenCalledWith(
+      expect.objectContaining({ newFile: "UEsDBA==" }),
+    );
+  });
+
+  test("files.registerType 拒绝坏掉的新建模板", async () => {
+    const error = (await dispatchPluginCall(
+      context(["files:register"], ["files:register"]),
+      "files.registerType",
+      [
+        {
+          id: "docx",
+          extensions: ["docx"],
+          label: "Word 文档",
+          badge: "DOC",
+          color: "#2b579a",
+          kind: "text",
+          newFile: "not base64!",
+        },
+      ],
+    ).catch((value: unknown) => value)) as PluginApiError;
+
+    expect(error.code).toBe("invalidArgument");
+  });
+
   test("files.registerType 拒绝空的 extensions", async () => {
     const error = (await dispatchPluginCall(
       context(["files:register"], ["files:register"]),
@@ -595,6 +665,36 @@ describe("参数校验与错误形状", () => {
     ).catch((value: unknown) => value)) as PluginApiError;
 
     expect(error.code).toBe("invalidArgument");
+  });
+});
+
+describe("ui.sendToView", () => {
+  test("把命令转给当前视图", async () => {
+    const bridge = fakeBridge();
+    await dispatchPluginCall(
+      context(["files:view"], ["files:view"], bridge),
+      "ui.sendToView",
+      [{ id: "office-format", value: "{}" }],
+    );
+    expect(bridge.uiSendToView).toHaveBeenCalledWith("office-format", "{}");
+  });
+
+  test("没有 files:view 时被拒绝，且不会触达 bridge", async () => {
+    const bridge = fakeBridge();
+    await expect(
+      dispatchPluginCall(context([], [], bridge), "ui.sendToView", [{ id: "x" }]),
+    ).rejects.toBeInstanceOf(PermissionError);
+    expect(bridge.uiSendToView).not.toHaveBeenCalled();
+  });
+
+  test("缺少 id 时报告参数错误", async () => {
+    await expect(
+      dispatchPluginCall(
+        context(["files:view"], ["files:view"], fakeBridge()),
+        "ui.sendToView",
+        [{}],
+      ),
+    ).rejects.toThrow();
   });
 });
 

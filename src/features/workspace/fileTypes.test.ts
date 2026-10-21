@@ -6,6 +6,7 @@ import {
   isFilePreviewKind,
   listFileTypes,
   matchFileType,
+  newFileBytes,
   parseViewToolbar,
   registerFileType,
   resetFileTypes,
@@ -31,6 +32,17 @@ afterEach(() => {
 });
 
 describe("文件类型注册表", () => {
+  it("新建文件模板按 base64 解码成原始字节", () => {
+    const type = pythonType({ newFile: "UEsDBA==" });
+    expect(Array.from(newFileBytes(type) ?? [])).toEqual([0x50, 0x4b, 0x03, 0x04]);
+  });
+
+  it("没有模板或模板坏掉时返回 null，让新建退回 0 字节", () => {
+    expect(newFileBytes(pythonType())).toBeNull();
+    // 注册那一层会拒绝坏 base64；这里防的是注册表被别处直接塞了坏值。
+    expect(newFileBytes(pythonType({ newFile: "不是 base64" }))).toBeNull();
+  });
+
   it("默认只认 Markdown —— 没装插件时工作文件夹里只看得见 .md", () => {
     expect(listFileTypes().map((type) => type.id)).toEqual(["markdown"]);
 

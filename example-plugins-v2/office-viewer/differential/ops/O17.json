@@ -1,0 +1,17 @@
+[
+  {
+    "op": "select",
+    "from": {
+      "block": 0,
+      "offset": 0
+    },
+    "to": {
+      "block": 0,
+      "offset": 4
+    }
+  },
+  {
+    "op": "key",
+    "key": "Backspace"
+  }
+]

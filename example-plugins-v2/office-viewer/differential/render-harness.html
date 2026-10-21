@@ -1,0 +1,8 @@
+<!doctype html><html><head><meta charset="utf-8"><title>render</title>
+<link rel="stylesheet" href="out/viewer.css">
+<style>html,body{margin:0;background:#eef1f4}.viewport{width:860px;height:1200px;overflow:auto;margin:0 auto}</style>
+</head><body><div class="viewport" id="viewport"><div id="pages"></div></div>
+<script type="module">
+import { renderFixture } from "./out/render-engine.js";
+renderFixture("fixtures/REAL02.docx").then(r=>{document.title=`OK ${r.pages}P`}).catch(e=>{document.title='ERR';document.body.textContent=e.stack});
+</script></body></html>

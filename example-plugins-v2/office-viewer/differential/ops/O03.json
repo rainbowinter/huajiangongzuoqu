@@ -1,0 +1,23 @@
+[
+ {
+  "op": "place",
+  "block": 0,
+  "offset": 0
+ },
+ {
+  "op": "select",
+  "from": {
+   "block": 0,
+   "offset": 0
+  },
+  "to": {
+   "block": 0,
+   "offset": 2
+  }
+ },
+ {
+  "op": "format",
+  "key": "bold",
+  "value": true
+ }
+]

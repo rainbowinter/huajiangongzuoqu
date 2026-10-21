@@ -234,7 +234,10 @@ data-accent = "green" | "purple" | "pink"
 - `.explorer-draft-row` —— 行内新建 / 重命名的外层
 - `.explorer-draft` —— 那个文件名输入框
 - `.explorer-draft-error` —— 输入框下方的错误提示
-- `.workspace-tree-toolbar` —— 目录树顶部的搜索 + 查看方式那一行
+- `.workspace-tree-toolbar` —— 目录树顶部的搜索 + 刷新 + 查看方式那一行
+- `.workspace-refresh-button` —— 刷新按钮（左键刷新、右键切换自动检测；
+  + `.is-active` = 自动检测开着）
+- `.workspace-refresh-live-dot` —— 自动检测开启时右上角那颗小圆点
 - `.workspace-tree-scroll` —— 目录树的滚动容器（空白处拖拽框选也发生在这里）
 - `.workspace-view-button` —— 右上角的「查看方式」按钮
 - `.workspace-view-menu` —— 那个下拉（选项用 `.workspace-view-item`）

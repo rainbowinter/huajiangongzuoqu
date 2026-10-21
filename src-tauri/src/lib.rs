@@ -129,33 +129,38 @@ fn save_external_file(path: String, content: String) -> Result<(), AppError> {
 /// （用户自己挑的），到这里不再做「是不是在某个目录里」的校验 —— 那条规则属于
 /// `workspace_write_file` 那种「写进受管目录」的场景，而这里是「用户让我存到这儿」。
 /// 前端那层也不给插件直接调：插件只能说「我想存这份东西」，路径由人拍板。
-#[tauri::command]
-fn save_external_file_bytes(request: tauri::ipc::Request<'_>) -> Result<(), AppError> {
-    let path = request
+/// 从 raw 请求头里取路径。头是 ASCII，所以前端先 percent-encode（中文路径）。
+fn request_path(request: &tauri::ipc::Request<'_>) -> Result<String, AppError> {
+    request
         .headers()
         .get("x-floral-path")
         .and_then(|value| value.to_str().ok())
         .map(str::to_string)
-        // 头是 ASCII 的（浏览器不会让我们塞中文进来），所以路径由前端做 percent-encoding。
         .map(|raw| percent_decode(&raw))
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| AppError {
             code: "io".into(),
             message: "没有给出要保存到哪个文件".into(),
             details: Default::default(),
-        })?;
+        })
+}
 
-    let bytes = match request.body() {
-        tauri::ipc::InvokeBody::Raw(data) => data.clone(),
-        // 走到这儿说明前端把参数写成了 JSON —— 那是它的 bug，说清楚而不是猜。
-        _ => {
-            return Err(AppError {
-                code: "io".into(),
-                message: "保存文件的入参形状不对（要的是 raw bytes）".into(),
-                details: Default::default(),
-            })
-        }
-    };
+/// 从 raw 请求体里取字节。JSON 形状说明前端写错了，直接报清楚，别猜。
+fn request_bytes(request: &tauri::ipc::Request<'_>) -> Result<Vec<u8>, AppError> {
+    match request.body() {
+        tauri::ipc::InvokeBody::Raw(data) => Ok(data.clone()),
+        _ => Err(AppError {
+            code: "io".into(),
+            message: "保存文件的入参形状不对（要的是 raw bytes）".into(),
+            details: Default::default(),
+        }),
+    }
+}
+
+#[tauri::command]
+fn save_external_file_bytes(request: tauri::ipc::Request<'_>) -> Result<(), AppError> {
+    let path = request_path(&request)?;
+    let bytes = request_bytes(&request)?;
 
     if let Some(parent) = PathBuf::from(&path).parent() {
         if !parent.as_os_str().is_empty() {
@@ -399,6 +404,23 @@ fn workspace_write_file(path: String, content: String) -> Result<(), AppError> {
         &workspace::roots_from_config(&config.workspace_folders),
         &path,
         &content,
+    )
+}
+
+/// 把原始字节写进工作区里的一个文件（新建文件时写入类型模板）。
+///
+/// 与 `save_external_file_bytes` 一样用 raw body + 请求头传路径；区别是这里**必须**
+/// 落在已授权的工作区目录内 —— 模板来自插件，不能变成「插件让宿主往任意路径写字节」。
+#[tauri::command]
+fn workspace_write_file_bytes(request: tauri::ipc::Request<'_>) -> Result<(), AppError> {
+    let path = request_path(&request)?;
+    let bytes = request_bytes(&request)?;
+    let store = default_store()?;
+    let config = store.load_config()?;
+    workspace::write_bytes_file(
+        &workspace::roots_from_config(&config.workspace_folders),
+        &path,
+        &bytes,
     )
 }
 
@@ -940,6 +962,7 @@ pub fn run() {
             workspace_list_dir,
             workspace_read_file,
             workspace_write_file,
+            workspace_write_file_bytes,
             data_dir_path,
             workspace_add_folder,
             workspace_remove_folder,

@@ -24,6 +24,7 @@ import {
   moveWorkspaceEntries,
   renameWorkspaceEntry,
   writeWorkspaceFile,
+  writeWorkspaceFileBytes,
   type WorkspaceEntry,
 } from "../features/workspace/api";
 import { setWorkspaceDropHandler } from "../features/workspace/dropBridge";
@@ -31,14 +32,17 @@ import { startFileDragOut } from "../features/workspace/dragOut";
 import {
   listFileTypes,
   matchFileType,
+  newFileBytes,
   subscribeFileTypes,
   type FileType,
 } from "../features/workspace/fileTypes";
 import {
   expandAncestors,
   filterExpandedPaths,
+  readAutoRefresh,
   readDisplayMode,
   readExpanded,
+  writeAutoRefresh,
   writeDisplayMode,
   writeExpanded,
   type TreeDisplayMode,
@@ -116,6 +120,26 @@ interface PickerState {
 const SEARCH_BUDGET = 3000;
 /** 搜索时最多向下钻几层。 */
 const SEARCH_MAX_DEPTH = 6;
+
+/**
+ * 开启「自动检测」后，多久检查一次已经打开过的文件夹。
+ *
+ * 5 秒：既能让人感觉「外部新建的文件自己冒出来」，又不会把网络盘 / 大目录变成
+ * 持续的重负载。**只检查 `levels` 里已经打开的层**，不是整棵树。
+ */
+const AUTO_REFRESH_INTERVAL_MS = 5000;
+
+/**
+ * 一层目录的「内容指纹」。用于轮询时判断要不要真的 setState —— 没变化就什么也不做，
+ * 避免每 5 秒把整棵树重渲染一遍。
+ *
+ * 用路径 / 是否目录 / 大小 / 修改时间：新增、删除、改名、改内容都会变。
+ */
+export function entriesSignature(entries: readonly WorkspaceEntry[]): string {
+  return entries
+    .map((entry) => `${entry.path}\t${entry.isDir ? "d" : "f"}\t${entry.size ?? ""}\t${entry.modifiedAt ?? ""}`)
+    .join("\n");
+}
 
 function formatSize(bytes: number | null): string | undefined {
   if (bytes === null) return undefined;
@@ -281,7 +305,16 @@ export function WorkspaceTree({
   const fileTypes = useSyncExternalStore(subscribeFileTypes, listFileTypes, listFileTypes);
 
   const [levels, setLevels] = useState<Map<string, LevelState>>(new Map());
+  const levelsRef = useRef(levels);
+  levelsRef.current = levels;
   const [loading, setLoading] = useState<Set<string>>(new Set());
+  /** 自动检测文件变化：**按工作区**记，默认关（见 treePrefs 的说明）。 */
+  const [autoRefresh, setAutoRefresh] = useState<boolean>(() => readAutoRefresh(root));
+  /** 手动刷新时转圈；轮询不碰这个，免得每 5 秒闪一下。 */
+  const [refreshing, setRefreshing] = useState(false);
+  /** 内容变了就加一，让正在进行的搜索重新跑一遍。 */
+  const [searchRevision, setSearchRevision] = useState(0);
+  const refreshInFlightRef = useRef(false);
   const [expanded, setExpanded] = useState<Set<string>>(() =>
     expandAncestors(root, filterExpandedPaths(root, readExpanded(root))),
   );
@@ -365,6 +398,7 @@ export function WorkspaceTree({
     const restored = expandAncestors(root, filterExpandedPaths(root, readExpanded(root)));
     setExpanded(restored);
     setDisplayMode(readDisplayMode(root));
+    setAutoRefresh(readAutoRefresh(root));
     setFocusedDir(initialFocusedDir(root, selectedPath));
 
     void (async () => {
@@ -393,6 +427,11 @@ export function WorkspaceTree({
     writeExpanded(root, expanded);
   }, [root, expanded]);
 
+  // 自动检测开关也是按工作区记的；默认关，关着时不写记录。
+  useEffect(() => {
+    writeAutoRefresh(root, autoRefresh);
+  }, [root, autoRefresh]);
+
   // 「新建文件」默认跟着当前打开的文件走；用户点过文件夹之后这里会改写它。
   useEffect(() => {
     if (!selectedPath) return;
@@ -417,6 +456,206 @@ export function WorkspaceTree({
   const reloadLoadedLevels = useCallback(async () => {
     await Promise.all([...levels.keys()].map((dir) => load(dir)));
   }, [levels, load]);
+
+  /**
+   * 只重新检查**已经打开过**的目录（`levels` 的键），不递归、不碰没展开过的子树。
+   *
+   * 用内容指纹比较：没变化的层一个字节都不写回，轮询时也就不会让整棵树重渲染。
+   * `silent` 用于自动检测（忽略个别目录读不到的情况）；手动刷新会把失败数报给调用方。
+   */
+  const refreshLoadedLevels = useCallback(
+    async ({ silent }: { silent: boolean }): Promise<{ changed: number; failed: number }> => {
+      // 一次只跑一轮：5 秒一轮 + 用户手动点，不该叠在一起打 IPC。
+      if (refreshInFlightRef.current) return { changed: 0, failed: 0 };
+      const dirs = [...levelsRef.current.keys()];
+      if (dirs.length === 0) return { changed: 0, failed: 0 };
+
+      refreshInFlightRef.current = true;
+      try {
+        const updates = new Map<string, LevelState>();
+        const failedDirs: string[] = [];
+
+        await Promise.all(
+          dirs.map(async (dir) => {
+            try {
+              const listing = await listWorkspaceDir(dir);
+              const existing = levelsRef.current.get(dir);
+              if (
+                !existing ||
+                existing.truncated !== listing.truncated ||
+                entriesSignature(existing.entries) !== entriesSignature(listing.entries)
+              ) {
+                updates.set(dir, { entries: listing.entries, truncated: listing.truncated });
+              }
+            } catch {
+              failedDirs.push(dir);
+            }
+          }),
+        );
+
+        /*
+         * 读不到的目录分两种：
+         *
+         * - **被移动 / 删除**：父层这次读成功了，而它的新列表里已经没有这一项。
+         *   那就把这一层（连同它的子树）从 levels / expanded 里摘掉 —— 树上自然就
+         *   看不见了，这才叫「更新出来」，而不是每次刷新都报一句「可能已被移动」。
+         * - **真正的读失败**（权限、网络盘抽风）：父层里它还在，保留原状并计为失败。
+         */
+        const separator = root.includes("\\") ? "\\" : "/";
+        const removedDirs = new Set<string>();
+        let genuineFailures = 0;
+
+        for (const dir of failedDirs) {
+          if (dir === root) {
+            genuineFailures += 1;
+            continue;
+          }
+          const parent = dirOf(dir);
+          const parentEntries =
+            updates.get(parent)?.entries ?? levelsRef.current.get(parent)?.entries;
+          if (parentEntries && !parentEntries.some((entry) => entry.path === dir)) {
+            removedDirs.add(dir);
+            for (const key of levelsRef.current.keys()) {
+              if (key.startsWith(`${dir}${separator}`)) removedDirs.add(key);
+            }
+          } else {
+            genuineFailures += 1;
+          }
+        }
+
+        const changed = updates.size + removedDirs.size;
+        if (changed > 0) {
+          // 一次性算出新的 levels，顺便用它清理已经随着文件消失的选中项。
+          const nextLevels = new Map(levelsRef.current);
+          for (const [dir, level] of updates) {
+            if (!removedDirs.has(dir) && nextLevels.has(dir)) nextLevels.set(dir, level);
+          }
+          for (const dir of removedDirs) nextLevels.delete(dir);
+
+          const gone = new Set<string>();
+          for (const [dir, level] of updates) {
+            const before = levelsRef.current.get(dir);
+            const after = new Set(level.entries.map((entry) => entry.path));
+            for (const entry of before?.entries ?? []) {
+              if (!after.has(entry.path)) gone.add(entry.path);
+            }
+          }
+          const underRemoved = (path: string) =>
+            [...removedDirs].some(
+              (dir) =>
+                path === dir || path.startsWith(`${dir}${separator}`),
+            );
+
+          levelsRef.current = nextLevels;
+          setLevels(nextLevels);
+          setExpanded((current) => {
+            if (removedDirs.size === 0) return current;
+            let touched = false;
+            const next = new Set<string>();
+            for (const path of current) {
+              if (removedDirs.has(path)) touched = true;
+              else next.add(path);
+            }
+            return touched ? next : current;
+          });
+          setFocusedDir((current) => (removedDirs.has(current) ? root : current));
+          setDraft((current) =>
+            current && removedDirs.has(current.dir) ? null : current,
+          );
+          setSelectedPaths((current) => {
+            if (current.size === 0) return current;
+            let touched = false;
+            const next = new Set<string>();
+            for (const path of current) {
+              if (gone.has(path) || underRemoved(path)) touched = true;
+              else next.add(path);
+            }
+            return touched ? next : current;
+          });
+          // 正在搜索时，让搜索按新内容重跑一遍。
+          setSearchRevision((revision) => revision + 1);
+        }
+
+        if (!silent && genuineFailures > 0) {
+          setError(
+            t("main.workspace.refreshPartial", {
+              defaultValue: "部分文件夹刷新失败（可能已被移动或删除）",
+            }),
+          );
+        } else if (!silent) {
+          setError(null);
+        }
+
+        return { changed, failed: genuineFailures };
+      } finally {
+        refreshInFlightRef.current = false;
+      }
+    },
+    [t],
+  );
+
+  /** 工具栏上的刷新按钮：只检查已经打开过的文件夹。 */
+  const handleManualRefresh = useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      const { changed, failed } = await refreshLoadedLevels({ silent: false });
+      if (failed > 0) {
+        showToast(
+          t("main.workspace.refreshPartial", {
+            defaultValue: "部分文件夹刷新失败（可能已被移动或删除）",
+          }),
+          "warning",
+        );
+      } else if (changed > 0) {
+        showToast(
+          t("main.workspace.refreshed", {
+            count: changed,
+            defaultValue: "已刷新，{{count}} 个文件夹有变化",
+          }),
+          "info",
+        );
+      } else {
+        showToast(
+          t("main.workspace.refreshedNoChange", { defaultValue: "已刷新，没有变化" }),
+          "info",
+        );
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshLoadedLevels, refreshing, t]);
+
+  /**
+   * 自动检测：开关打开时每 5 秒检查一次已打开的层。
+   *
+   * - 窗口在后台（`visibilityState !== "visible"`）时跳过，切回来立刻补一轮；
+   * - 开关默认关，且按工作区保存在 `treePrefs` 里。
+   */
+  useEffect(() => {
+    if (!autoRefresh) return;
+    let disposed = false;
+
+    const tick = () => {
+      if (disposed) return;
+      if (document.visibilityState !== "visible") return;
+      void refreshLoadedLevels({ silent: true });
+    };
+
+    const timer = window.setInterval(tick, AUTO_REFRESH_INTERVAL_MS);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    // 刚打开开关时先查一次，不必等满 5 秒。
+    tick();
+
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [autoRefresh, refreshLoadedLevels]);
 
   // ---------------------------------------------------------------- 展开 / 视图
 
@@ -505,7 +744,8 @@ export function WorkspaceTree({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [query, root]);
+    // `searchRevision`：自动/手动刷新让目录内容变了之后，正在进行的搜索也跟着重跑。
+  }, [query, root, searchRevision]);
 
   // ---------------------------------------------------------------- 新建 / 重命名
 
@@ -564,7 +804,15 @@ export function WorkspaceTree({
         }
 
         const path = joinPath(draft.dir, name);
-        await writeWorkspaceFile(path, "");
+        const extension = extensionOf(name);
+        // 有些格式的空文件不是零字节：DOCX 是 ZIP，0 字节连 Word 都打不开。
+        // 插件可以在文件类型上声明一份骨架，新建时直接落盘 —— 文件从出生起就是合法格式。
+        const template = newFileBytes(matchFileType(extension));
+        if (template) {
+          await writeWorkspaceFileBytes(path, template);
+        } else {
+          await writeWorkspaceFile(path, "");
+        }
         setDraft(null);
         setError(null);
         await load(draft.dir);
@@ -572,9 +820,9 @@ export function WorkspaceTree({
           name,
           path,
           isDir: false,
-          size: 0,
+          size: template?.length ?? 0,
           modifiedAt: new Date().toISOString(),
-          extension: extensionOf(name),
+          extension,
           preview: null,
         });
         return;
@@ -1345,6 +1593,71 @@ export function WorkspaceTree({
               </button>
             ) : null}
           </div>
+
+          <button
+            type="button"
+            onClick={() => void handleManualRefresh()}
+            onContextMenu={(event) => {
+              // 右键切换「自动检测」，不再单独占一颗按钮。
+              event.preventDefault();
+              setAutoRefresh((current) => !current);
+            }}
+            disabled={refreshing}
+            aria-pressed={autoRefresh}
+            title={
+              autoRefresh
+                ? t("main.workspace.refreshHintOn", {
+                    defaultValue:
+                      "刷新已打开的文件夹（自动检测已开启 · 每 5 秒；右键关闭）",
+                  })
+                : t("main.workspace.refreshHintOff", {
+                    defaultValue: "刷新已打开的文件夹（右键开启自动检测）",
+                  })
+            }
+            className={`workspace-refresh-button relative shrink-0 w-7 h-8 flex items-center justify-center rounded-lg border transition-all cursor-pointer disabled:opacity-50 disabled:cursor-default ${
+              autoRefresh
+                ? "is-active text-bamboo bg-bamboo-mist/50 border-bamboo/25"
+                : "text-ink-ghost bg-paper-warm/80 border-paper-deep/40 hover:text-bamboo"
+            }`}
+          >
+            {/*
+             * 自动检测开着时**图标本身**换成脉冲（这就是「模式」的提示）；再右键一次换回
+             * 刷新箭头。图标换了不影响左键 —— 左键永远是「立刻刷一次」。
+             */}
+            {autoRefresh ? (
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+              </svg>
+            ) : (
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className={refreshing ? "animate-spin" : ""}
+              >
+                <polyline points="23 4 23 10 17 10" />
+                <polyline points="1 20 1 14 7 14" />
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+              </svg>
+            )}
+            {autoRefresh ? (
+              <span className="workspace-refresh-live-dot absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-bamboo" />
+            ) : null}
+          </button>
 
           <button
             type="button"

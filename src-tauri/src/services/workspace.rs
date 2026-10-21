@@ -331,9 +331,17 @@ pub fn read_binary_file(roots: &[PathBuf], raw: &str) -> Result<Vec<u8>, AppErro
 
 /// 写回一个文本文件；目标不存在时创建。
 pub fn write_text_file(roots: &[PathBuf], raw: &str, content: &str) -> Result<(), AppError> {
+    write_bytes_file(roots, raw, content.as_bytes())
+}
+
+/// 把任意字节写进工作区里的一个文件。
+///
+/// 「新建文件」的模板（空白 DOCX 这类）不是 UTF-8 文本，不能走 `write_text_file`。
+/// 路径校验与文本写入完全同一条：`resolve_target` 只认已授权目录内的目标。
+pub fn write_bytes_file(roots: &[PathBuf], raw: &str, bytes: &[u8]) -> Result<(), AppError> {
     let path = resolve_target(roots, raw)?;
 
-    std::fs::write(&path, content).map_err(|error| AppError {
+    std::fs::write(&path, bytes).map_err(|error| AppError {
         code: "workspaceWriteFailed".into(),
         message: format!("写入失败：{error}"),
         details: BTreeMap::new(),
@@ -1240,6 +1248,40 @@ mod tests {
         assert_eq!(read_text_file(&roots, &target.to_string_lossy()).unwrap(), "改过了");
 
         fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn writes_binary_template_bytes_verbatim() {
+        let root = temp_dir("template");
+        let roots = roots_of(&[&root]);
+        let target = root.join("新建.docx");
+        // 与空白 DOCX 同类：PK 开头、含 0 字节、整体不是 UTF-8 文本。
+        let payload: Vec<u8> = vec![0x50, 0x4B, 0x03, 0x04, 0x00, 0xFF, 0xFE];
+
+        write_bytes_file(&roots, &target.to_string_lossy(), &payload).unwrap();
+
+        assert_eq!(fs::read(&target).unwrap(), payload);
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn refuses_binary_writes_outside_the_roots() {
+        let root = temp_dir("template-root");
+        let outsider = temp_dir("template-outside");
+        let roots = roots_of(&[&root]);
+
+        let error = write_bytes_file(
+            &roots,
+            &outsider.join("逃出去.docx").to_string_lossy(),
+            &[0x50, 0x4B],
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "workspacePathOutside");
+
+        fs::remove_dir_all(&root).ok();
+        fs::remove_dir_all(&outsider).ok();
     }
 
     #[test]

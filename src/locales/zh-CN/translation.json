@@ -238,7 +238,12 @@
       "moveHere": "移动到这里",
       "noSubfolders": "没有子文件夹",
       "truncated": "条目过多，仅显示前一部分",
-      "deleteFolder": "删除文件夹"
+      "deleteFolder": "删除文件夹",
+      "refreshed": "已刷新，{{count}} 个文件夹有变化",
+      "refreshedNoChange": "已刷新，没有变化",
+      "refreshPartial": "部分文件夹刷新失败（可能已被移动或删除）",
+      "refreshHintOff": "刷新已打开的文件夹（右键开启自动检测）",
+      "refreshHintOn": "刷新已打开的文件夹（自动检测已开启 · 每 5 秒；右键关闭）"
     }
   },
   "noteMenu": {

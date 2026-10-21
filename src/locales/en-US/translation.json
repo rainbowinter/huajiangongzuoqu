@@ -236,7 +236,12 @@
       "moveHere": "Move here",
       "noSubfolders": "No subfolders",
       "truncated": "Too many entries; only the first part is shown",
-      "deleteFolder": "Delete folder"
+      "deleteFolder": "Delete folder",
+      "refreshed": "Refreshed; {{count}} folder(s) changed",
+      "refreshedNoChange": "Refreshed; no changes",
+      "refreshPartial": "Some folders could not be refreshed (they may have been moved or deleted)",
+      "refreshHintOff": "Refresh opened folders (right-click to enable auto-detect)",
+      "refreshHintOn": "Refresh opened folders (auto-detect on, every 5 s; right-click to turn off)"
     }
   },
   "noteMenu": {

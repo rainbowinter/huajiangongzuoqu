@@ -21,6 +21,13 @@ function normalizeDisplayMode(value: unknown): TreeDisplayMode | null {
 
 const EXPANDED_KEY = "floral.workspace.expanded";
 const DISPLAY_MODE_KEY = "floral.workspace.displayMode";
+/**
+ * **按工作区**的「自动检测文件变化」开关。
+ *
+ * 默认关：轮询每个已经打开过的目录，工作区一大就是持续的后台 IO。用户明确要求
+ * 「每个工作区单独设置，默认不启动」。
+ */
+const AUTO_REFRESH_KEY = "floral.workspace.autoRefresh";
 
 function readRecord(key: string): Record<string, unknown> {
   if (typeof localStorage === "undefined") return {};
@@ -76,6 +83,22 @@ export function writeDisplayMode(root: string, mode: TreeDisplayMode): void {
     record[root] = mode;
   }
   writeRecord(DISPLAY_MODE_KEY, record);
+}
+
+/** 这个工作区是否开启了「自动检测文件变化」；没记过就是 `false`。 */
+export function readAutoRefresh(root: string): boolean {
+  return readRecord(AUTO_REFRESH_KEY)[root] === true;
+}
+
+export function writeAutoRefresh(root: string, enabled: boolean): void {
+  const record = readRecord(AUTO_REFRESH_KEY);
+  if (enabled) {
+    record[root] = true;
+  } else {
+    // 默认值不必留记录：文件里只剩「开着的」那些工作区。
+    delete record[root];
+  }
+  writeRecord(AUTO_REFRESH_KEY, record);
 }
 
 /**

@@ -1,0 +1,18 @@
+[
+ {
+  "op": "placeCell",
+  "table": 0,
+  "row": 1,
+  "cell": 0,
+  "paragraph": 0,
+  "offset": 1
+ },
+ {
+  "op": "key",
+  "key": "Enter"
+ },
+ {
+  "op": "type",
+  "text": "新"
+ }
+]

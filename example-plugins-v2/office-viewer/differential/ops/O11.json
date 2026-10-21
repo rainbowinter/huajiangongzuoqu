@@ -1,0 +1,15 @@
+[
+  {
+    "op": "place",
+    "block": 0,
+    "offset": 2
+  },
+  {
+    "op": "key",
+    "key": "Shift+Enter"
+  },
+  {
+    "op": "type",
+    "text": "后"
+  }
+]

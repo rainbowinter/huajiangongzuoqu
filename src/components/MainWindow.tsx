@@ -2094,6 +2094,14 @@ export function MainWindow({
     setActivePanelId((current) => (current === panelId ? null : panelId));
   }, []);
 
+  // 插件会按当前文件类型注册 / 注销 standalone 面板（例如 Word 阅读器的「开始」）。
+  // 面板消失后右侧栏可能还停在那个 id 上，这里顺手收掉，免得留下一块空侧栏。
+  useEffect(() => {
+    if (!activeStandalonePanelId) return;
+    if (standalonePanels.some((panel) => panel.id === activeStandalonePanelId)) return;
+    setActivePanelId(null);
+  }, [activeStandalonePanelId, standalonePanels]);
+
   const filteredNotes = useMemo(() => filterNotes(notes, searchQuery), [notes, searchQuery]);
 
   const categoryGroups = useMemo(
@@ -6573,6 +6581,7 @@ export function MainWindow({
                               : panel.render(),
                           }}
                           onClick={(event) => panel.onClick?.(event.target as HTMLElement)}
+                          onChange={(event) => panel.onChange?.(event.target as HTMLElement)}
                         />
                       </div>
                     ) : null;

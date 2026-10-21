@@ -1,0 +1,7 @@
+[
+  { "op": "place", "block": 0, "offset": 2 },
+  { "op": "type", "text": "测试" },
+  { "op": "key", "key": "Enter" },
+  { "op": "type", "text": "续行" },
+  { "op": "key", "key": "Backspace" }
+]

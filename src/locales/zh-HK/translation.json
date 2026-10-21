@@ -236,7 +236,12 @@
       "moveHere": "移動到這裡",
       "noSubfolders": "沒有子資料夾",
       "truncated": "項目過多，僅顯示前一部分",
-      "deleteFolder": "刪除資料夾"
+      "deleteFolder": "刪除資料夾",
+      "refreshed": "已重新整理，{{count}} 個資料夾有變化",
+      "refreshedNoChange": "已重新整理，沒有變化",
+      "refreshPartial": "部分資料夾重新整理失敗（可能已被移動或刪除）",
+      "refreshHintOff": "重新整理已開啟的資料夾（右鍵開啟自動偵測）",
+      "refreshHintOn": "重新整理已開啟的資料夾（自動偵測已開啟 · 每 5 秒，右鍵關閉）"
     }
   },
   "noteMenu": {

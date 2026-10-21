@@ -1,0 +1,19 @@
+[
+  {
+    "op": "place",
+    "block": 0,
+    "offset": 4
+  },
+  {
+    "op": "type",
+    "text": "戊"
+  },
+  {
+    "op": "key",
+    "key": "Ctrl+Z"
+  },
+  {
+    "op": "key",
+    "key": "Ctrl+Y"
+  }
+]

@@ -81,3 +81,7 @@ plugin-market/*.sig
 ## pdf.js（阅读器）+ pdf-lib（批注导出）
 example-plugins-v2/pdf-viewer/vendor/
 example-plugins-v2/pdf-annotations/vendor/
+
+## Python 生成的缓存（office-viewer 的 differential 工具会留下）
+__pycache__/
+*.pyc

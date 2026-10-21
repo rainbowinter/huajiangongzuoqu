@@ -1,0 +1,14 @@
+[
+ {
+  "op": "placeCell",
+  "table": 0,
+  "row": 1,
+  "cell": 0,
+  "paragraph": 0,
+  "offset": 0
+ },
+ {
+  "op": "type",
+  "text": "新"
+ }
+]

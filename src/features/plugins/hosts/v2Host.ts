@@ -34,6 +34,7 @@ import {
   writeWorkspaceCache,
 } from "../../workspace/api";
 import { getActiveContentAccessor } from "../activeContent";
+import { postActiveViewCommand } from "../activeView";
 import {
   listPluginAssets,
   listPluginFontAssets,
@@ -554,6 +555,14 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
             log("error", `面板点击处理失败：${serializeError(error).message}`),
           );
         },
+        onChange: (target) => {
+          if (!contribution.onChangeToken) return;
+          void invokeHandler(contribution.onChangeToken, [
+            markElementRef(describeElement(target)),
+          ]).catch((error: unknown) =>
+            log("error", `面板 change 处理失败：${serializeError(error).message}`),
+          );
+        },
       });
 
       const id = registrations.add(
@@ -848,6 +857,7 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
           ...(contribution.language ? { language: contribution.language } : {}),
           ...(contribution.font ? { font: contribution.font } : {}),
           ...(contribution.highlightTheme ? { highlightTheme: contribution.highlightTheme } : {}),
+          ...(contribution.newFile ? { newFile: contribution.newFile } : {}),
           ...(view ? { view } : {}),
         },
         renderToken
@@ -940,6 +950,16 @@ export async function createV2PluginHost(options: V2HostOptions): Promise<V2Plug
     openPanel(panelId: string) {
       emitToPlugin("ui.openPanel.request", { panelId });
       showToast(`插件请求打开面板：${panelId}`, "info");
+    },
+
+    /**
+     * 插件面板 → 当前沙箱视图。
+     *
+     * 复用 `activeView` 那个「当前视图」信箱；带上 `owner`，只允许发往**自己**的视图。
+     * 返回 `false` 表示当前没有这个插件的活视图（命令被丢弃，不报错）。
+     */
+    uiSendToView(id: string, value?: string) {
+      return postActiveViewCommand(id, value, owner);
     },
 
     // ---- editor：全部落到当前窗口的活动编辑器桥

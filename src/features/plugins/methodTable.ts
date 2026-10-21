@@ -35,6 +35,8 @@ export interface PanelContribution {
   standalone?: boolean;
   renderToken: string;
   onClickToken?: string;
+  /** `change` 事件（下拉框、复选框）也送回插件。 */
+  onChangeToken?: string;
 }
 
 export interface StatusBarContribution {
@@ -249,6 +251,13 @@ export interface FileTypeContribution {
    * 值得单独可撤销。沙箱边界见 `Docs/plugin-view-sandbox.md`。
    */
   view?: FileViewSpec;
+  /**
+   * 「新建这种文件」时先写进去的原始字节（base64）。
+   *
+   * 零字节的 `.docx` 不是合法 ZIP，Word 打不开；插件可以在这里给一份最小模板，
+   * 宿主新建文件时直接落盘。上限 1.5MB（base64 字符数），只该放骨架，别塞整篇文档。
+   */
+  newFile?: string;
 }
 
 /**
@@ -407,6 +416,8 @@ export interface PluginHostBridge {
   /** 把资源并进**另一个插件注册的视图**。 */
   registerViewExtension(contribution: ViewExtensionContribution): string;
   openPanel(panelId: string): void;
+  /** 把一条命令发给**当前这个插件的**沙箱视图；没有活视图时返回 false。 */
+  uiSendToView(id: string, value?: string): boolean;
 
   /** 读插件自己目录下的文本资源（样式表、附加脚本、图标 SVG…）。 */
   readPluginAsset(relativePath: string): Promise<string>;
@@ -508,6 +519,28 @@ function asOptionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+/**
+ * 校验「新建文件模板」。
+ *
+ * 它会被宿主直接写盘，所以**必须是严格的 base64**：带换行、带空白、长度不是 4 的
+ * 倍数都拒绝。上限只该装骨架（空白 DOCX 约 1.8KB），1.5MB 已经宽到不像模板。
+ */
+const MAX_NEW_FILE_BASE64 = 1_500_000;
+
+function parseNewFileTemplate(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.length === 0) {
+    throw invalidArgument("files.registerType", "newFile 必须是非空 base64 字符串");
+  }
+  if (value.length > MAX_NEW_FILE_BASE64) {
+    throw invalidArgument("files.registerType", "newFile 模板太大（上限 1.5MB）");
+  }
+  if (value.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(value)) {
+    throw invalidArgument("files.registerType", "newFile 不是合法的 base64");
+  }
+  return value;
+}
+
 function asNumber(value: unknown, method: string, field: string): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throw invalidArgument(method, `${field} 必须是有限数字`);
@@ -589,11 +622,13 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
       const title = asString(record.title, "ui.registerPanel", "title");
       const renderToken = requireToken(record, "render", "ui.registerPanel");
       const onClickToken = asOptionalString(record.onClick);
+      const onChangeToken = asOptionalString(record.onChange);
       return ctx.bridge.registerPanel({
         id,
         title,
         renderToken,
         ...(onClickToken ? { onClickToken } : {}),
+        ...(onChangeToken ? { onChangeToken } : {}),
         ...(typeof record.width === "number" ? { width: record.width } : {}),
         ...(typeof record.standalone === "boolean" ? { standalone: record.standalone } : {}),
       });
@@ -740,6 +775,21 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
       return undefined;
     },
   },
+  /**
+   * 面板 → 当前沙箱视图的一条命令。
+   *
+   * 权限用 `files:view`：能交出视图代码的插件，才有资格跟自己那个视图说话。
+   * 宿主按 `owner` 过滤，发不到别人的视图里。
+   */
+  "ui.sendToView": {
+    permission: "files:view",
+    handler: (ctx, args) => {
+      const record = asRecord(args[0], "ui.sendToView");
+      const id = asString(record.id, "ui.sendToView", "id");
+      const value = asOptionalString(record.value);
+      return ctx.bridge.uiSendToView(id, value);
+    },
+  },
   "ui.registerStyle": {
     permission: "ui:style",
     handler: (ctx, args) => {
@@ -761,6 +811,7 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
       }
       const renderToken = asOptionalString(record.render);
       const view = parseViewSpec(record.view);
+      const newFile = parseNewFileTemplate(record.newFile);
 
       return ctx.bridge.registerFileType({
         id: asString(record.id, "files.registerType", "id"),
@@ -778,6 +829,7 @@ export const METHOD_TABLE: Record<string, MethodEntry> = {
           : {}),
         ...(renderToken ? { renderToken } : {}),
         ...(view ? { view } : {}),
+        ...(newFile ? { newFile } : {}),
       });
     },
   },

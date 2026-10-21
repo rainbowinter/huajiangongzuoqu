@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head><meta charset="utf-8" /><title>font metrics</title></head>
+  <body>
+    <pre id="error"></pre>
+    <pre id="result"></pre>
+    <script>
+      // 用和 src/layout/measure.js 完全相同的 API / 字体栈量字体度量。
+      const encode = (text) => {
+        const bytes = new TextEncoder().encode(text);
+        let binary = "";
+        for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]);
+        return btoa(binary);
+      };
+      (async () => {
+        try {
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext("2d");
+          if ("fontKerning" in ctx) ctx.fontKerning = "none";
+          const quote = (name) => `"${name.replace(/"/g, "")}"`;
+          const sizes = [9, 10.5, 12, 14, 16, 18, 24];
+          const fonts = [
+            { label: "SimSun", css: '"SimSun", "宋体", "Microsoft YaHei", serif' },
+            { label: "Microsoft YaHei", css: '"Microsoft YaHei", "微软雅黑", "SimSun", serif' },
+            { label: "SimHei", css: '"SimHei", "黑体", "SimSun", serif' },
+            { label: "FangSong", css: '"FangSong", "仿宋", "SimSun", serif' },
+            { label: "KaiTi", css: '"KaiTi", "楷体", "SimSun", serif' },
+            { label: "Arial", css: '"Arial", "Helvetica", sans-serif' },
+            { label: "Times New Roman", css: '"Times New Roman", serif' },
+          ];
+          const rows = [];
+          for (const font of fonts) {
+            for (const size of sizes) {
+              for (const weight of ["400", "700"]) {
+                ctx.font = `${weight} ${size}px ${font.css}`;
+                const m = ctx.measureText("国Ag");
+                const unit = ctx.measureText("国");
+                rows.push({
+                  font: font.label,
+                  size,
+                  weight,
+                  pixelWidth: font.size * 0, // placeholder
+                  fontAscent: m.fontBoundingBoxAscent,
+                  fontDescent: m.fontBoundingBoxDescent,
+                  emAscent: m.emHeightAscent ?? null,
+                  emDescent: m.emHeightDescent ?? null,
+                  actualAscent: m.actualBoundingBoxAscent,
+                  actualDescent: m.actualBoundingBoxDescent,
+                  widthCJK: unit.width,
+                  widthLatinAg: m.width,
+                  lineHeight: m.fontBoundingBoxAscent + m.fontBoundingBoxDescent,
+                  ratio: (m.fontBoundingBoxAscent + m.fontBoundingBoxDescent) / size,
+                });
+              }
+            }
+          }
+          document.getElementById("result").textContent = encode(JSON.stringify(rows));
+          document.title = "OK";
+        } catch (error) {
+          document.getElementById("error").textContent = "HARNESS-ERROR\n" + (error?.stack || error);
+          document.title = "ERROR";
+        }
+      })();
+    </script>
+  </body>
+</html>

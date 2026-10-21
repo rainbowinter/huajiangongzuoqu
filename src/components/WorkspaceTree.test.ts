@@ -2,11 +2,26 @@ import { describe, expect, test } from "vitest";
 import {
   collapseSelectedPaths,
   dirOf,
+  entriesSignature,
   extensionOf,
   folderName,
   shortenPath,
   validateDraftName,
 } from "./WorkspaceTree";
+import type { WorkspaceEntry } from "../features/workspace/api";
+
+function entry(overrides: Partial<WorkspaceEntry> = {}): WorkspaceEntry {
+  return {
+    name: "a.md",
+    path: "E:\\w\\a.md",
+    isDir: false,
+    size: 10,
+    modifiedAt: "2026-10-21T00:00:00Z",
+    extension: "md",
+    preview: null,
+    ...overrides,
+  };
+}
 
 /**
  * 侧栏标题行的两个纯函数。
@@ -105,6 +120,27 @@ describe("collapseSelectedPaths", () => {
     );
 
     expect(result).toEqual(["E:\\workspace\\src", "E:\\workspace\\src2\\file.ts"]);
+  });
+});
+
+describe("entriesSignature", () => {
+  test("同样的内容给出同样的指纹", () => {
+    expect(entriesSignature([entry(), entry({ name: "b", path: "E:\\w\\b.md" })])).toBe(
+      entriesSignature([entry(), entry({ name: "b", path: "E:\\w\\b.md" })]),
+    );
+  });
+
+  test("新增 / 改名 / 改大小 / 改时间都会让指纹变化", () => {
+    const base = entriesSignature([entry()]);
+    expect(entriesSignature([entry(), entry({ path: "E:\\w\\new.md" })])).not.toBe(base);
+    expect(entriesSignature([entry({ path: "E:\\w\\renamed.md" })])).not.toBe(base);
+    expect(entriesSignature([entry({ size: 11 })])).not.toBe(base);
+    expect(entriesSignature([entry({ modifiedAt: "2026-10-21T00:01:00Z" })])).not.toBe(base);
+    expect(entriesSignature([entry({ isDir: true })])).not.toBe(base);
+  });
+
+  test("空目录的指纹是空串", () => {
+    expect(entriesSignature([])).toBe("");
   });
 });
 

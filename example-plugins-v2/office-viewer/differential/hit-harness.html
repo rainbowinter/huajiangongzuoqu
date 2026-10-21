@@ -1,0 +1,13 @@
+<!doctype html><meta charset="utf-8"><pre id="out"></pre><pre id="err"></pre>
+<script type="module">
+import { runHit } from "./out/hit-engine.js";
+const q = new URLSearchParams(location.search);
+const bytes = new Uint8Array(await (await fetch(`fixtures/${q.get("f")}.docx`)).arrayBuffer());
+try {
+  const result = await runHit(bytes, Number(q.get("p")||0), Number(q.get("x")), Number(q.get("y")));
+  const encoded = new TextEncoder().encode(JSON.stringify(result));
+  let binary = "";
+  for (const b of encoded) binary += String.fromCharCode(b);
+  document.getElementById("out").textContent = btoa(binary);
+} catch (e) { document.getElementById("err").textContent = e.stack || String(e); }
+</script>

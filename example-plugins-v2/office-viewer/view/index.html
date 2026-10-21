@@ -1,0 +1,29 @@
+<div class="app">
+  <div class="viewport" id="viewport" tabindex="0">
+    <!-- 页面由排版引擎生成；这里不预置占位纸，免得空文档时多出一张白纸。 -->
+    <div class="pages" id="pages"></div>
+  </div>
+
+  <div class="hint" id="hint" hidden>
+    <span class="hint-text" id="hint-text"></span>
+  </div>
+
+  <footer class="statusbar" id="statusbar">
+    <span class="status-left" id="status-left">等待文件…</span>
+    <span class="status-right" id="status-right"></span>
+  </footer>
+
+  <!--
+    输入 / 输入法 / 剪贴板的落点。它不可见，但要一直跟着光标走：
+    WebView2 的输入法候选框是以焦点元素的 caret 为锚点的，停在 (0,0) 会跑到左上角。
+    永远不要 display:none 或 visibility:hidden —— 那样焦点和输入法都会失效。
+  -->
+  <textarea
+    id="ime-input"
+    class="ime-input"
+    aria-label="文档编辑"
+    autocomplete="off"
+    autocapitalize="off"
+    spellcheck="false"
+  ></textarea>
+</div>

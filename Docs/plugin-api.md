@@ -117,6 +117,7 @@ v2 插件**默认没有任何权限**。清单里没声明的权限一律不生�
 | `ui:open-panel`                        | `ui.openPanel`                                                      |
 | `ui:style`                             | 往当前窗口注入 CSS（`ui.registerStyle`）                            |
 | `files:register`                       | 声明工作文件夹里可识别的文件类型（`files.registerType`）            |
+| `files:view`                           | 为文件类型提供沙箱视图，并向**自己的**视图发命令（`ui.sendToView`） |
 | `events`                               | `events.on`                                                         |
 | `storage`                              | `storage.*`                                                         |
 | `settings`                             | `settings.get()`                                                    |
@@ -303,6 +304,16 @@ api.ui.dispose(registrationId);     // 上面的方法都返回注册 id，可�
 `example-plugins-v2/math-symbols/` 就是按这个约定写的（HTML 算一次后缓存成常量）。
 
 面板内容按文件缓存，**每个面板最多留 16 份**，超出淘汰最久没用过的那个。
+
+**`standalone` 面板的页签是全局列出的**，不会按文件类型过滤。只希望在某种文件里出现时，
+用 `api.editor.getFileSync()` 判断当前文件身份：需要时 `registerPanel`，切走时
+`api.ui.dispose(id)` —— `office-viewer` 的「开始」面板就是这么做的（它只在 `.docx`
+打开时出现，和「目录」在同一级）。
+
+**下拉框与复选框用 `onChange(ref)`**：它收到的 `ref` 与 `onClick` 是同一种描述符，
+`ref.attrs.value` 就是选中的值（`select` 与 `input` 都在白名单里）。宿主只对 `change`
+事件调用它，不会把同一次操作再当成 `click` 送一遍。想用原生 `<select>` 做字体 / 字号
+选择时就走这个口子；`office-viewer` 的字体面板是现成例子。
 
 **关于 `registerStyle`**：注入的样式**不做消毒**，这与面板 HTML 的处理不同 —— 面板走
 `dangerouslySetInnerHTML`，一句 `onerror` 就能在主世界执行代码，所以必须清洗；而 CSS
@@ -562,6 +573,44 @@ api.ui.registerRowAction({
 和 `ui.registerCommand` 的分工只有一个词：**入口在哪**。命令面板要先知道有它存在才找
 得到；行内动作就摆在插件名字旁边。
 
+#### `api.ui.sendToView()` —— 面板给当前视图发命令
+
+```js
+api.ui.registerPanel({
+  id: "home",
+  title: "开始",
+  standalone: true,
+  render() {
+    return '<button class="fmt" data-value="font:SimSun">宋体</button>';
+  },
+  onClick(ref) {
+    const button = ref.closestClass("fmt");
+    if (!button) return;
+    void api.ui.sendToView({
+      id: "format",
+      value: JSON.stringify({ font: button.attrs["data-value"].slice(5) }),
+    });
+  },
+});
+```
+
+需要 `files:view` 权限。**只能发给这个插件自己注册的视图**；当前打开的是别人的视图、
+或者根本没有活视图时返回 `false`（命令被丢弃，不报错）。
+
+视图那边收到的是与 `view.toolbar` **完全同一条** `command` 消息：
+
+```js
+floralView.onCommand(({ id, value }) => {
+  if (id === "format") applyFormat(JSON.parse(value));
+});
+```
+
+为什么需要它：面板跑在 **Worker**，视图跑在 **sandbox iframe**，两边隔着宿主；
+`standalone` 面板又渲染在主窗口的右侧栏里，拿不到视图的 `post`。宿主在中间传话，
+并按插件名过滤，防止一个插件把命令发进另一个插件的视图。
+
+典型用法就是 Word 阅读器：面板与「目录」同级，格式按钮把设置发给自己的 docx 视图。
+
 ### `api.workspace.openFolder()` —— 把数据目录下的文件夹加进工作区
 
 ```js
@@ -602,6 +651,27 @@ await api.files.registerType({
   },
 });
 ```
+
+**新建文件模板**：有些格式的「空文件」不是零字节。`newFile` 传一份 **base64 编码的
+原始字节**，宿主在「新建文件」时把它直接写盘：
+
+```js
+await api.files.registerType({
+  id: "docx",
+  extensions: ["docx"],
+  // …
+  kind: "view",
+  // 空白 DOCX 是 ZIP，不能是 0 字节；这里是那份最小骨架。
+  newFile: "UEsDBBQAAAAI…",
+});
+```
+
+不填则仍写一个 0 字节文件（Markdown / 纯文本正是这样）。模板上限 1.5MB（base64
+字符数），只该放骨架，不要塞整篇文档；带空白、长度不是 4 的倍数都会被拒绝。模板只在
+**新建**时使用，打开已有文件时宿主不会拿它覆盖任何内容。
+
+> DOCX 的完整示例见 `example-plugins-v2/office-viewer/index.js` 的 `BLANK_DOCX_BASE64`
+> 与 `test/blank-docx.test.js`。
 
 **字体**：`font` 不填时的默认是 —— `code` / `text` / `table` 用等宽字体（`--font-mono`），
 `markdown` 用正文字体。想给某个格式单独换字体就填它，例如把 `.txt` 这类以阅读为主的内容
@@ -713,7 +783,7 @@ await api.files.registerType({
 | `requestDocument()` | 要文件内容（`document`，`message.bytes` 是 `ArrayBuffer`） |
 | `requestDocumentCopy()` | **扩展插件**另要一份字节副本（`documentCopy`）—— 见下面那条 ⚠️ |
 | `saveFile(name, bytes)` | 把一份字节存到**用户选的位置**（弹原生保存对话框） |
-| `onCommand(handler)` | 收工具栏发来的命令（`{ id, value }`） |
+| `onCommand(handler)` | 收**工具栏或插件面板**发来的命令（`{ id, value }`，见 `ui.sendToView`） |
 | `setState(values, pressed)` | 报工具栏状态（基础插件用；扩展插件用下面那个） |
 | `toast(message)` / `log(level, message)` | 提示 / 写宿主控制台（`error` 会被转发出来） |
 | `extension("<插件名>")` | 扩展插件的私有数据通道：`{ write, onData, setState }` |

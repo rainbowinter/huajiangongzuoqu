@@ -1,0 +1,13 @@
+# 夹具与基准都是生成物，不进版本库。
+fixtures/*.docx
+ref/*.pdf
+out/*
+_probe/
+
+# 外部参考实现：体积大、许可证各异，只在本机存在。
+reference/
+
+# 但保留目录说明
+!fixtures/.gitkeep
+!ref/.gitkeep
+!out/.gitkeep

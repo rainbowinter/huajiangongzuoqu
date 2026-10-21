@@ -1,0 +1,337 @@
+/**
+ * 视图样式。
+ *
+ * 配色**不写死**：宿主在 init（以及每次主题变化）里把应用调色板 `--color-*` 的解析值
+ * 递进来，`main.js` 把它们接到这几个变量上。视图是独立文档，拿不到宿主的 CSS 变量。
+ *
+ * ⚠️ 文档纸是**固定浅色**的，不跟深色主题变深：DOCX 里的文字颜色通常是黑 / 深灰，
+ * 纸一深就看不见了。深色主题只换工作区底色与面板，纸保持 Word 的白纸观感。
+ */
+
+:root {
+  --bg: #f5f1e8;
+  --panel: #fffdf8;
+  --ink: #1a1a18;
+  --ink-soft: #3d3d38;
+  --ink-ghost: #8a8880;
+  --line: #eae4d8;
+  --accent: #3a7a52;
+  --shadow: rgba(26, 26, 24, 0.12);
+
+  /* 纸张与纸上的字：不跟主题变。 */
+  --page-paper: #fffdf8;
+  --page-ink: #1a1a18;
+  --page-ink-soft: #3d3d38;
+  --page-ink-ghost: #9a978e;
+
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: #2c2a27;
+  --panel: #34312d;
+  --ink: #e5e1da;
+  --ink-soft: #b5b1a8;
+  --ink-ghost: #8a8880;
+  --line: #3c3935;
+  --accent: #7fb08a;
+  --shadow: rgba(0, 0, 0, 0.5);
+
+  --page-paper: #f7f4ed;
+  --page-ink: #1a1a18;
+  --page-ink-soft: #3d3d38;
+  --page-ink-ghost: #9a978e;
+
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+  font: 13px/1.5 "HarmonyOS Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+.app {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ---------------------------------------------------------------- 页面区 */
+
+.viewport {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 24px 28px;
+  box-sizing: border-box;
+  /* 滚动条长度靠它稳定：字体、缩放进进出出时页面宽度会变，不留 gutter 会一跳一跳。 */
+  scrollbar-gutter: stable;
+  outline: none;
+}
+
+.pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  /* 缩放用 CSS zoom：它会影响布局尺寸，滚动条长度跟着变。
+     transform: scale() 不影响布局，得自己补外层高度，反而更容易出错。 */
+  zoom: var(--zoom, 1);
+}
+
+.pages.single {
+  gap: 0;
+}
+
+.pages.single .page {
+  display: none;
+}
+
+.pages.single .page[data-current="true"] {
+  display: block;
+}
+
+.page {
+  position: relative;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--page-paper);
+  box-shadow: 0 6px 20px var(--shadow);
+  border-radius: 2px;
+}
+
+.page-content {
+  position: absolute;
+  overflow: hidden;
+  color: var(--page-ink);
+}
+
+/* 表格：行 / 单元格都用绝对定位，尺寸按布局引擎算好的 px。 */
+.table-row,
+.table-cell,
+.cell-content {
+  position: absolute;
+  box-sizing: border-box;
+}
+
+.table-row {
+  left: 0;
+  top: 0;
+}
+
+.table-cell {
+  overflow: visible;
+}
+
+.cell-content {
+  overflow: visible;
+}
+
+.line {
+  position: absolute;
+  white-space: pre;
+  overflow: visible;
+  /* 测量时关掉了 kerning，渲染也必须关，否则行尾会一点点溢出。 */
+  font-kerning: none;
+  font-variant-ligatures: none;
+}
+
+/* 段落标记：零宽，不参与排版。 */
+.fmt-mark {
+  display: inline-block;
+  width: 0;
+  overflow: visible;
+  color: var(--page-ink-ghost);
+  font-family: "HarmonyOS Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 0.8em;
+  line-height: 1;
+  user-select: none;
+  pointer-events: none;
+}
+
+.space-atom {
+  position: relative;
+}
+
+.space-atom > .fmt-mark {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+.tab-atom {
+  position: relative;
+}
+
+.tab-atom > .fmt-mark {
+  position: absolute;
+  left: 0;
+  top: -0.1em;
+}
+
+.para-number {
+  position: absolute;
+  color: var(--page-ink-ghost);
+  font-family: "HarmonyOS Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 10px;
+  text-align: right;
+  user-select: none;
+  pointer-events: none;
+}
+
+.image-placeholder {
+  display: inline-block;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px dashed var(--page-ink-ghost);
+  color: var(--page-ink-ghost);
+  font-family: "HarmonyOS Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 10px;
+  text-align: center;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+
+/* ---------------------------------------------------------------- 提示 */
+
+.hint {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  max-width: min(520px, calc(100% - 48px));
+  padding: 16px 20px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 10px 30px var(--shadow);
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.7;
+  text-align: center;
+  z-index: 30;
+}
+
+.hint[hidden] {
+  display: none;
+}
+
+.hint.loading {
+  color: var(--ink-soft);
+}
+
+.hint.error {
+  border-color: rgba(192, 57, 43, 0.35);
+  color: #a33a2f;
+}
+
+/* ---------------------------------------------------------------- 状态条 */
+
+.statusbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 26px;
+  padding: 0 14px;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink-ghost);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.status-left,
+.status-right {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------------------------------------------------------------- 编辑层 */
+
+/* 编辑时不要浏览器自带的选择高亮 —— 光标与选区由我们自己画。 */
+.page,
+.page-content {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.page-content {
+  cursor: text;
+}
+
+/* 不可编辑的合成内容（表格拍平行）保持普通鼠标。 */
+.page-content .line.is-readonly {
+  cursor: default;
+}
+
+.edit-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.edit-selection {
+  position: absolute;
+  background: rgba(64, 120, 200, 0.26);
+  border-radius: 1px;
+}
+
+.edit-caret {
+  position: absolute;
+  width: 1.5px;
+  background: var(--page-ink, #1a1a18);
+  animation: edit-caret-blink 1.06s steps(1, end) infinite;
+}
+
+@keyframes edit-caret-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.edit-composition {
+  position: absolute;
+  display: inline-block;
+  white-space: pre;
+  border-bottom: 1.5px solid currentColor;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+/* 隐藏的输入法落点：1×1、透明，但不能 display:none。 */
+.ime-input {
+  position: fixed;
+  left: -1000px;
+  top: -1000px;
+  z-index: -1;
+  width: 1px;
+  min-width: 1px;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  opacity: 0;
+  color: transparent;
+  background: transparent;
+  caret-color: transparent;
+  pointer-events: none;
+}

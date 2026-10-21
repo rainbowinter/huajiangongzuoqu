@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>office-viewer edit harness</title>
+    <style>
+      html, body { margin: 0; background: #f4f5f7; }
+      #result { display: none; }
+      #error { color: #b00; font: 13px/1.5 monospace; padding: 12px; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <pre id="error"></pre>
+    <pre id="result"></pre>
+    <script type="module">
+      // 由 replay_edit.py 通过 http://127.0.0.1:<port>/edit-harness.html?id=E08 打开。
+      // 结果以 base64(JSON) 放进 #result，避免 --dump-dom 的 HTML 转义污染。
+      import { replayEdit } from "./out/edit-engine.js";
+
+      const encode = (text) => {
+        const bytes = new TextEncoder().encode(text);
+        let binary = "";
+        for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]);
+        return btoa(binary);
+      };
+
+      const showError = (error) => {
+        document.getElementById("error").textContent =
+          `HARNESS-ERROR\n${error?.stack || error?.message || String(error)}`;
+      };
+
+      window.addEventListener("error", (event) => showError(event.error ?? event.message));
+      window.addEventListener("unhandledrejection", (event) => showError(event.reason));
+
+      (async () => {
+        try {
+          const params = new URLSearchParams(location.search);
+          const id = params.get("id");
+          if (!id) throw new Error("missing ?id=E08");
+          const manifest = await (await fetch("cases/manifest.json", { cache: "no-store" })).json();
+          const testCase = manifest.find((item) => item.id === id);
+          if (!testCase) throw new Error(`case ${id} not found`);
+          if (!testCase.ops) throw new Error(`${id} has no ops`);
+
+          const result = await replayEdit(`fixtures/${id}.docx`, testCase.ops);
+          result.id = id;
+          document.getElementById("result").textContent = encode(JSON.stringify(result));
+          document.title = `OK ${id}`;
+        } catch (error) {
+          showError(error);
+          document.title = "ERROR";
+        }
+      })();
+    </script>
+  </body>
+</html>

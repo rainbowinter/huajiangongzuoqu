@@ -4,6 +4,7 @@ import type { FileType } from "../features/workspace/fileTypes";
 import {
   loadViewDocument,
   mergeToolbarStates,
+  ownerOfFileType,
   viewDataPlugins,
   viewToolbarFor,
   viewToolbarIcons,
@@ -128,6 +129,8 @@ export function PluginFileView({ path, type }: PluginFileViewProps) {
   const toolbarItems = viewToolbarFor(type);
   const toolbarIcons = useToolbarIcons(type);
   const extensionOwners = viewDataPlugins(type);
+  // 插件面板要往**自己这个**视图发命令时，宿主靠它把跨插件的命令挡掉。
+  const viewOwner = ownerOfFileType(type.id) ?? "";
 
   /**
    * 把「往视图里发命令」这个口子交给宿主顶上那一行。
@@ -137,11 +140,14 @@ export function PluginFileView({ path, type }: PluginFileViewProps) {
    * 点按钮静默无反应。
    */
   useEffect(() => {
-    setActiveViewCommandSink((commandId, value) => {
-      apiRef.current?.post({ t: "command", id: commandId, value });
+    setActiveViewCommandSink({
+      owner: viewOwner,
+      post: (commandId, value) => {
+        apiRef.current?.post({ t: "command", id: commandId, value });
+      },
     });
     return () => setActiveViewCommandSink(null);
-  }, []);
+  }, [viewOwner]);
 
   useEffect(() => {
     let cancelled = false;

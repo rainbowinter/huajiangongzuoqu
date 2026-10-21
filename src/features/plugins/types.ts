@@ -134,6 +134,7 @@ export interface PluginPanelDef {
   sandboxed?: boolean;
   render: () => string;
   onClick?: (target: HTMLElement) => void;
+  onChange?: (target: HTMLElement) => void;
 }
 
 /**

@@ -101,6 +101,16 @@ export interface FileType {
    * 路径都相对插件目录。
    */
   view?: FileViewSpec;
+  /**
+   * 「在花笺里新建这种文件」时先写进去的内容，**base64 编码的原始字节**。
+   *
+   * 有些格式的「空文件」并不是零字节：DOCX 是 ZIP 包，0 字节的文件在任何 Word
+   * 里都打不开。宿主在新建时把这份模板写盘，文件从出生起就是合法格式。
+   *
+   * 不填则仍旧写一个 0 字节文件（纯文本 / Markdown 正是这样）。模板来自插件、
+   * 是不可信输入：注册那一层会校验 base64 与体积上限。
+   */
+  newFile?: string;
 }
 
 export interface FileViewSpec {
@@ -472,6 +482,29 @@ export function subscribeFileTypes(listener: () => void): () => void {
 export function matchFileType(extension: string | null | undefined): FileType | null {
   if (!extension) return null;
   return extensionIndex.get(extension.toLowerCase()) ?? null;
+}
+
+/**
+ * 取出「新建文件」模板的原始字节；没有模板或模板坏掉时返回 `null`。
+ *
+ * 用 `atob` 而不是 Node 的 `Buffer`：这段代码跑在 WebView 里，测试也在同一套
+ * 全局环境下（Vitest 的 Node 24 自带 `atob`），两边行为一致。
+ */
+export function newFileBytes(type: FileType | null | undefined): Uint8Array | null {
+  if (!type?.newFile) return null;
+  try {
+    const binary = atob(type.newFile);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return bytes;
+  } catch {
+    // 注册那一层已经校验过 base64；走到这里说明注册表被别处塞了坏数据。
+    // 退回 0 字节文件比让「新建」整个失败好 —— 用户至少还能打开它。
+    console.warn(`[files] 文件类型 ${type.id} 的新建模板不是合法 base64，已忽略`);
+    return null;
+  }
 }
 
 /** 供测试与重载使用：恢复成只有内置规则的状态。 */

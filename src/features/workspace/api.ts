@@ -53,6 +53,20 @@ export function writeWorkspaceFile(path: string, content: string): Promise<void>
   return invoke("workspace_write_file", { path, content });
 }
 
+/**
+ * 把**原始字节**写进工作区的一个文件（「新建文件」带模板时用）。
+ *
+ * 与 `saveExternalFileBytes` 一样走 Tauri 的 raw body：模板里可以有任何字节，
+ * 不该为了过 JSON 变成数字数组。路径放请求头，前端先 percent-encode（中文目录）。
+ *
+ * 这条命令仍由 Rust 侧校验「路径在工作区内」，不是「想写哪儿写哪儿」。
+ */
+export function writeWorkspaceFileBytes(path: string, bytes: Uint8Array): Promise<void> {
+  return invoke("workspace_write_file_bytes", bytes, {
+    headers: { "x-floral-path": encodeURIComponent(path) },
+  });
+}
+
 /** 删除一个**文件**。目录会被后端拒绝。 */
 export function deleteWorkspaceFile(path: string): Promise<void> {
   return invoke("workspace_delete_file", { path });

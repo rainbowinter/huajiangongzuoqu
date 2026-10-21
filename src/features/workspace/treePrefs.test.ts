@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   expandAncestors,
   filterExpandedPaths,
+  readAutoRefresh,
   readDisplayMode,
   readExpanded,
+  writeAutoRefresh,
   writeDisplayMode,
   writeExpanded,
 } from "./treePrefs";
@@ -56,6 +58,24 @@ describe("treePrefs", () => {
     expect(readDisplayMode("E:\\a")).toBe("list");
     localStorage.setItem("floral.workspace.displayMode", JSON.stringify({ "E:\\b": "details" }));
     expect(readDisplayMode("E:\\b")).toBe("cards");
+  });
+
+  test("自动检测默认关闭，按工作区分别记住", () => {
+    expect(readAutoRefresh("E:\\a")).toBe(false);
+    writeAutoRefresh("E:\\a", true);
+    expect(readAutoRefresh("E:\\a")).toBe(true);
+    expect(readAutoRefresh("E:\\b")).toBe(false);
+
+    writeAutoRefresh("E:\\a", false);
+    expect(readAutoRefresh("E:\\a")).toBe(false);
+  });
+
+  test("关闭时不留下记录", () => {
+    writeAutoRefresh("E:\\a", true);
+    expect(store.has("floral.workspace.autoRefresh")).toBe(true);
+    writeAutoRefresh("E:\\a", false);
+    const record = JSON.parse(store.get("floral.workspace.autoRefresh") ?? "{}");
+    expect(record).toEqual({});
   });
 
   test("过滤掉别的根与根本身", () => {

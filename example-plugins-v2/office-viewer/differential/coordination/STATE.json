@@ -1,0 +1,19 @@
+{
+  "round": 9,
+  "phase": "tables",
+  "owner": "verify",
+  "busy": false,
+  "waiting_for": "verify",
+  "status": "ready_for_test",
+  "last_run": {
+    "at": "2026-10-20T17:36:57+08:00",
+    "render": "31/31",
+    "edit": "10/10",
+    "ops": "28/28",
+    "tableEdit": "6/6",
+    "overall": "pass"
+  },
+  "next": "dev 实例（PID 45936）里在工作区新建 .docx，确认落盘约 1.8KB、可被 Word/WPS 直接打开、花笺视图正常；再验旧 0 字节 docx 仍能打开。重点回归 newFile 模板与新建流程。",
+  "updated_at": "2026-10-21T12:07:59+08:00",
+  "updated_by": "impl"
+}

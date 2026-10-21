@@ -1,0 +1,825 @@
+[
+  {
+    "id": "C01",
+    "kind": "render",
+    "cat": "char",
+    "title": "宋体 10.5pt 基准",
+    "why": "一切测量的基准：单倍行距、默认页边距下的行高与字宽。",
+    "milestone": "M2",
+    "file": "fixtures/C01.docx",
+    "checks": [
+      "linebreak",
+      "lineheight",
+      "x",
+      "page"
+    ],
+    "line_rules": [
+      "auto"
+    ],
+    "bytes": 36789
+  },
+  {
+    "id": "C02",
+    "kind": "render",
+    "cat": "char",
+    "title": "字号阶梯",
+    "why": "字号 -> 字宽 / 行高是否线性；半磅值是否被正确四舍五入。",
+    "milestone": "M2",
+    "file": "fixtures/C02.docx",
+    "checks": [
+      "lineheight",
+      "linebreak"
+    ],
+    "line_rules": [
+      "auto"
+    ],
+    "bytes": 36823
+  },
+  {
+    "id": "C03",
+    "kind": "render",
+    "cat": "char",
+    "title": "中文字体差异",
+    "why": "宋体/雅黑/黑体/仿宋/楷体在同样字号下的字宽不同，行尾位置必须一致。",
+    "milestone": "M2 / 字体",
+    "file": "fixtures/C03.docx",
+    "checks": [
+      "linebreak",
+      "x"
+    ],
+    "line_rules": [
+      "auto"
+    ],
+    "bytes": 36899
+  },
+  {
+    "id": "C04",
+    "kind": "render",
+    "cat": "char",
+    "title": "粗体 / 斜体 / 下划线 / 颜色",
+    "why": "粗体会改变字宽（尤其西文），中文通常不变；斜体会影响西文占位。",
+    "milestone": "M2 / M4",
+    "file": "fixtures/C04.docx",
+    "checks": [
+      "linebreak",
+      "x",
+      "pdf_style"
+    ],
+    "line_rules": [
+      "auto"
+    ],
+    "bytes": 36859
+  },
+  {
+    "id": "C05",
+    "kind": "render",
+    "cat": "char",
+    "title": "上下标",
+    "why": "上下标按 65% 缩排并改变基线，行高是否被撑大。",
+    "milestone": "M2",
+    "file": "fixtures/C05.docx",
+    "checks": [
+      "lineheight"
+    ],
+    "line_rules": [
+      "auto"
+    ],
+    "bytes": 36732
+  },
+  {
+    "id": "C06",
+    "kind": "render",
+    "cat": "char",
+    "title": "字符间距",
+    "why": "w:spacing 加宽 0.5pt / 1pt 时每行能放下的字数与总宽。",
+    "milestone": "M2",
+    "file": "fixtures/C06.docx",
+    "checks": [
+      "linebreak",
+      "x"
+    ],
+    "line_rules": [
+      "auto"
+    ],
+    "bytes": 36791
+  },
+  {
+    "id": "B01",
+    "kind": "render",
+    "cat": "break",
+    "title": "超长中文段落",
+    "why": "固定栏宽下每行 N 字，跨 6 行以上，能稳定测出断行位置。",
+    "milestone": "M2",
+    "file": "fixtures/B01.docx",
+    "checks": [
+      "linebreak",
+      "lineheight",
+      "page"
+    ],
+    "line_rules": [
+      "auto"
+    ],
+    "bytes": 36869
+  },
+  {
+    "id": "B02",
+    "kind": "render",
+    "cat": "break",
+    "title": "行首禁则 —— 逗号/句号",
+    "why": "逗号、句号落在行首时，Word 会把前一个字一起推到下一行。",
+    "milestone": "M2",
+    "file": "fixtures/B02.docx",
+    "checks": [
+      "linebreak",
+      "kinsoku"
+    ],
+    "line_rules": [
+      "auto"
+    ],
+    "bytes": 36778
+  },
+  {
+    "id": "B03",
+    "kind": "render",
+    "cat": "break",
+    "title": "行尾禁则 —— 左括号/引号",
+    "why": "（「 不能留在行尾，必须和后面的字一起换行。",
+    "milestone": "M2",
+    "file": "fixtures/B03.docx",
+    "checks": [
+      "linebreak",
+      "kinsoku"
+    ],
+    "line_rules": [
+      "auto"
+    ],
+    "bytes": 36777
+  },
+  {
+    "id": "B04",
+    "kind": "render",
+    "cat": "break",
+    "title": "中英混排 + 数字单位",
+    "why": "Word 不在汉字与英文之间断词，但会在汉字与英文词边界断行；2026年/9月 不可拆。",
+    "milestone": "M2",
+    "file": "fixtures/B04.docx",
+    "checks": [
+      "linebreak"
+    ],
+    "line_rules": [
+      "auto"
+    ],
+    "bytes": 36805
+  },
+  {
+    "id": "B05",
+    "kind": "render",
+    "cat": "break",
+    "title": "超长西文词拆字",
+    "why": "列宽放不下一个单词时，Word 会按字符硬拆；拆点与剩余宽度要对。",
+    "milestone": "M2",
+    "file": "fixtures/B05.docx",
+    "checks": [
+      "linebreak"
+    ],
+    "line_rules": [
+      "auto"
+    ],
+    "bytes": 36718
+  },
+  {
+    "id": "B06",
+    "kind": "render",
+    "cat": "break",
+    "title": "Tab 与段内软换行",
+    "why": "w:tab 的跳位（默认 420 twip）、w:br 的段内换行；软换行后的对齐要按段内最后一行处理。",
+    "milestone": "M2",
+    "file": "fixtures/B06.docx",
+    "checks": [
+      "linebreak",
+      "x"
+    ],
+    "line_rules": [],
+    "bytes": 36793
+  },
+  {
+    "id": "B07",
+    "kind": "render",
+    "cat": "break",
+    "title": "首行缩进 2 字符",
+    "why": "firstLineChars=200 时首行缩进 = 2 × 字号；后续行不缩进。",
+    "milestone": "M2",
+    "file": "fixtures/B07.docx",
+    "checks": [
+      "indent",
+      "linebreak"
+    ],
+    "line_rules": [
+      "auto"
+    ],
+    "bytes": 36884
+  },
+  {
+    "id": "B08",
+    "kind": "render",
+    "cat": "break",
+    "title": "左右缩进 + 悬挂缩进",
+    "why": "leftChars/rightChars 同时存在时，栏宽变窄，断行位置随之改变。",
+    "milestone": "M2",
+    "file": "fixtures/B08.docx",
+    "checks": [
+      "indent",
+      "linebreak"
+    ],
+    "line_rules": [
+      "auto"
+    ],
+    "bytes": 36881
+  },
+  {
+    "id": "S01",
+    "kind": "render",
+    "cat": "spacing",
+    "title": "单倍 / 1.5 倍 / 双倍行距",
+    "why": "行距倍数直接决定每页行数；中文单倍行高不等于字号。",
+    "milestone": "M2",
+    "file": "fixtures/S01.docx",
+    "checks": [
+      "lineheight",
+      "page"
+    ],
+    "line_rules": [
+      "auto"
+    ],
+    "bytes": 36802
+  },
+  {
+    "id": "S02",
+    "kind": "render",
+    "cat": "spacing",
+    "title": "固定值 / 最小值行距",
+    "why": "exact 会裁字，atLeast 取 max(单倍行高, 值)；两者基线位置不同。",
+    "milestone": "M2",
+    "file": "fixtures/S02.docx",
+    "checks": [
+      "lineheight"
+    ],
+    "line_rules": [
+      "atLeast",
+      "exact"
+    ],
+    "bytes": 36801
+  },
+  {
+    "id": "S03",
+    "kind": "render",
+    "cat": "spacing",
+    "title": "段前 / 段后间距",
+    "why": "段间距是否被折叠、是否影响分页；beforeLines/afterLines 与 pt 混用。",
+    "milestone": "M2",
+    "file": "fixtures/S03.docx",
+    "checks": [
+      "lineheight",
+      "y",
+      "page"
+    ],
+    "line_rules": [
+      "auto"
+    ],
+    "bytes": 36794
+  },
+  {
+    "id": "A01",
+    "kind": "render",
+    "cat": "align",
+    "title": "左 / 居中 / 右 / 两端 / 分散",
+    "why": "两端对齐的最后一行不对齐；分散对齐每行都铺满；居中/右对齐的起点 x。",
+    "milestone": "M2",
+    "file": "fixtures/A01.docx",
+    "checks": [
+      "x",
+      "justify",
+      "linebreak"
+    ],
+    "line_rules": [
+      "auto"
+    ],
+    "bytes": 36910
+  },
+  {
+    "id": "A02",
+    "kind": "render",
+    "cat": "align",
+    "title": "两端对齐的段内软换行",
+    "why": "软换行把段落切成多段，每个小段的最后一行都不应拉伸。",
+    "milestone": "M2",
+    "file": "fixtures/A02.docx",
+    "checks": [
+      "justify",
+      "x"
+    ],
+    "line_rules": [],
+    "bytes": 36881
+  },
+  {
+    "id": "P01",
+    "kind": "render",
+    "cat": "page",
+    "title": "多页自然分页",
+    "why": "40 段固定行高文字，页边界落在第几段第几行。",
+    "milestone": "M3",
+    "file": "fixtures/P01.docx",
+    "checks": [
+      "page",
+      "pagination"
+    ],
+    "line_rules": [
+      "auto"
+    ],
+    "bytes": 36986
+  },
+  {
+    "id": "P02",
+    "kind": "render",
+    "cat": "page",
+    "title": "孤行控制",
+    "why": "段首/段尾只剩一行时整段挪页；widowControl=0 时允许孤行。",
+    "milestone": "M3",
+    "file": "fixtures/P02.docx",
+    "checks": [
+      "page",
+      "pagination"
+    ],
+    "line_rules": [
+      "exact"
+    ],
+    "bytes": 36985
+  },
+  {
+    "id": "P03",
+    "kind": "render",
+    "cat": "page",
+    "title": "keepLines 整段不拆页",
+    "why": "整段放不下时整体挪到下一页，而不是从中间断开。",
+    "milestone": "M3",
+    "file": "fixtures/P03.docx",
+    "checks": [
+      "page",
+      "pagination"
+    ],
+    "line_rules": [
+      "exact"
+    ],
+    "bytes": 36982
+  },
+  {
+    "id": "P04",
+    "kind": "render",
+    "cat": "page",
+    "title": "keepNext 标题与正文同页",
+    "why": "标题不能单独留在页底；标题+下一段首行要一起挪页。",
+    "milestone": "M3",
+    "file": "fixtures/P04.docx",
+    "checks": [
+      "page",
+      "pagination"
+    ],
+    "line_rules": [
+      "exact"
+    ],
+    "bytes": 37014
+  },
+  {
+    "id": "P05",
+    "kind": "render",
+    "cat": "page",
+    "title": "段前分页 pageBreakBefore",
+    "why": "强制另起一页，页数与上一段无关。",
+    "milestone": "M3",
+    "file": "fixtures/P05.docx",
+    "checks": [
+      "page",
+      "pagination"
+    ],
+    "line_rules": [
+      "auto"
+    ],
+    "bytes": 36905
+  },
+  {
+    "id": "P06",
+    "kind": "render",
+    "cat": "page",
+    "title": "手动分页符",
+    "why": "w:br type=page 之后的内容必须从新页开始，且分页符本身不占行高。",
+    "milestone": "M3",
+    "file": "fixtures/P06.docx",
+    "checks": [
+      "page",
+      "pagination"
+    ],
+    "line_rules": [],
+    "bytes": 36775
+  },
+  {
+    "id": "G01",
+    "kind": "render",
+    "cat": "grid",
+    "title": "文档网格 lines（每页 44 行）",
+    "why": "中文 Word 默认网格：行高吸附到 linePitch，每页行数与 Word 对齐。",
+    "milestone": "M2 / M3",
+    "file": "fixtures/G01.docx",
+    "checks": [
+      "lineheight",
+      "pagination"
+    ],
+    "line_rules": [
+      "auto"
+    ],
+    "bytes": 36929
+  },
+  {
+    "id": "G02",
+    "kind": "render",
+    "cat": "grid",
+    "title": "文档网格关闭 snapToGrid",
+    "why": "snapToGrid=0 的段落不受网格约束，行距按字体自身。",
+    "milestone": "M2",
+    "file": "fixtures/G02.docx",
+    "checks": [
+      "lineheight"
+    ],
+    "line_rules": [
+      "auto"
+    ],
+    "bytes": 36901
+  },
+  {
+    "id": "L01",
+    "kind": "render",
+    "cat": "layout",
+    "title": "窄页边距 + 小页面",
+    "why": "栏宽变化后断行位置全线改变，测的是 computeIndent / contentWidth。",
+    "milestone": "M2",
+    "file": "fixtures/L01.docx",
+    "checks": [
+      "linebreak",
+      "page"
+    ],
+    "line_rules": [
+      "auto"
+    ],
+    "bytes": 36860
+  },
+  {
+    "id": "T01",
+    "cat": "table",
+    "title": "合并单元格 + 行属性（对齐 docen 夹具）",
+    "why": "横跨 2 列、纵跨 2 行、末行跨 3 列，带底纹/边框/居中，对应 parity-fixtures/table-merged-cells。",
+    "milestone": "M7",
+    "kind": "render",
+    "page": {
+      "page": "A4",
+      "margin_pt": [
+        72,
+        90,
+        72,
+        90
+      ]
+    },
+    "file": "fixtures/T01.docx",
+    "checks": [
+      "table",
+      "linebreak",
+      "page"
+    ]
+  },
+  {
+    "id": "T02",
+    "cat": "table",
+    "title": "基础三列列表 + 右对齐数字",
+    "why": "最常见的表格：列宽不等、表头加粗、数字右对齐。",
+    "milestone": "M7",
+    "kind": "render",
+    "page": {
+      "page": "A4",
+      "margin_pt": [
+        72,
+        90,
+        72,
+        90
+      ]
+    },
+    "file": "fixtures/T02.docx",
+    "checks": [
+      "table",
+      "linebreak"
+    ]
+  },
+  {
+    "id": "T03",
+    "kind": "render",
+    "cat": "table",
+    "title": "跨页表格 + 表头重复",
+    "why": "25 行表格跨页时，w:tblHeader 的表头行要在第二页重复；行不能被从中间切断（cantSplit）。",
+    "milestone": "M7",
+    "file": "fixtures/T03.docx",
+    "checks": [
+      "table",
+      "page"
+    ],
+    "line_rules": [],
+    "bytes": 37800
+  },
+  {
+    "id": "T04",
+    "kind": "render",
+    "cat": "table",
+    "title": "嵌套表格",
+    "why": "单元格里再放一张表；外层列宽决定内层可用宽度。",
+    "milestone": "M7",
+    "file": "fixtures/T04.docx",
+    "checks": [
+      "table"
+    ],
+    "line_rules": [],
+    "bytes": 37080
+  },
+  {
+    "id": "E01",
+    "kind": "edit",
+    "cat": "edit",
+    "title": "在段中插入中文（输入法提交）",
+    "milestone": "M5",
+    "file": "fixtures/E01.docx",
+    "ops": [
+      {
+        "op": "place",
+        "block": 0,
+        "offset": 2
+      },
+      {
+        "op": "ime",
+        "text": "测试"
+      }
+    ],
+    "expect": {
+      "text": "甲乙测试丙丁",
+      "paras": 1,
+      "xml": [
+        "w:rPr 保留",
+        "w:t 带 xml:space=preserve"
+      ]
+    },
+    "bytes": 36672
+  },
+  {
+    "id": "E02",
+    "kind": "edit",
+    "cat": "edit",
+    "title": "回车分段保留段落格式",
+    "milestone": "M5",
+    "file": "fixtures/E02.docx",
+    "ops": [
+      {
+        "op": "place",
+        "block": 0,
+        "offset": 2
+      },
+      {
+        "op": "key",
+        "key": "Enter"
+      }
+    ],
+    "expect": {
+      "text": "甲乙\n丙丁",
+      "paras": 2,
+      "ppr": "两段均保留 firstLineChars/line",
+      "sectPr": "新段不得复制 sectPr"
+    },
+    "bytes": 36710
+  },
+  {
+    "id": "E03",
+    "kind": "edit",
+    "cat": "edit",
+    "title": "段首退格合并",
+    "milestone": "M5",
+    "file": "fixtures/E03.docx",
+    "ops": [
+      {
+        "op": "place",
+        "block": 1,
+        "offset": 0
+      },
+      {
+        "op": "key",
+        "key": "Backspace"
+      }
+    ],
+    "expect": {
+      "text": "甲乙丙丁",
+      "paras": 1
+    },
+    "bytes": 36679
+  },
+  {
+    "id": "E04",
+    "kind": "edit",
+    "cat": "edit",
+    "title": "段尾 Delete 合并",
+    "milestone": "M5",
+    "file": "fixtures/E04.docx",
+    "ops": [
+      {
+        "op": "place",
+        "block": 0,
+        "offset": 2
+      },
+      {
+        "op": "key",
+        "key": "Delete"
+      }
+    ],
+    "expect": {
+      "text": "甲乙丙丁",
+      "paras": 1
+    },
+    "bytes": 36679
+  },
+  {
+    "id": "E05",
+    "kind": "edit",
+    "cat": "edit",
+    "title": "Shift+Enter 段内软换行",
+    "milestone": "M5",
+    "file": "fixtures/E05.docx",
+    "ops": [
+      {
+        "op": "place",
+        "block": 0,
+        "offset": 2
+      },
+      {
+        "op": "key",
+        "key": "Shift+Enter"
+      }
+    ],
+    "expect": {
+      "text": "甲乙\n丙丁",
+      "paras": 1,
+      "xml": [
+        "<w:br/> 而不是新 w:p"
+      ]
+    },
+    "bytes": 36672
+  },
+  {
+    "id": "E06",
+    "kind": "edit",
+    "cat": "edit",
+    "title": "跨 run 删除",
+    "milestone": "M5",
+    "file": "fixtures/E06.docx",
+    "ops": [
+      {
+        "op": "place",
+        "block": 0,
+        "offset": 1
+      },
+      {
+        "op": "select",
+        "to": {
+          "block": 0,
+          "offset": 3
+        }
+      },
+      {
+        "op": "key",
+        "key": "Backspace"
+      }
+    ],
+    "expect": {
+      "text": "甲丁",
+      "xml": [
+        "两个 run 的 rPr 不被混合",
+        "空 run 被清理"
+      ]
+    },
+    "bytes": 36687
+  },
+  {
+    "id": "E07",
+    "kind": "edit",
+    "cat": "edit",
+    "title": "撤销 / 重做",
+    "milestone": "M5",
+    "file": "fixtures/E07.docx",
+    "ops": [
+      {
+        "op": "place",
+        "block": 0,
+        "offset": 4
+      },
+      {
+        "op": "ime",
+        "text": "戊"
+      },
+      {
+        "op": "key",
+        "key": "Ctrl+Z"
+      },
+      {
+        "op": "key",
+        "key": "Ctrl+Y"
+      }
+    ],
+    "expect": {
+      "text": "甲乙丙丁戊",
+      "paras": 1
+    },
+    "bytes": 36672
+  },
+  {
+    "id": "E08",
+    "kind": "edit",
+    "cat": "edit",
+    "title": "列表项开头退格：先取消编号",
+    "milestone": "M5",
+    "file": "fixtures/E08.docx",
+    "ops": [
+      {
+        "op": "place",
+        "block": 0,
+        "offset": 0
+      },
+      {
+        "op": "key",
+        "key": "Backspace"
+      }
+    ],
+    "expect": {
+      "text": "第一项\n第二项",
+      "xml": [
+        "第一段丢失 numPr",
+        "第二段编号重排为 1"
+      ]
+    },
+    "bytes": 36698
+  },
+  {
+    "id": "E09",
+    "kind": "edit",
+    "cat": "edit",
+    "title": "空列表项回车：保留编号并续号",
+    "milestone": "M5",
+    "file": "fixtures/E09.docx",
+    "ops": [
+      {
+        "op": "place",
+        "block": 1,
+        "offset": 0
+      },
+      {
+        "op": "key",
+        "key": "Enter"
+      }
+    ],
+    "expect": {
+      "text": "第一项\n\n",
+      "xml": [
+        "空项保留 numPr",
+        "新项 numId 相同"
+      ]
+    },
+    "bytes": 36696
+  },
+  {
+    "id": "E10",
+    "kind": "edit",
+    "cat": "edit",
+    "title": "粘贴多行文本",
+    "milestone": "M5",
+    "file": "fixtures/E10.docx",
+    "ops": [
+      {
+        "op": "place",
+        "block": 0,
+        "offset": 2
+      },
+      {
+        "op": "paste",
+        "text": "丙丁\n戊己"
+      }
+    ],
+    "expect": {
+      "text": "甲乙丙丁\n戊己",
+      "paras": 2,
+      "xml": [
+        "换行转 w:p",
+        "tab 转 w:tab"
+      ]
+    },
+    "bytes": 36665
+  }
+]

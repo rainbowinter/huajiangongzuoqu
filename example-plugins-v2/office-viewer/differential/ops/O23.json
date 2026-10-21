@@ -1,0 +1,15 @@
+[
+  {
+    "op": "place",
+    "block": 1,
+    "offset": 2
+  },
+  {
+    "op": "key",
+    "key": "Enter"
+  },
+  {
+    "op": "type",
+    "text": "新增"
+  }
+]

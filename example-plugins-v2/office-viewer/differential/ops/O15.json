@@ -1,0 +1,11 @@
+[
+  {
+    "op": "place",
+    "block": 1,
+    "offset": 1
+  },
+  {
+    "op": "key",
+    "key": "Backspace"
+  }
+]

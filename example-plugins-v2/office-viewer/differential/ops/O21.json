@@ -1,0 +1,15 @@
+[
+  {
+    "op": "place",
+    "block": 0,
+    "offset": 4
+  },
+  {
+    "op": "key",
+    "key": "Backspace"
+  },
+  {
+    "op": "key",
+    "key": "Ctrl+Z"
+  }
+]
